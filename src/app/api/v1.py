@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from src.admin.handlers.api.v1.router import router as admin_router
 from src.audit_log.handlers.api.v1.router import router as audit_log_router
+from src.auth.handlers.api.v1.router import router as auth_router
 from src.bonus_transaction.handlers.api.v1.router import router as bonus_transaction_router
 from src.brand.handlers.api.v1.router import router as brand_router
 from src.notification.handlers.api.v1.router import router as notification_router
@@ -15,6 +16,7 @@ from src.app.settings import Settings
 settings = Settings()
 
 router = APIRouter(prefix=settings.PATH_PREFIX)
+router.include_router(auth_router)
 router.include_router(brand_router)
 router.include_router(seller_router)
 router.include_router(admin_router)

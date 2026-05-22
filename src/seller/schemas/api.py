@@ -8,6 +8,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.seller.models import PayoutKind, SellerStatus
 
 
+class SellerTgUpsertRequest(BaseModel):
+    """Регистрация / обновление seller по telegram_id (без авторизации)."""
+
+    id: int = Field(..., ge=1, description="Telegram ID (PK)")
+    brand_id: int = Field(..., description="К какому бренду относится seller")
+    phone_e164: str = Field(..., max_length=32, description="Телефон в формате E.164")
+    first_name: Optional[str] = Field(default=None, max_length=255)
+    last_name: Optional[str] = Field(default=None, max_length=255)
+
+
 class SellerCreate(BaseModel):
     telegram_id: int = Field(..., description="Telegram user ID (used as PK)")
     brand_id: int

@@ -1,8 +1,32 @@
-from fastapi import APIRouter, HTTPException, status
+from typing import Annotated
 
-from src.seller.schemas.api import SellerCreate, SellerRead, SellerUpdate
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from src.seller.depends import get_seller_repository
+from src.seller.repository import SellerRepository
+from src.seller.schemas.api import SellerCreate, SellerRead, SellerTgUpsertRequest, SellerUpdate
 
 router = APIRouter(prefix="/sellers", tags=["Seller"])
+
+
+@router.post(
+    "/tg-upsert",
+    response_model=SellerRead,
+    status_code=status.HTTP_200_OK,
+    summary="Создать или обновить seller по telegram_id (без авторизации)",
+)
+async def sellers_tg_upsert(
+    body: SellerTgUpsertRequest,
+    repo: Annotated[SellerRepository, Depends(get_seller_repository)],
+) -> SellerRead:
+    seller = await repo.ensure_seller(
+        telegram_id=body.id,
+        brand_id=body.brand_id,
+        phone_e164=body.phone_e164,
+        first_name=body.first_name,
+        last_name=body.last_name,
+    )
+    return SellerRead.model_validate(seller, from_attributes=True)
 
 
 @router.post("", response_model=SellerRead, status_code=status.HTTP_201_CREATED)

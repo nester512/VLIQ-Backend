@@ -20,3 +20,5 @@ class Settings(BaseSettings):
     env: Env = Env.local
 
     PATH_PREFIX: str = "/api/v1"
+
+    JWT_SECRET_SALT: str = "change-me-in-prod"
