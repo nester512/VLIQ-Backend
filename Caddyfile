@@ -1,13 +1,13 @@
 {
   email {$CADDY_EMAIL:admin@example.com}
-  # Use local CA in dev (no LE rate limits, no real DNS needed)
-  # In prod: remove `local_certs` (or set CADDY_TLS_DIRECTIVE=auto)
+  # Dev default: CADDY_TLS_DIRECTIVE=internal -> self-signed local CA.
+  # Prod: set CADDY_TLS_DIRECTIVE to your email -> `tls <email>`, which makes
+  #       Caddy provision a trusted Let's Encrypt cert automatically.
+  #       Do NOT use `auto` here — it is not a valid tls value.
 }
 
 {$CADDY_HOSTNAME:vliq.local} {
-  tls {
-    {$CADDY_TLS_DIRECTIVE:internal}
-  }
+  tls {$CADDY_TLS_DIRECTIVE:internal}
 
   encode gzip zstd
 
