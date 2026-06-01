@@ -337,6 +337,19 @@ export async function mockSellerApi(
     })
   })
 
+  // GET /cities — registration city dictionary (combobox source of truth)
+  await page.route('**/api/v1/cities*', (route) => {
+    void route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 1, name: 'Воронеж', region: 'Воронежская', is_active: true, sort_order: 10, created_at: '2026-01-01T12:00:00Z', updated_at: null },
+        { id: 2, name: 'Москва', region: 'Москва', is_active: true, sort_order: 20, created_at: '2026-01-01T12:00:00Z', updated_at: null },
+        { id: 3, name: 'Екатеринбург', region: 'Свердловская', is_active: true, sort_order: 30, created_at: '2026-01-01T12:00:00Z', updated_at: null },
+      ]),
+    })
+  })
+
   // GET /notifications
   await page.route('**/api/v1/notifications*', (route) => {
     void route.fulfill({

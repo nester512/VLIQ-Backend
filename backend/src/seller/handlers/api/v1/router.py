@@ -25,12 +25,14 @@ from src.app.errors import AppError
 from src.app.middleware.rate_limit import limiter
 from src.app.settings import Settings
 from src.audit_log.models import AuditLog
+from src.city.repository import city_name_is_valid
 from src.notification import outbox as notification_outbox
 from src.notification.models import Notification
 from src.notification.schemas.api import NotificationRead
 from src.receipt.models import Receipt, ReceiptStatus
 from src.receipt.schemas.api import ReceiptRead
 from src.seller.depends import get_seller_repository
+from src.seller.errors import is_phone_conflict
 from src.seller.models import Seller, SellerStatus
 from src.seller.repository import SellerRepository
 from src.seller.schemas.api import (
@@ -195,6 +197,10 @@ async def update_me(
         session.add(row)
         await session.flush()
 
+    # City must belong to the dictionary (source of truth = vliq.city / GET /cities).
+    if payload.city is not None and not await city_name_is_valid(session, payload.city):
+        raise AppError("SELLER_CITY_INVALID", status_code=400)
+
     update_data = payload.model_dump(exclude_none=True, exclude={"payout_account_raw", "status"})
 
     # H7: encrypt payout account if provided, derive masked version.
@@ -232,8 +238,7 @@ async def update_me(
             # phone_e164 is UNIQUE — a seller registering with a number already
             # used by another account would otherwise surface as a raw 500.
             await session.rollback()
-            err = str(getattr(exc, "orig", exc)).lower()
-            if "phone_e164" in err:
+            if is_phone_conflict(exc):
                 raise AppError("SELLER_PHONE_TAKEN", status_code=409) from exc
             raise AppError("VALIDATION_ERROR", status_code=409) from exc
         await session.refresh(row)
@@ -400,6 +405,10 @@ async def update_seller(
     if row is None:
         raise AppError("SELLER_NOT_FOUND", status_code=404)
 
+    # City must belong to the dictionary (source of truth = vliq.city / GET /cities).
+    if payload.city is not None and not await city_name_is_valid(session, payload.city):
+        raise AppError("SELLER_CITY_INVALID", status_code=400)
+
     update_data = payload.model_dump(exclude_none=True, exclude={"payout_account_raw"})
 
     # H7: Encrypt payout account if provided, generate masked version.
@@ -419,8 +428,7 @@ async def update_seller(
             await session.commit()
         except IntegrityError as exc:
             await session.rollback()
-            err = str(getattr(exc, "orig", exc)).lower()
-            if "phone_e164" in err:
+            if is_phone_conflict(exc):
                 raise AppError("SELLER_PHONE_TAKEN", status_code=409) from exc
             raise AppError("VALIDATION_ERROR", status_code=409) from exc
         await session.refresh(row)

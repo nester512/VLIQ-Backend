@@ -8,6 +8,8 @@ import { updateMe } from '@/api/sellers'
 import type { PayoutMethod } from '@/types/models'
 import { getTgWebApp, isTmaEnvironment } from '@/utils/tma'
 import { extractApiError } from '@/api/client'
+import { CitySelect } from '@/components/molecules/CitySelect'
+import { useCities } from '@/features/seller/hooks/useCities'
 
 type Step = 1 | 2
 
@@ -37,6 +39,27 @@ const INITIAL: FormState = {
 
 // Phone format: E.164 ("+71234567890"). Loosely validated to surface obvious typos.
 const PHONE_RE = /^\+[1-9]\d{7,14}$/
+// Card: 16–19 digits (spaces allowed, stripped before testing). Luhn intentionally
+// not enforced — the backend stores the raw value + masks last-4, and a naive Luhn
+// check rejects some valid cards.
+const CARD_RE = /^\d{16,19}$/
+
+// Validate the payout details against the selected method. Returns an error
+// string or undefined when valid.
+function validatePayoutDetails(method: PayoutMethod | '', raw: string): string | undefined {
+  const v = raw.trim()
+  if (!v) return 'Заполните реквизиты'
+  switch (method) {
+    case 'card':
+      return CARD_RE.test(v.replace(/\s/g, '')) ? undefined : 'Введите номер карты (16–19 цифр)'
+    case 'sbp_phone':
+      return PHONE_RE.test(v) ? undefined : 'Формат телефона: +7XXXXXXXXXX'
+    case 'sbp_bank':
+      return v.length >= 2 ? undefined : 'Укажите название банка / счёт'
+    default:
+      return undefined
+  }
+}
 
 function digitsOnlyToE164(s: string): string {
   const digits = s.replace(/\D/g, '')
@@ -84,18 +107,22 @@ export function RegPage() {
   // don't overwrite a value the seller typed manually.
   const sbpAutoFilled = useRef(false)
   const inTma = isTmaEnvironment()
-  // Ref used to focus the next input (city) after Telegram phone fill for momentum.
-  const cityInputRef = useRef<HTMLInputElement>(null)
+  const { data: cities = [], isLoading: citiesLoading } = useCities()
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => {
       const next = { ...prev, [key]: value }
 
-      // SBP autofill: when payout method switches to sbp_phone and the
-      // payout_details field is empty, pre-fill it with the phone number.
-      if (key === 'payout_method' && (value === 'sbp_phone') && !prev.payout_details.trim() && PHONE_RE.test(prev.phone)) {
-        sbpAutoFilled.current = true
-        next.payout_details = prev.phone
+      // Switching payout method invalidates whatever was typed for the old one
+      // (e.g. a phone left over from СБП is not a valid card number). Clear it,
+      // then re-apply the SBP autofill for the newly selected method.
+      if (key === 'payout_method' && value !== prev.payout_method) {
+        next.payout_details = ''
+        sbpAutoFilled.current = false
+        if (value === 'sbp_phone' && PHONE_RE.test(prev.phone)) {
+          next.payout_details = prev.phone
+          sbpAutoFilled.current = true
+        }
       }
 
       // If the seller edits payout_details directly, clear the auto-fill flag
@@ -114,14 +141,19 @@ export function RegPage() {
     if (!form.last_name.trim())         e.last_name  = 'Заполните фамилию'
     if (!PHONE_RE.test(form.phone))     e.phone      = 'Формат: +7XXXXXXXXXX'
     if (!form.city.trim())              e.city       = 'Укажите город'
+    else if (!cities.some((c) => c.name === form.city)) e.city = 'Выберите город из списка'
     if (step === 2) {
       if (!form.store_name.trim())      e.store_name    = 'Название точки'
-      if (!form.payout_method)          e.payout_method = 'Выберите способ'
-      if (!form.payout_details.trim())  e.payout_details = 'Заполните реквизиты'
+      if (!form.payout_method) {
+        e.payout_method = 'Выберите способ'
+      } else {
+        const pd = validatePayoutDetails(form.payout_method, form.payout_details)
+        if (pd) e.payout_details = pd
+      }
       if (!agreed)                      e.agreed         = 'Нужно согласие'
     }
     return e
-  }, [form, step, agreed])
+  }, [form, step, agreed, cities])
 
   const step1Valid = !errors.first_name && !errors.last_name && !errors.phone && !errors.city
   const step2Valid = step1Valid && !errors.store_name && !errors.payout_method && !errors.payout_details && !errors.agreed
@@ -165,8 +197,6 @@ export function RegPage() {
         const phone = raw.startsWith('+') ? raw : `+${raw}`
         update('phone', phone)
         setTouched((t) => ({ ...t, phone: true }))
-        // Move focus to the next meaningful input (city) for momentum
-        setTimeout(() => cityInputRef.current?.focus(), 0)
       }
     })
   }
@@ -264,16 +294,13 @@ export function RegPage() {
           </div>
 
           <Field label="Город" error={showErr('city')}>
-            <input
-              ref={cityInputRef}
-              id="field-город"
-              type="text"
+            <CitySelect
+              cities={cities}
+              loading={citiesLoading}
               value={form.city}
-              onChange={(e) => update('city', e.target.value)}
+              onChange={(name) => { update('city', name); setTouched((t) => ({ ...t, city: true })) }}
               onBlur={() => setTouched((t) => ({ ...t, city: true }))}
-              placeholder="Москва"
-              className="vliq-field-v"
-              aria-invalid={showErr('city') ? true : undefined}
+              invalid={!!showErr('city')}
             />
           </Field>
 
@@ -299,7 +326,11 @@ export function RegPage() {
                   <button
                     key={m}
                     type="button"
-                    onClick={() => { update('payout_method', m); setTouched((t) => ({ ...t, payout_method: true })) }}
+                    onClick={() => {
+                      const changed = m !== form.payout_method
+                      update('payout_method', m)
+                      setTouched((t) => ({ ...t, payout_method: true, ...(changed ? { payout_details: false } : {}) }))
+                    }}
                     className="vliq-press"
                     style={{
                       flex: 1,

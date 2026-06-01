@@ -14,6 +14,7 @@ from src.admin.models import Admin  # noqa: F401
 from src.audit_log.models import AuditLog  # noqa: F401
 from src.bonus_transaction.models import BonusTransaction  # noqa: F401
 from src.brand.models import Brand  # noqa: F401
+from src.city.models import City  # noqa: F401
 from src.notification.models import Notification  # noqa: F401
 from src.payout_request.models import PayoutRequest  # noqa: F401
 from src.promotion.models import Promotion  # noqa: F401

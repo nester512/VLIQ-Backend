@@ -7,6 +7,7 @@ from src.audit_log.handlers.api.v1.router import router as audit_log_router
 from src.auth.handlers.api.v1.router import router as auth_router
 from src.bonus_transaction.handlers.api.v1.router import router as bonus_transaction_router
 from src.brand.handlers.api.v1.router import router as brand_router
+from src.city.handlers.api.v1.router import router as city_router
 from src.notification.handlers.api.v1.router import router as notification_router
 from src.payout_request.handlers.api.v1.router import router as payout_request_router
 from src.promotion.handlers.api.v1.router import router as promotion_router
@@ -19,6 +20,7 @@ settings = Settings()
 router = APIRouter(prefix=settings.PATH_PREFIX)
 router.include_router(auth_router)
 router.include_router(brand_router)
+router.include_router(city_router)
 router.include_router(seller_router)
 router.include_router(admin_router)
 router.include_router(sku_router)
