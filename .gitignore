@@ -1,0 +1,91 @@
+# ───────────────────────────── Secrets (NEVER COMMIT) ─────────────────────────
+.env
+.env.local
+.env.production
+.env.*.local
+*.pem
+*.key
+secrets/
+**/credentials.json
+
+# ───────────────────────────── Python ─────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+.eggs/
+build/
+dist/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ───────────────────────────── Node / Frontend ────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+frontend/dist/
+frontend/dist-ssr/
+frontend/build/
+.vite/
+.eslintcache
+frontend/openapi.json
+
+# ───────────────────────────── Playwright / Tests ─────────────────────────────
+frontend/playwright-report/
+frontend/test-results/
+frontend/blob-report/
+frontend/playwright/.cache/
+playwright/.auth/
+**/coverage/
+
+# ───────────────────────────── Local data / uploads ───────────────────────────
+var/
+backend/var/
+*.db
+*.sqlite
+*.sqlite3
+
+# ───────────────────────────── Logs ──────────────────────────────────────────
+*.log
+logs/
+backend/logs/
+
+# ───────────────────────────── IDE / Editor ───────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.project
+.classpath
+
+# ───────────────────────────── Docker / Compose ───────────────────────────────
+docker-compose.override.yml
+docker-compose.ngrok.yml
+.docker/
+
+# ───────────────────────────── Backup ─────────────────────────────────────────
+*.bak
+*.orig
+*.rej
+
+# ───────────────────────────── ngrok / tunnels ────────────────────────────────
+ngrok.log
+ngrok.yml

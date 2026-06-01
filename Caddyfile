@@ -1,0 +1,26 @@
+{
+  email {$CADDY_EMAIL:admin@example.com}
+  # Use local CA in dev (no LE rate limits, no real DNS needed)
+  # In prod: remove `local_certs` (or set CADDY_TLS_DIRECTIVE=auto)
+}
+
+{$CADDY_HOSTNAME:vliq.local} {
+  tls {
+    {$CADDY_TLS_DIRECTIVE:internal}
+  }
+
+  encode gzip zstd
+
+  handle /api/* {
+    reverse_proxy backend:8000
+  }
+
+  handle {
+    reverse_proxy frontend:80
+  }
+
+  log {
+    output stdout
+    format json
+  }
+}

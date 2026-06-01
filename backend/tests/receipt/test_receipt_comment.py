@@ -1,0 +1,171 @@
+"""Tests for POST /receipts/{id}/comment (T4)."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.app.auth.jwt import jwt_auth
+from src.receipt.models import Receipt, ReceiptFileKind
+from src.seller.models import Seller
+
+PREFIX = "/api/v1/receipts"
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_receipt(receipt_id: int = 1) -> Receipt:
+    r = MagicMock(spec=Receipt)
+    r.id = receipt_id
+    r.seller_id = 12345
+    r.brand_id = 1
+    r.status = "on_review"
+    r.bonus_amount = 100
+    r.rejection_reason = None
+    r.file_kind = ReceiptFileKind.photo
+    r.file_url = "seed://r1.jpg"
+    r.file_hash = "abc123"
+    r.purchase_date = None
+    r.total_sum = None
+    r.shop_name = None
+    r.shop_inn = None
+    r.qr_raw = None
+    r.fn = None
+    r.fd = None
+    r.fp = None
+    r.ocr_confidence = None
+    r.ocr_raw = None
+    r.items = []
+    r.fraud_signals = []
+    r.admin_comments = []
+    r.is_deleted = False
+    r.created_at = datetime(2025, 1, 1, 12, 0, 0)
+    r.updated_at = None
+    r.created_by = None
+    r.updated_by = None
+    return r
+
+
+def _admin_token() -> str:
+    from src.admin.models import Admin, AdminRole
+
+    admin = MagicMock(spec=Admin)
+    admin.telegram_id = 999
+    admin.role = AdminRole.admin
+    admin.is_active = True
+    return jwt_auth.create_token(admin)
+
+
+def _seller_token() -> str:
+    seller = MagicMock(spec=Seller)
+    seller.telegram_id = 55555
+    return jwt_auth.create_token(seller)
+
+
+def _make_session(receipt: Receipt | None) -> MagicMock:
+    session_mock = MagicMock(spec=AsyncSession)
+
+    lock_result = MagicMock()
+    lock_result.scalar_one_or_none.return_value = receipt
+
+    session_mock.execute = AsyncMock(return_value=lock_result)
+    session_mock.flush = AsyncMock()
+    session_mock.refresh = AsyncMock()
+    session_mock.add = MagicMock()
+    session_mock.commit = AsyncMock()
+
+    begin_ctx = MagicMock()
+    begin_ctx.__aenter__ = AsyncMock(return_value=begin_ctx)
+    begin_ctx.__aexit__ = AsyncMock(return_value=False)
+    session_mock.begin = MagicMock(return_value=begin_ctx)
+
+    return session_mock
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_valid_comment(client: AsyncClient, app) -> None:
+    """Admin can add a comment → 200."""
+    receipt = _make_receipt()
+    session_mock = _make_session(receipt)
+
+    async def _override():
+        yield session_mock
+
+    from src.app.depends import get_pg_session
+
+    app.dependency_overrides[get_pg_session] = _override
+
+    resp = await client.post(
+        f"{PREFIX}/1/comment",
+        json={"text": "Проверить вручную"},
+        headers={"Authorization": f"Bearer {_admin_token()}"},
+    )
+
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_empty_text_400(client: AsyncClient, app) -> None:
+    """Empty comment text → 422 validation error (min_length=1)."""
+    receipt = _make_receipt()
+    session_mock = _make_session(receipt)
+
+    async def _override():
+        yield session_mock
+
+    from src.app.depends import get_pg_session
+
+    app.dependency_overrides[get_pg_session] = _override
+
+    resp = await client.post(
+        f"{PREFIX}/1/comment",
+        json={"text": ""},
+        headers={"Authorization": f"Bearer {_admin_token()}"},
+    )
+
+    # Pydantic min_length=1 causes 422 unprocessable entity.
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_too_long_400(client: AsyncClient, app) -> None:
+    """Comment longer than 2000 chars → 422 validation error."""
+    receipt = _make_receipt()
+    session_mock = _make_session(receipt)
+
+    async def _override():
+        yield session_mock
+
+    from src.app.depends import get_pg_session
+
+    app.dependency_overrides[get_pg_session] = _override
+
+    resp = await client.post(
+        f"{PREFIX}/1/comment",
+        json={"text": "x" * 2001},
+        headers={"Authorization": f"Bearer {_admin_token()}"},
+    )
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_403(client: AsyncClient) -> None:
+    """Seller token → 403 (admin-only endpoint)."""
+    resp = await client.post(
+        f"{PREFIX}/1/comment",
+        json={"text": "Some comment"},
+        headers={"Authorization": f"Bearer {_seller_token()}"},
+    )
+    assert resp.status_code == 403

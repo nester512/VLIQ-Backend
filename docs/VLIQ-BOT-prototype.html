@@ -1,0 +1,984 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>VLIQ BOT — Telegram Mini App</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --brand:#6C4CF0; --brand-2:#9B6BFF; --brand-ink:#fff;
+  --ok:#16B981; --ok-bg:#E5F8F0; --ok-ink:#0B8A5E;
+  --dg:#F0455A; --dg-bg:#FDE8EB; --dg-ink:#C3293B;
+  --wn:#F39A12; --wn-bg:#FEF0DC; --wn-ink:#B8740A;
+  --acc:#2F8FED;
+  --r:20px;
+}
+/* Telegram light theme */
+.theme-light{
+  --bg:#EEF0F4; --bg2:#EEF0F4; --card:#FFFFFF; --card-2:#F6F7FB;
+  --text:#0E1320; --hint:#8A93A4; --sep:#E7E9F0; --field:#F2F3F8;
+  --shadow:0 10px 30px -12px rgba(20,22,40,.16); --shadow-sm:0 2px 10px -4px rgba(20,22,40,.12);
+  --nav:#FFFFFFE6;
+}
+/* Telegram dark theme */
+.theme-dark{
+  --bg:#0E1621; --bg2:#0E1621; --card:#17212B; --card-2:#1C2733;
+  --text:#FFFFFF; --hint:#7E8B99; --sep:#222F3D; --field:#222E3A;
+  --shadow:0 14px 34px -14px rgba(0,0,0,.6); --shadow-sm:0 2px 12px -4px rgba(0,0,0,.5);
+  --nav:#17212BE6;
+  --brand:#7C5CFF; --ok-bg:#0F3329; --ok-ink:#3FDCA0; --dg-bg:#3A1822; --dg-ink:#FF7184; --wn-bg:#3A2C12; --wn-ink:#F4B045;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  font-family:'Onest',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:
+    radial-gradient(900px 600px at 12% -5%, #ECE7FF 0%, transparent 55%),
+    radial-gradient(900px 700px at 100% 110%, #E2EEFF 0%, transparent 55%),
+    #DDE1EA;
+  color:#0E1320;
+  display:flex; align-items:center; justify-content:center;
+  min-height:100vh; padding:34px 16px; gap:34px; flex-wrap:wrap;
+}
+body.bg-dark{
+  background:
+    radial-gradient(900px 600px at 12% -5%, #1a1430 0%, transparent 55%),
+    radial-gradient(900px 700px at 100% 110%, #0e1c2e 0%, transparent 55%),
+    #070b11;
+}
+
+/* ====== shell / device ====== */
+.stage{display:flex;flex-direction:column;align-items:center;gap:18px}
+.toolbar{
+  display:flex;gap:8px;align-items:center;background:#ffffffcc;backdrop-filter:blur(14px);
+  border:1px solid #ffffff;border-radius:18px;padding:8px;box-shadow:0 12px 40px -16px rgba(40,30,90,.3)
+}
+body.bg-dark .toolbar{background:#141a26cc;border-color:#22304080}
+.seg{display:flex;background:var(--field,#eef0f4);border-radius:12px;padding:3px}
+.seg button{
+  border:0;background:transparent;font:600 13px/1 'Onest';color:#8A93A4;
+  padding:9px 16px;border-radius:9px;cursor:pointer;letter-spacing:.2px;transition:.18s
+}
+.seg button.on{background:var(--brand);color:#fff;box-shadow:0 6px 16px -6px var(--brand)}
+body.bg-dark .seg{background:#1c2632}
+.tg-note{font:500 12px/1.4 'Onest';color:#6a7385;max-width:300px;text-align:center}
+body.bg-dark .tg-note{color:#7E8B99}
+
+.device{
+  width:392px;height:840px;border-radius:54px;padding:11px;
+  background:linear-gradient(160deg,#23262F,#0c0d12);
+  box-shadow:0 50px 90px -30px rgba(30,20,70,.55), inset 0 0 0 2px #34384a;
+  position:relative;flex:none
+}
+.screen-wrap{
+  position:relative;width:100%;height:100%;border-radius:44px;overflow:hidden;
+  background:var(--bg);color:var(--text);transition:background .3s
+}
+.notch{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:118px;height:30px;background:#0c0d12;border-radius:0 0 18px 18px;z-index:80}
+
+/* status + tg header */
+.statusbar{height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 26px 0 28px;font-weight:700;font-size:14px;position:relative;z-index:30}
+.sb-r{display:flex;align-items:center;gap:6px}
+.sb-r i{display:block}
+.tg-head{
+  height:50px;display:flex;align-items:center;gap:8px;padding:0 14px;
+  background:var(--card);border-bottom:1px solid var(--sep);position:relative;z-index:30
+}
+.tg-head.brandbar{background:transparent;border:0}
+.hbtn{width:34px;height:34px;display:grid;place-items:center;border-radius:50%;color:var(--text);cursor:pointer}
+.hbtn:active{background:var(--field)}
+.htitle{flex:1;text-align:center;font-weight:700;font-size:17px}
+.hsub{font-weight:500;font-size:12px;color:var(--hint);text-align:center;margin-top:-2px}
+
+/* scroll body */
+.body{position:absolute;inset:96px 0 0 0;overflow:hidden}
+.scroll{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding-bottom:30px;scrollbar-width:none}
+.scroll::-webkit-scrollbar{display:none}
+.screen{position:absolute;inset:0;opacity:0;pointer-events:none;transform:translateX(22px);transition:opacity .26s,transform .26s}
+.screen.active{opacity:1;pointer-events:auto;transform:none}
+
+/* ===== building blocks ===== */
+.pad{padding:16px}
+.h1{font-size:25px;font-weight:800;letter-spacing:-.5px;line-height:1.15}
+.h2{font-size:18px;font-weight:700;letter-spacing:-.2px}
+.muted{color:var(--hint);font-weight:500}
+.sec-t{display:flex;align-items:center;justify-content:space-between;margin:18px 4px 10px}
+.sec-t b{font-size:17px;font-weight:700}
+.sec-t a{color:var(--acc);font-weight:600;font-size:14px;cursor:pointer}
+.card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow-sm)}
+.list{background:var(--card);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow-sm)}
+.row{display:flex;align-items:center;gap:13px;padding:14px 16px;cursor:pointer;position:relative}
+.row+.row::before{content:"";position:absolute;left:55px;right:0;top:0;height:1px;background:var(--sep)}
+.row:active{background:var(--field)}
+.ic{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;flex:none}
+.ic svg{width:21px;height:21px}
+.row .tx{flex:1;min-width:0}
+.row .tx b{display:block;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .tx span{font-size:12.5px;color:var(--hint);font-weight:500}
+.chev{color:var(--hint);flex:none}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:999px;white-space:nowrap}
+.p-ok{background:var(--ok-bg);color:var(--ok-ink)}
+.p-dg{background:var(--dg-bg);color:var(--dg-ink)}
+.p-wn{background:var(--wn-bg);color:var(--wn-ink)}
+.p-mut{background:var(--field);color:var(--hint)}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;cursor:pointer;
+  font:700 16px/1 'Onest';padding:16px;border-radius:15px;color:#fff;background:var(--brand);
+  box-shadow:0 14px 26px -12px var(--brand);transition:transform .12s}
+.btn:active{transform:scale(.985)}
+.btn.ghost{background:var(--field);color:var(--text);box-shadow:none}
+.btn.sm{padding:12px;font-size:14px;border-radius:12px}
+.mainbtn{position:absolute;left:16px;right:16px;bottom:18px;z-index:25}
+.field{background:var(--field);border-radius:14px;padding:11px 14px;margin-bottom:10px}
+.field label{display:block;font-size:11.5px;color:var(--hint);font-weight:600;margin-bottom:3px}
+.field .v{font-size:15.5px;font-weight:600}
+.field .v.ph{color:var(--hint);font-weight:500}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+/* hero balance */
+.hero{margin:16px;border-radius:24px;padding:22px;color:#fff;position:relative;overflow:hidden;
+  background:linear-gradient(135deg,var(--brand),var(--brand-2));box-shadow:0 22px 40px -18px var(--brand)}
+.hero::after{content:"";position:absolute;width:220px;height:220px;border-radius:50%;
+  background:rgba(255,255,255,.13);right:-70px;top:-90px}
+.hero::before{content:"";position:absolute;width:160px;height:160px;border-radius:50%;
+  background:rgba(255,255,255,.10);left:-60px;bottom:-80px}
+.hero .lbl{font-size:13px;opacity:.85;font-weight:600;position:relative}
+.hero .big{font-size:38px;font-weight:800;letter-spacing:-1px;margin:4px 0 16px;position:relative}
+.hero .foot{display:flex;justify-content:space-between;align-items:flex-end;position:relative}
+.hchip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.18);
+  padding:9px 14px;border-radius:12px;font-weight:700;font-size:14px}
+.hero .mini{text-align:right}
+.hero .mini span{font-size:12px;opacity:.8;font-weight:600}
+.hero .mini b{display:block;font-size:17px;font-weight:800}
+
+.qgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 16px}
+.q{background:var(--card);border-radius:18px;padding:16px;cursor:pointer;box-shadow:var(--shadow-sm);transition:transform .12s}
+.q:active{transform:scale(.97)}
+.q .qi{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;margin-bottom:30px}
+.q b{font-size:15px;font-weight:700}
+.q span{display:block;font-size:12px;color:var(--hint);font-weight:500;margin-top:2px}
+
+/* bottom nav */
+.tabbar{position:absolute;left:0;right:0;bottom:0;height:74px;display:flex;
+  background:var(--nav);backdrop-filter:blur(16px);border-top:1px solid var(--sep);z-index:20}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  color:var(--hint);font-size:11px;font-weight:600;cursor:pointer}
+.tab.on{color:var(--brand)}
+.tab svg{width:23px;height:23px}
+
+/* metric cards */
+.m4{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 16px}
+.mc{background:var(--card);border-radius:18px;padding:15px;box-shadow:var(--shadow-sm)}
+.mc .mt{font-size:12px;color:var(--hint);font-weight:600}
+.mc .mv{font-size:23px;font-weight:800;margin-top:6px;letter-spacing:-.5px}
+.mc .md{font-size:11.5px;font-weight:700;margin-top:3px}
+
+/* ====== SWIPE DECK ====== */
+.deckwrap{position:absolute;inset:0;display:flex;flex-direction:column;padding-top:8px}
+.deckhead{padding:14px 18px 6px;display:flex;align-items:center;justify-content:space-between}
+.deckhead .h1{font-size:21px}
+.counter{font-size:13px;font-weight:700;color:var(--hint)}
+.legend{display:flex;gap:7px;padding:4px 16px 8px;flex-wrap:wrap}
+.lg{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:6px 10px;border-radius:10px}
+.deck{position:relative;flex:1;margin:6px 18px 0}
+.swcard{position:absolute;inset:0;border-radius:24px;background:var(--card);
+  box-shadow:var(--shadow);overflow:hidden;will-change:transform;cursor:grab;
+  display:flex;flex-direction:column}
+.swcard:active{cursor:grabbing}
+.swcard .photo{flex:1;position:relative;background:#cfd4dd;overflow:hidden}
+.swcard .photo .recpt{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-2.5deg)}
+.tapzoom{position:absolute;right:12px;bottom:12px;background:rgba(8,10,16,.62);color:#fff;
+  font-size:11.5px;font-weight:700;padding:8px 12px;border-radius:11px;display:flex;align-items:center;gap:6px;backdrop-filter:blur(4px)}
+.tapzoom svg{width:15px;height:15px}
+.swmeta{padding:14px 16px 16px;background:var(--card)}
+.swmeta .nm{display:flex;align-items:center;gap:10px}
+.av{width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,var(--brand),var(--brand-2));
+  color:#fff;display:grid;place-items:center;font-weight:800;font-size:15px;flex:none}
+.swmeta .nm b{font-size:16px;font-weight:700}
+.swmeta .nm span{font-size:12px;color:var(--hint);font-weight:500}
+.swstats{display:flex;gap:8px;margin-top:12px}
+.st{flex:1;background:var(--field);border-radius:13px;padding:9px 11px}
+.st .k{font-size:10.5px;color:var(--hint);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+.st .vv{font-size:16px;font-weight:800;margin-top:3px}
+/* drag overlays */
+.stamp{position:absolute;top:26px;font-size:30px;font-weight:800;letter-spacing:1px;
+  padding:8px 18px;border:4px solid;border-radius:14px;opacity:0;transition:opacity .05s;pointer-events:none;z-index:5}
+.stamp.ok{left:22px;color:var(--ok);border-color:var(--ok);transform:rotate(-16deg)}
+.stamp.dg{right:22px;color:var(--dg);border-color:var(--dg);transform:rotate(16deg)}
+.stamp.up{left:50%;transform:translateX(-50%);top:auto;bottom:120px;color:var(--wn);border-color:var(--wn)}
+.tint{position:absolute;inset:0;opacity:0;pointer-events:none;z-index:4;transition:opacity .05s}
+.deckdone{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:30px}
+.deckdone .dc{width:84px;height:84px;border-radius:50%;background:var(--ok-bg);color:var(--ok-ink);display:grid;place-items:center}
+.deckdone .dc svg{width:40px;height:40px}
+
+.swactions{display:flex;align-items:center;justify-content:center;gap:18px;padding:16px 0 18px}
+.sa{border:0;cursor:pointer;border-radius:50%;display:grid;place-items:center;box-shadow:var(--shadow);transition:transform .12s}
+.sa:active{transform:scale(.9)}
+.sa.big{width:64px;height:64px}
+.sa.mid{width:54px;height:54px}
+.sa svg{width:26px;height:26px}
+.sa-dg{background:var(--card);color:var(--dg)}
+.sa-ok{background:var(--card);color:var(--ok)}
+.sa-up{background:var(--card);color:var(--wn)}
+.sa-info{background:var(--card);color:var(--acc);width:46px;height:46px}
+.sa-info svg{width:21px;height:21px}
+
+/* receipt graphic */
+.recpt{width:230px;background:#fdfdfb;border-radius:5px;padding:16px 17px;
+  box-shadow:0 14px 30px -10px rgba(0,0,0,.4);color:#1a1a1a;font-family:'Onest';
+  -webkit-mask:radial-gradient(5px at 5px 50%,transparent 98%,#000) -5px 0/100% 11px}
+.recpt h4{font-size:13px;font-weight:800;text-align:center;letter-spacing:.5px}
+.recpt .sml{font-size:8.5px;text-align:center;color:#555;margin-top:2px;line-height:1.5}
+.recpt hr{border:0;border-top:1px dashed #bbb;margin:9px 0}
+.rl{display:flex;justify-content:space-between;font-size:9px;margin:3px 0}
+.rl.tot{font-size:12px;font-weight:800;margin-top:5px}
+.qrbox{width:62px;height:62px;margin:8px auto 0;background:
+  conic-gradient(#000 90deg,#fff 0 180deg,#000 0 270deg,#fff 0) ,
+  repeating-linear-gradient(0deg,#000 0 4px,#fff 0 8px);background-blend-mode:difference;border-radius:3px}
+
+/* modal / detail */
+.sheet-bg{position:absolute;inset:0;background:rgba(8,10,18,.5);opacity:0;pointer-events:none;
+  transition:.25s;z-index:60;backdrop-filter:blur(2px)}
+.sheet-bg.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--bg);border-radius:26px 26px 0 0;
+  transform:translateY(102%);transition:transform .32s cubic-bezier(.2,.9,.25,1);z-index:61;
+  max-height:93%;display:flex;flex-direction:column;overflow:hidden}
+.sheet.on{transform:none}
+.grab{width:42px;height:5px;border-radius:3px;background:var(--sep);margin:10px auto 4px;flex:none}
+.sheet .sc{overflow-y:auto;padding:6px 16px 16px;scrollbar-width:none}
+.sheet .sc::-webkit-scrollbar{display:none}
+.bigrecpt{height:330px;border-radius:18px;background:linear-gradient(160deg,#5a6172,#3d4350);
+  display:grid;place-items:center;position:relative;overflow:hidden;margin-bottom:14px}
+.bigrecpt .recpt{transform:scale(1.18) rotate(-2deg)}
+.fzoom{position:absolute;top:12px;right:12px;background:rgba(255,255,255,.16);color:#fff;
+  width:36px;height:36px;border-radius:50%;display:grid;place-items:center;backdrop-filter:blur(4px)}
+.kv{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--sep);font-size:14px}
+.kv:last-child{border:0}
+.kv .k{color:var(--hint);font-weight:500}
+.kv .v{font-weight:700;text-align:right;max-width:60%}
+.warn{display:flex;gap:10px;align-items:flex-start;background:var(--wn-bg);color:var(--wn-ink);
+  padding:12px 14px;border-radius:14px;font-size:13px;font-weight:600;margin:12px 0}
+.warn svg{width:18px;height:18px;flex:none;margin-top:1px}
+.actgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin:14px 0 6px}
+.actbtn{border:0;cursor:pointer;border-radius:14px;padding:13px 6px;font:700 12.5px/1.2 'Onest';
+  display:flex;flex-direction:column;align-items:center;gap:7px;color:#fff}
+.actbtn svg{width:20px;height:20px}
+.a-ok{background:var(--ok)}.a-dg{background:var(--dg)}.a-up{background:var(--wn)}
+.actbtn.line{background:var(--field);color:var(--text)}
+.toast{position:absolute;left:50%;top:64px;transform:translateX(-50%) translateY(-16px);
+  background:#0E1320;color:#fff;font:700 13px/1 'Onest';padding:12px 18px;border-radius:13px;
+  z-index:90;opacity:0;pointer-events:none;transition:.25s;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast svg{width:16px;height:16px}
+body.bg-dark .toast{background:#fff;color:#0E1320}
+
+.timeline{padding:6px 4px}
+.tlrow{display:flex;gap:14px;position:relative;padding-bottom:22px}
+.tlrow:last-child{padding-bottom:0}
+.tldot{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;flex:none;z-index:2}
+.tlrow:not(:last-child)::before{content:"";position:absolute;left:12.5px;top:26px;bottom:0;width:2px;background:var(--sep)}
+.tlrow .tt b{font-size:14.5px;font-weight:700}
+.tlrow .tt span{font-size:12px;color:var(--hint);font-weight:500;display:block;margin-top:1px}
+
+.promo{margin:0 16px 12px;border-radius:20px;overflow:hidden;box-shadow:var(--shadow-sm);position:relative;color:#fff}
+.promo .pinner{padding:18px}
+.promo .ptag{display:inline-block;background:rgba(255,255,255,.22);font-size:11px;font-weight:700;padding:5px 10px;border-radius:8px}
+.promo h3{font-size:19px;font-weight:800;margin:10px 0 6px;letter-spacing:-.3px}
+.promo p{font-size:13px;font-weight:500;opacity:.92;line-height:1.45}
+.promo .pf{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:12px;font-weight:700}
+.upbox{margin:16px;border:2px dashed var(--sep);border-radius:20px;padding:34px 20px;text-align:center;background:var(--card)}
+.upbox .ui{width:64px;height:64px;border-radius:20px;background:var(--brand);color:#fff;display:grid;place-items:center;margin:0 auto 14px;box-shadow:0 16px 30px -14px var(--brand)}
+.optrow{display:flex;gap:10px;padding:0 16px;margin-top:6px}
+.opt{flex:1;background:var(--card);border-radius:16px;padding:14px 8px;text-align:center;box-shadow:var(--shadow-sm);cursor:pointer}
+.opt .oi{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;margin:0 auto 8px}
+.opt b{font-size:12px;font-weight:700}
+</style>
+</head>
+<body class="bg-light">
+
+<div class="stage">
+  <div class="toolbar">
+    <div class="seg" id="modeSeg">
+      <button class="on" data-mode="seller">Продавец</button>
+      <button data-mode="admin">Админ</button>
+    </div>
+    <div class="seg" id="themeSeg">
+      <button class="on" data-theme="light">☀ Светлая</button>
+      <button data-theme="dark">☾ Тёмная</button>
+    </div>
+  </div>
+
+  <div class="device">
+    <div class="notch"></div>
+    <div class="screen-wrap theme-light" id="wrap">
+
+      <div class="statusbar">
+        <span>9:41</span>
+        <span class="sb-r">
+          <i><svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg></i>
+          <i><svg width="17" height="12" viewBox="0 0 17 12" fill="currentColor"><path d="M8.5 11.5 1 4a10.6 10.6 0 0 1 15 0z" opacity=".95"/></svg></i>
+          <i><svg width="26" height="13" viewBox="0 0 26 13" fill="none"><rect x="1" y="1" width="21" height="11" rx="3" stroke="currentColor" stroke-width="1.3" opacity=".5"/><rect x="3" y="3" width="15" height="7" rx="1.5" fill="currentColor"/><rect x="23" y="4" width="2" height="5" rx="1" fill="currentColor" opacity=".5"/></svg></i>
+        </span>
+      </div>
+
+      <div id="header"></div>
+
+      <div class="body">
+        <div class="scroll" id="scroll">
+          <div id="screens"></div>
+        </div>
+      </div>
+
+      <div id="tabbar"></div>
+
+      <!-- detail sheet -->
+      <div class="sheet-bg" id="sheetBg"></div>
+      <div class="sheet" id="sheet">
+        <div class="grab"></div>
+        <div class="sc" id="sheetSc"></div>
+      </div>
+
+      <div class="toast" id="toast"></div>
+    </div>
+  </div>
+
+  <p class="tg-note">Прототип Telegram Mini App. Тема (светлая/тёмная) приходит из <b>initData</b> Telegram — переключатель выше имитирует это. На экране проверки чеков карточку можно <b>перетаскивать жестом</b>: вправо — одобрить, влево — отклонить, вверх — на доработку, тап — детали и фото чека.</p>
+</div>
+
+<script>
+const I = {
+  chev:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
+  back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  dots:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
+  receipt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v18l2-1.5L9 21l2-1.5L13 21l2-1.5L17 21l2-1.5V3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+  wallet:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="3"/><path d="M3 10h13a2 2 0 0 1 2 2v0"/><circle cx="16.5" cy="13" r="1.3" fill="currentColor"/></svg>',
+  clock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>',
+  gift:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="18" height="12" rx="2"/><path d="M3 13h18M12 9v12"/><path d="M12 9C12 9 9.5 3 7 5s2 4 5 4 7.5-1 5-4-5 4-5 4"/></svg>',
+  cashout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="3"/><path d="M12 16V9m0 0-3 3m3-3 3 3"/></svg>',
+  bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>',
+  user:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M5 21a7 7 0 0 1 14 0"/></svg>',
+  users:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M3 21a6 6 0 0 1 12 0"/><path d="M16 5.6a3.5 3.5 0 0 1 0 6.8M21 21a6 6 0 0 0-5-5.9"/></svg>',
+  chart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16h16"/><path d="M7 14l3.5-4 3 2.5L20 6"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17.5 19.5 7"/></svg>',
+  x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  arrUp:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  camera:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h2l1.5-2h7L19 6h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="13" cy="13" r="3.6"/></svg>',
+  file:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/></svg>',
+  qr:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v6M14 20h3"/></svg>',
+  shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 5-3 7.5-7 9-4-1.5-7-4-7-9V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></svg>',
+  alert:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20z"/><path d="M12 9v5M12 17.5v.5"/></svg>',
+  edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9a2 2 0 0 0-3-3L5 17z"/><path d="M14 7l3 3"/></svg>',
+  block:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></svg>',
+  cmt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.5 7.2L4 21l1.8-5.4A8 8 0 1 1 21 12z"/></svg>',
+  send:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3 11 13M21 3l-6.5 18-3.5-8-8-3.5z"/></svg>',
+  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>',
+  zoom:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M11 8v6M8 11h6"/></svg>',
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7M6 9.5V20h12V9.5"/></svg>',
+  store:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9 5.2 4h13.6L20 9M5 9v11h14V9M5 9a2 2 0 0 0 4 0 2 2 0 0 0 3.5 0 2 2 0 0 0 3.5 0 2 2 0 0 0 4 0"/></svg>',
+  loc:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.5 7-11a7 7 0 0 0-14 0c0 5.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>',
+  phone:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="18" rx="3"/><path d="M10.5 18h3"/></svg>',
+  list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>',
+  pay:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="2.5"/><path d="M2.5 10h19"/></svg>',
+};
+
+/* ---------- DATA ---------- */
+const SELLERS=[
+ {n:"Алексей Морозов",city:"Москва",store:"Дымов · ТЦ Авиапарк",pos:"Продавец-консультант",in:"А"},
+ {n:"Ирина Соколова",city:"Санкт-Петербург",store:"VapeShop · Лиговский 50",pos:"Старший продавец",in:"И"},
+ {n:"Дмитрий Кравцов",city:"Казань",store:"CloudStore · Кольцо",pos:"Продавец",in:"Д"},
+ {n:"Марина Лебедева",city:"Москва",store:"Дымов · Европейский",pos:"Продавец",in:"М"},
+];
+function recpt(o){return `<div class="recpt"><h4>${o.shop}</h4><div class="sml">${o.addr}<br>ИНН ${o.inn} · Чек №${o.fd}</div><hr>
+ ${o.items.map(it=>`<div class="rl"><span>${it[0]}</span><span>${it[1]} ₽</span></div>`).join('')}<hr>
+ <div class="rl tot"><span>ИТОГ</span><span>${o.sum} ₽</span></div>
+ <div class="sml" style="margin-top:7px">${o.date}<br>ФН ${o.fn} · ФП ${o.fp}</div><div class="qrbox"></div>
+ <div class="sml" style="margin-top:6px">Спасибо за покупку!</div></div>`;}
+
+const RECEIPTS=[
+ {s:0,id:"10482",bonus:"+250 ₽",date:"18.05.2026 14:02",dup:"Низкий",dupc:"ok",cmt:"Совпадение по акции «SWONQ май». Все товары распознаны.",
+  shop:"ИП Дымов А.В.",addr:"г. Москва, ТЦ Авиапарк",inn:"7701234567",fd:"00184",fn:"7280440500112233",fp:"3920184756",sum:"3 100",
+  items:[["SWONQ L18000",1450],["SWONQ M15000",1200],["Жидкость 30мл",450]],sku:"3 SKU · 3 шт"},
+ {s:1,id:"10481",bonus:"+150 ₽",date:"18.05.2026 13:40",dup:"Проверить",dupc:"wn",cmt:"Похожий QR-код встречался 11.05. Рекомендуется ручная проверка.",
+  shop:"ООО ВейпРитейл",addr:"г. СПб, Лиговский пр. 50",inn:"7802345611",fd:"00922",fn:"7280440500998877",fp:"1182093744",sum:"1 500",
+  items:[["SWONQ M15000",1200],["Жидкость 30мл",300]],sku:"2 SKU · 2 шт"},
+ {s:2,id:"10479",bonus:"+400 ₽",date:"18.05.2026 12:18",dup:"Низкий",dupc:"ok",cmt:"Повышенный бонус: акция «Новая линейка, Казань».",
+  shop:"ИП Кравцов Д.С.",addr:"г. Казань, ТРК Кольцо",inn:"1655099001",fd:"01044",fn:"7280440500445566",fp:"8841200391",sum:"5 800",
+  items:[["SWONQ L18000 ×2",2900],["SWONQ M15000",1200],["Жидкость 30мл ×3",1350],["Картридж",350]],sku:"4 SKU · 7 шт"},
+ {s:3,id:"10478",bonus:"+50 ₽",date:"18.05.2026 11:55",dup:"Высокий",dupc:"dg",cmt:"Дубль: идентичное фото загружено пользователем И. Соколова 17.05.",
+  shop:"ИП Дымов А.В.",addr:"г. Москва, ТЦ Европейский",inn:"7701234567",fd:"00177",fn:"7280440500112299",fp:"3920180012",sum:"450",
+  items:[["Жидкость 30мл",450]],sku:"1 SKU · 1 шт"},
+ {s:0,id:"10476",bonus:"+300 ₽",date:"18.05.2026 10:30",dup:"Низкий",dupc:"ok",cmt:"Все условия акции выполнены. Готов к одобрению.",
+  shop:"ИП Дымов А.В.",addr:"г. Москва, ТЦ Авиапарк",inn:"7701234567",fd:"00170",fn:"7280440500112201",fp:"3920170044",sum:"4 200",
+  items:[["SWONQ L18000",1450],["SWONQ M15000 ×2",2400],["Картридж",350]],sku:"3 SKU · 4 шт"},
+];
+
+/* ---------- STATE ---------- */
+let mode='seller', tab='home', deckIdx=0, processed={ok:0,dg:0,up:0};
+const $=s=>document.querySelector(s), el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;};
+
+/* ---------- NAV CONFIG ---------- */
+const SELLER_TABS=[['home','Главная',I.home],['history','Чеки',I.receipt],['promo','Акции',I.gift],['profile','Профиль',I.user]];
+const ADMIN_TABS=[['adash','Обзор',I.chart],['review','Чеки',I.receipt],['payouts','Выплаты',I.pay],['sellers','Продавцы',I.users]];
+
+function header(){
+  const h=$('#header');
+  const titles={
+    home:['VLIQ','',1],reg:['Регистрация','Шаг 1 из 2',0],upload:['Загрузить чек','',0],
+    status:['Чек №10455','',0],balance:['Мой баланс','',0],history:['История чеков','',0],
+    promo:['Акции','',0],profile:['Профиль','',0],payout:['Запросить выплату','',0],
+    adash:['Панель администратора','VLIQ · бренд',1],sellers:['Продавцы','',1],
+    review:['','',2],payouts:['Выплаты','',1],
+  };
+  const cur=mode==='seller'?tab:tab;
+  if(cur==='review'){ h.innerHTML=''; return; }
+  const t=titles[cur]||['VLIQ','',1];
+  if(t[2]===1){
+    h.innerHTML=`<div class="tg-head"><div class="hbtn" style="visibility:hidden">${I.back}</div>
+      <div><div class="htitle">${t[0]}</div>${t[1]?`<div class="hsub">${t[1]}</div>`:''}</div>
+      <div class="hbtn" onclick="openSheet('notif')">${I.bell}</div></div>`;
+  } else {
+    h.innerHTML=`<div class="tg-head"><div class="hbtn" onclick="goHome()">${I.back}</div>
+      <div><div class="htitle">${t[0]}</div>${t[1]?`<div class="hsub">${t[1]}</div>`:''}</div>
+      <div class="hbtn">${I.dots}</div></div>`;
+  }
+}
+function tabbar(){
+  const tb=$('#tabbar');
+  const cfg= mode==='seller'?SELLER_TABS:ADMIN_TABS;
+  const showTabs = mode==='seller' ? ['home','history','promo','profile'].includes(tab)
+                                   : ['adash','review','payouts','sellers'].includes(tab);
+  if(!showTabs){tb.innerHTML='';tb.style.display='none';return;}
+  tb.style.display='flex';
+  tb.innerHTML=`<div class="tabbar">${cfg.map(c=>`<div class="tab ${tab===c[0]?'on':''}" onclick="nav('${c[0]}')">${c[2]}<span>${c[1]}</span></div>`).join('')}</div>`;
+}
+
+/* ---------- SCREEN BUILDERS ---------- */
+function sellerHome(){
+  return `<div class="screen" data-s="home">
+    <div class="hero">
+      <div class="lbl">Доступно к выплате</div>
+      <div class="big">2 350 ₽</div>
+      <div class="foot">
+        <div class="hchip" onclick="nav('payout')">${I.cashout} Вывести</div>
+        <div class="mini"><span>На проверке</span><b>400 ₽</b></div>
+      </div>
+    </div>
+    <div class="qgrid">
+      ${qcard(I.camera,'Загрузить чек','фото · PDF · QR','--brand','upload')}
+      ${qcard(I.wallet,'Мой баланс','5 700 ₽ всего','--acc','balance')}
+      ${qcard(I.clock,'История','42 чека','--wn','history')}
+      ${qcard(I.gift,'Акции','3 активных','--ok','promo')}
+    </div>
+    <div class="pad" style="padding-top:8px">
+      <div class="sec-t"><b>Последние чеки</b><a onclick="nav('history')">Все</a></div>
+      <div class="list">
+        ${recRow('10482','Сегодня · 14:02','+250 ₽','Одобрен','ok')}
+        ${recRow('10481','Сегодня · 13:40','+150 ₽','На проверке','wn')}
+        ${recRow('10455','Вчера · 18:20','—','Отклонён','dg')}
+      </div>
+    </div></div>`;
+}
+function qcard(ic,t,s,col,scr){
+  return `<div class="q" onclick="nav('${scr}')">
+    <div class="qi" style="background:color-mix(in srgb,var(${col}) 14%,transparent);color:var(${col})">${ic}</div>
+    <b>${t}</b><span>${s}</span></div>`;
+}
+function recRow(id,dt,sum,st,c){
+  return `<div class="row" onclick="nav('status')">
+    <div class="ic" style="background:var(--${c}-bg);color:var(--${c}-ink)">${I.receipt}</div>
+    <div class="tx"><b>Чек №${id}</b><span>${dt}</span></div>
+    <div style="text-align:right">
+      <div style="font-weight:800;font-size:15px;color:${sum==='—'?'var(--hint)':'var(--ok-ink)'}">${sum}</div>
+      <div class="pill p-${c}" style="margin-top:4px">${st}</div>
+    </div></div>`;
+}
+function regScreen(){
+  const f=(l,v,ic,ph)=>`<div class="field"><label>${l}</label><div class="v ${ph?'ph':''}">${v}</div></div>`;
+  return `<div class="screen" data-s="reg"><div class="pad">
+    <div class="h1">Расскажите о себе</div>
+    <div class="muted" style="margin:6px 0 16px">Данные нужны бренду для начисления и выплаты бонусов</div>
+    <div style="display:flex;gap:6px;margin-bottom:18px">
+      <div style="flex:1;height:6px;border-radius:3px;background:var(--brand)"></div>
+      <div style="flex:1;height:6px;border-radius:3px;background:var(--sep)"></div>
+    </div>
+    ${f('Имя','Алексей')}${f('Фамилия','Морозов')}
+    <div class="field" style="display:flex;align-items:center;gap:12px;background:color-mix(in srgb,var(--acc) 12%,transparent)">
+      <div style="color:var(--acc)">${I.phone}</div>
+      <div style="flex:1"><label>Номер телефона</label><div class="v" style="color:var(--acc)">Поделиться контактом</div></div>
+      <div class="pill" style="background:var(--acc);color:#fff">Telegram</div>
+    </div>
+    ${f('Город','Москва')}${f('Торговая точка','Дымов · ТЦ Авиапарк')}
+    ${f('Способ выплаты','Карта · СБП · телефон')}${f('Реквизиты','•••• •••• •••• 4417')}
+    <div style="display:flex;gap:11px;align-items:flex-start;margin:6px 2px 90px">
+      <div style="width:22px;height:22px;border-radius:7px;background:var(--brand);color:#fff;display:grid;place-items:center;flex:none">${I.check}</div>
+      <div style="font-size:13px;font-weight:500;color:var(--text)">Согласие на обработку персональных данных и подтверждение правил участия в программе</div>
+    </div>
+  </div><button class="btn mainbtn" onclick="nav('home')">Завершить регистрацию</button></div>`;
+}
+function uploadScreen(){
+  return `<div class="screen" data-s="upload">
+    <div class="upbox">
+      <div class="ui">${I.camera}</div>
+      <div class="h2">Загрузите чек</div>
+      <div class="muted" style="margin-top:6px;font-size:13.5px">Сфотографируйте бумажный чек или прикрепите электронный</div>
+    </div>
+    <div class="optrow">
+      ${uopt(I.camera,'Камера','--brand')}
+      ${uopt(I.file,'PDF / файл','--acc')}
+      ${uopt(I.qr,'QR-код','--ok')}
+    </div>
+    <div class="pad">
+      <div class="sec-t"><b>Что проверит система</b></div>
+      <div class="list">
+        ${miniRow(I.clock,'Дата и сумма покупки')}
+        ${miniRow(I.store,'Магазин и торговая точка')}
+        ${miniRow(I.shield,'Уникальность чека (антифрод)')}
+        ${miniRow(I.gift,'Соответствие условиям акции')}
+      </div>
+      <div style="background:color-mix(in srgb,var(--brand) 10%,transparent);border-radius:16px;padding:14px 16px;margin-top:14px;font-size:13px;font-weight:600;color:var(--text)">
+        После загрузки бот ответит: «Чек получен. Проверим его и сообщим результат.»
+      </div>
+    </div>
+    <button class="btn mainbtn" onclick="nav('status')">Отправить чек</button></div>`;
+}
+function uopt(ic,t,c){return `<div class="opt"><div class="oi" style="background:color-mix(in srgb,var(${c}) 14%,transparent);color:var(${c})">${ic}</div><b>${t}</b></div>`;}
+function miniRow(ic,t){return `<div class="row" style="cursor:default"><div class="ic" style="background:var(--field);color:var(--hint)">${ic}</div><div class="tx"><b style="font-weight:600;font-size:14px">${t}</b></div></div>`;}
+
+function statusScreen(){
+  const dot=(c,on)=>`<div class="tldot" style="background:${on?`var(--${c}-bg)`:'var(--field)'};color:${on?`var(--${c}-ink)`:'var(--hint)'}">${on?I.check:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>'}</div>`;
+  return `<div class="screen" data-s="status"><div class="pad">
+    <div class="card" style="padding:20px;text-align:center;margin-bottom:16px">
+      <div style="width:70px;height:70px;border-radius:22px;background:var(--wn-bg);color:var(--wn-ink);display:grid;place-items:center;margin:0 auto 14px">${I.clock}</div>
+      <div class="h2">Чек на проверке</div>
+      <div class="muted" style="margin-top:6px;font-size:13.5px">Мы проверим чек и пришлём уведомление в этот чат</div>
+      <div class="pill p-wn" style="margin-top:14px">Требует ручной проверки</div>
+    </div>
+    <div class="card" style="padding:18px">
+      <div class="h2" style="font-size:16px;margin-bottom:14px">Статус обработки</div>
+      <div class="timeline">
+        <div class="tlrow">${dot('ok',1)}<div class="tt"><b>Чек получен</b><span>18.05.2026 · 13:40</span></div></div>
+        <div class="tlrow">${dot('ok',1)}<div class="tt"><b>Данные распознаны</b><span>3 товара · 1 500 ₽</span></div></div>
+        <div class="tlrow">${dot('wn',1)}<div class="tt"><b>Проверка администратором</b><span>Сейчас · обычно до 24 часов</span></div></div>
+        <div class="tlrow">${dot('mut',0)}<div class="tt"><b style="color:var(--hint)">Начисление бонуса</b><span>Ожидается</span></div></div>
+      </div>
+    </div>
+    <div class="card" style="padding:16px;margin-top:14px;display:flex;justify-content:space-between;align-items:center">
+      <div><div class="muted" style="font-size:12px">Предварительный бонус</div><div style="font-weight:800;font-size:20px">+150 ₽</div></div>
+      <div class="pill p-mut">после одобрения</div>
+    </div>
+  </div></div>`;
+}
+function balanceScreen(){
+  const mc=(t,v,d,c)=>`<div class="mc"><div class="mt">${t}</div><div class="mv">${v}</div><div class="md" style="color:var(--${c}-ink)">${d}</div></div>`;
+  return `<div class="screen" data-s="balance">
+    <div class="hero" style="margin-bottom:14px"><div class="lbl">Доступно к выплате</div><div class="big">2 350 ₽</div>
+      <div class="foot"><div class="hchip" onclick="nav('payout')">${I.cashout} Запросить выплату</div></div></div>
+    <div class="m4">
+      ${mc('На проверке','400 ₽','3 чека','wn')}
+      ${mc('Всего начислено','5 700 ₽','за всё время','ok')}
+      ${mc('Всего выплачено','3 350 ₽','2 выплаты','ok')}
+      ${mc('Чеков одобрено','38','из 42','ok')}
+    </div>
+    <div class="pad">
+      <div class="sec-t"><b>История начислений</b></div>
+      <div class="list">
+        ${accRow('Акция «SWONQ май»','18.05 · чек №10482','+250 ₽','ok')}
+        ${accRow('Бонус за чек','17.05 · чек №10470','+150 ₽','ok')}
+        ${accRow('Выплата на карту','15.05 · СБП','−2 000 ₽','mut')}
+        ${accRow('Бонус по SKU','14.05 · чек №10455','+300 ₽','ok')}
+      </div>
+    </div></div>`;
+}
+function accRow(t,d,v,c){return `<div class="row" style="cursor:default"><div class="ic" style="background:var(--${c==='mut'?'field':c+'-bg'});color:var(--${c==='mut'?'hint':c+'-ink'})">${c==='mut'?I.cashout:I.gift}</div><div class="tx"><b>${t}</b><span>${d}</span></div><div style="font-weight:800;font-size:15px;color:${c==='mut'?'var(--text)':'var(--ok-ink)'}">${v}</div></div>`;}
+
+function historyScreen(){
+  const items=[['10482','18.05 · 14:02','+250 ₽','Одобрен','ok'],['10481','18.05 · 13:40','+150 ₽','На проверке','wn'],
+  ['10479','17.05 · 19:10','+400 ₽','Одобрен','ok'],['10470','17.05 · 12:30','+150 ₽','Одобрен','ok'],
+  ['10455','16.05 · 18:20','—','Отклонён','dg'],['10440','15.05 · 09:05','+300 ₽','Выплата начислена','ok']];
+  return `<div class="screen" data-s="history"><div class="pad">
+    <div style="display:flex;gap:10px;margin-bottom:14px">
+      <div style="flex:1;background:var(--field);border-radius:13px;padding:11px 14px;display:flex;align-items:center;gap:9px;color:var(--hint)">${I.search}<span style="font-size:14px;font-weight:500">Поиск по номеру</span></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;overflow:auto">
+      ${['Все','Одобрены','На проверке','Отклонены'].map((x,i)=>`<div class="pill ${i===0?'p-mut':''}" style="${i===0?'background:var(--brand);color:#fff':'background:var(--card);color:var(--hint);box-shadow:var(--shadow-sm)'};padding:9px 14px;cursor:pointer">${x}</div>`).join('')}
+    </div>
+    <div class="list">${items.map(r=>recRow(r[0],r[1],r[2],r[3],r[4])).join('')}</div>
+  </div></div>`;
+}
+function promoScreen(){
+  const P=[['МАЙ 2026','SWONQ — двойной бонус','Повышенный бонус на линейку SWONQ во всех городах. До 31 мая.','135,232',46,'linear-gradient(135deg,#6C4CF0,#9B6BFF)'],
+  ['КАЗАНЬ','Новая линейка +400 ₽','Бонус 400 ₽ за чек с новинками в точках Казани.','142,212,72',null,'linear-gradient(135deg,#16B981,#0BA37A)'],
+  ['СТАРТ','Первые 10 чеков','Удвоенный бонус за первые 10 загруженных чеков.','243,154,18',null,'linear-gradient(135deg,#F39A12,#E07B0A)']];
+  return `<div class="screen" data-s="promo"><div style="padding-top:14px">
+    ${P.map(p=>`<div class="promo" style="background:${p[5]}"><div class="pinner">
+      <span class="ptag">${p[0]}</span><h3>${p[1]}</h3><p>${p[2]}</p>
+      <div class="pf"><span>● Участвуете автоматически</span><span style="display:flex;align-items:center;gap:4px">Подробнее <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 6l6 6-6 6"/></svg></span></div>
+    </div></div>`).join('')}
+    <div class="pad" style="padding-top:4px"><div class="card" style="padding:16px;display:flex;gap:12px;align-items:center">
+      <div class="ic" style="background:var(--brand);color:#fff">${I.gift}</div>
+      <div style="flex:1"><b style="font-weight:700;font-size:14px">Участие без действий</b><div class="muted" style="font-size:12.5px;margin-top:2px">Достаточно соответствовать условиям акции — бонус начислится сам</div></div>
+    </div></div>
+  </div></div>`;
+}
+function profileScreen(){
+  return `<div class="screen" data-s="profile"><div class="pad">
+    <div class="card" style="padding:20px;display:flex;align-items:center;gap:14px;margin-bottom:14px">
+      <div class="av" style="width:54px;height:54px;font-size:20px;border-radius:16px">А</div>
+      <div><div class="h2">Алексей Морозов</div><div class="muted" style="font-size:13px;margin-top:2px">Дымов · ТЦ Авиапарк · Москва</div></div>
+    </div>
+    <div class="list">
+      ${navRow(I.wallet,'Мой баланс','2 350 ₽','balance')}
+      ${navRow(I.cashout,'Реквизиты выплаты','•••• 4417','payout')}
+      ${navRow(I.bell,'Уведомления','Включены',null)}
+      ${navRow(I.user,'Помощь администратора','',null)}
+    </div></div></div>`;
+}
+function navRow(ic,t,v,scr){return `<div class="row" ${scr?`onclick="nav('${scr}')"`:''}><div class="ic" style="background:var(--field);color:var(--hint)">${ic}</div><div class="tx"><b style="font-weight:600">${t}</b></div><span class="muted" style="font-size:13px;margin-right:6px">${v}</span><div class="chev">${I.chev}</div></div>`;}
+function payoutScreen(){
+  return `<div class="screen" data-s="payout"><div class="pad">
+    <div class="hero" style="margin:0 0 16px"><div class="lbl">Доступно к выплате</div><div class="big">2 350 ₽</div></div>
+    <div class="field"><label>Сумма выплаты</label><div class="v">2 350 ₽</div></div>
+    <div class="field"><label>Способ</label><div class="v">СБП · Сбербанк</div></div>
+    <div class="field"><label>Реквизиты</label><div class="v">+7 ••• ••• 41 17</div></div>
+    <div class="card" style="padding:16px;margin:14px 0">
+      <div style="font-weight:700;font-size:14px;margin-bottom:10px">Проверка перед выплатой</div>
+      ${chk('Минимальная сумма — 1 000 ₽')}${chk('Реквизиты заполнены')}${chk('Блокировок нет')}${chk('Подозрительной активности нет')}
+    </div>
+    <div style="background:var(--wn-bg);color:var(--wn-ink);border-radius:14px;padding:13px 15px;font-size:13px;font-weight:600;display:flex;gap:9px;align-items:flex-start">${I.clock}<span>Заявка обрабатывается после проверки администратором. Статусы: Новая → В обработке → Выплачена.</span></div>
+  </div><button class="btn mainbtn" onclick="toast('Заявка на выплату создана',I.check)">Запросить 2 350 ₽</button></div>`;
+}
+function chk(t){return `<div style="display:flex;gap:10px;align-items:center;padding:5px 0;font-size:13.5px;font-weight:500"><div style="width:20px;height:20px;border-radius:6px;background:var(--ok-bg);color:var(--ok-ink);display:grid;place-items:center;flex:none"><svg viewBox="0 0 24 24" width="13" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12.5 10 17.5 19.5 7"/></svg></div>${t}</div>`;}
+
+/* ----- ADMIN ----- */
+function adash(){
+  const mc=(t,v,d,c)=>`<div class="mc"><div class="mt">${t}</div><div class="mv">${v}</div><div class="md" style="color:var(--${c})">${d}</div></div>`;
+  return `<div class="screen" data-s="adash"><div style="padding:14px 0 0">
+    <div class="pad" style="padding-bottom:6px"><div class="h1" style="font-size:22px">Сводка за май</div><div class="muted" style="margin-top:4px">VLIQ · обновлено сейчас</div></div>
+    <div class="m4" style="margin-bottom:14px">
+      ${mc('Продавцов','248','+12 за неделю','ok-ink')}
+      ${mc('Активных','176','71% базы','ok-ink')}
+      ${mc('Чеков загружено','1 942','за май','acc')}
+      ${mc('На проверке','37','требует действий','wn-ink')}
+    </div>
+    <div class="pad" style="padding-top:0">
+      <div class="card" style="padding:18px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><b style="font-weight:700;font-size:15px">Динамика чеков</b><span class="pill p-ok">+18%</span></div>
+        <div style="display:flex;align-items:flex-end;gap:7px;height:96px">
+          ${[40,55,48,70,62,85,78,96,72,88].map(h=>`<div style="flex:1;height:${h}%;border-radius:6px 6px 3px 3px;background:linear-gradient(180deg,var(--brand),var(--brand-2));opacity:.9"></div>`).join('')}
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--hint);font-weight:600"><span>9 мая</span><span>18 мая</span></div>
+      </div>
+      <div class="card" style="padding:6px 0;margin-bottom:14px">
+        ${navRow(I.receipt,'Проверить чеки','37','review')}
+        ${navRow(I.pay,'Заявки на выплату','8','payouts')}
+        ${navRow(I.users,'Продавцы','248','sellers')}
+      </div>
+      <div class="sec-t" style="margin-left:16px"><b>Топ продавцов</b></div>
+      <div class="list" style="margin:0 16px">
+        ${topRow(1,'Дмитрий Кравцов','Казань','24 чека')}
+        ${topRow(2,'Ирина Соколова','Санкт-Петербург','21 чек')}
+        ${topRow(3,'Алексей Морозов','Москва','19 чеков')}
+      </div>
+    </div>
+  </div></div>`;
+}
+function topRow(n,nm,c,v){const m=['','#F5B301','#9AA7B5','#CD7F32'];return `<div class="row" style="cursor:default"><div class="ic" style="background:color-mix(in srgb,${m[n]} 22%,transparent);color:${m[n]};font-weight:800;font-size:15px">${n}</div><div class="tx"><b>${nm}</b><span>${c}</span></div><div style="font-weight:700;font-size:13px;color:var(--hint)">${v}</div></div>`;}
+function sellersScreen(){
+  return `<div class="screen" data-s="sellers"><div class="pad">
+    <div style="background:var(--field);border-radius:13px;padding:11px 14px;display:flex;align-items:center;gap:9px;color:var(--hint);margin-bottom:14px">${I.search}<span style="font-size:14px">Поиск продавца</span></div>
+    <div class="list">
+      ${SELLERS.map((s,i)=>`<div class="row" onclick="openSheet('seller',${i})">
+        <div class="av" style="border-radius:12px">${s.in}</div>
+        <div class="tx"><b>${s.n}</b><span>${s.store} · ${s.city}</span></div>
+        <div style="text-align:right"><div class="pill ${i===2?'p-dg':'p-ok'}">${i===2?'Заблокирован':'Активен'}</div></div>
+      </div>`).join('')}
+    </div></div></div>`;
+}
+function payoutsScreen(){
+  const P=[['Алексей Морозов','2 350 ₽','Новая','wn','СБП +7•••4117'],['Ирина Соколова','3 100 ₽','В обработке','acc','Карта ••••8842'],
+  ['Дмитрий Кравцов','5 800 ₽','Новая','wn','СБП +7•••2093'],['Марина Лебедева','1 200 ₽','Выплачена','ok','Карта ••••4417']];
+  return `<div class="screen" data-s="payouts"><div class="pad">
+    <div class="m4" style="padding:0;margin-bottom:14px">
+      <div class="mc"><div class="mt">К выплате</div><div class="mv">12 450 ₽</div><div class="md" style="color:var(--wn-ink)">3 новых заявки</div></div>
+      <div class="mc"><div class="mt">Выплачено в мае</div><div class="mv">86 200 ₽</div><div class="md" style="color:var(--ok-ink)">24 выплаты</div></div>
+    </div>
+    <div class="sec-t"><b>Заявки</b><a>Excel-выгрузка</a></div>
+    <div class="list">${P.map((p,i)=>`<div class="row" onclick="openSheet('payout',${i})">
+      <div class="ic" style="background:var(--${p[3]==='acc'?'field':p[3]+'-bg'});color:var(--${p[3]==='acc'?'acc':p[3]+'-ink'})">${I.cashout}</div>
+      <div class="tx"><b>${p[0]}</b><span>${p[4]}</span></div>
+      <div style="text-align:right"><div style="font-weight:800;font-size:15px">${p[1]}</div><div class="pill p-${p[3]==='acc'?'mut':p[3]}" style="margin-top:4px">${p[2]}</div></div>
+    </div>`).join('')}</div>
+  </div></div>`;
+}
+
+/* ---------- SWIPE REVIEW (hero) ---------- */
+function reviewScreen(){
+  return `<div class="screen" data-s="review">
+   <div class="deckwrap">
+    <div class="deckhead">
+      <div><div class="h1">Проверка чеков</div><div class="muted" style="font-size:12.5px;margin-top:2px">Свайпните карточку или нажмите для деталей</div></div>
+      <div class="counter" id="counter"></div>
+    </div>
+    <div class="legend">
+      <div class="lg" style="background:var(--ok-bg);color:var(--ok-ink)">→ Одобрить</div>
+      <div class="lg" style="background:var(--dg-bg);color:var(--dg-ink)">← Отклонить</div>
+      <div class="lg" style="background:var(--wn-bg);color:var(--wn-ink)">↑ На доработку</div>
+      <div class="lg" style="background:var(--field);color:var(--hint)">Тап — фото и данные</div>
+    </div>
+    <div class="deck" id="deck"></div>
+    <div class="swactions">
+      <button class="sa sa-dg big" onclick="swipeBtn('dg')">${I.x}</button>
+      <button class="sa sa-up mid" onclick="swipeBtn('up')">${I.arrUp}</button>
+      <button class="sa sa-info" onclick="openDetailTop()">${I.zoom}</button>
+      <button class="sa sa-ok big" onclick="swipeBtn('ok')">${I.check}</button>
+    </div>
+   </div>
+  </div>`;
+}
+function buildDeck(){
+  const deck=$('#deck'); if(!deck) return;
+  deck.innerHTML='';
+  const left=RECEIPTS.length-deckIdx;
+  $('#counter').textContent = left>0? `${deckIdx+1} / ${RECEIPTS.length}` : 'Готово';
+  if(left<=0){
+    deck.innerHTML=`<div class="deckdone" style="display:flex">
+      <div class="dc">${I.check}</div>
+      <div class="h2">Все чеки обработаны</div>
+      <div class="muted" style="font-size:13.5px">Одобрено ${processed.ok} · Отклонено ${processed.dg} · На доработку ${processed.up}</div>
+      <button class="btn ghost sm" style="width:auto;padding:11px 20px;margin-top:6px" onclick="resetDeck()">Начать заново</button>
+    </div>`;
+    return;
+  }
+  const show=Math.min(3,left);
+  for(let k=show-1;k>=0;k--){
+    const r=RECEIPTS[deckIdx+k];
+    const s=SELLERS[r.s];
+    const c=el('div','swcard');
+    const scale=1-k*0.045, ty=k*14;
+    c.style.transform=`translateY(${ty}px) scale(${scale})`;
+    c.style.zIndex=10-k;
+    c.dataset.i=deckIdx+k;
+    c.innerHTML=`
+      <div class="tint" data-ok style="background:var(--ok)"></div>
+      <div class="tint" data-dg style="background:var(--dg)"></div>
+      <div class="tint" data-up style="background:var(--wn)"></div>
+      <div class="stamp ok">ОДОБРЕНО</div>
+      <div class="stamp dg">ОТКЛОНЁН</div>
+      <div class="stamp up">ДОРАБОТКА</div>
+      <div class="photo">${recpt(r)}
+        <div class="tapzoom">${I.zoom} Фото чека · тап для деталей</div>
+      </div>
+      <div class="swmeta">
+        <div class="nm"><div class="av">${s.in}</div>
+          <div style="flex:1"><b>${s.n}</b><span>${s.store}</span></div>
+          <div class="pill p-${r.dupc}">${r.dupc==='ok'?I.shield:I.alert} ${r.dup}</div>
+        </div>
+        <div class="swstats">
+          <div class="st"><div class="k">Бонус</div><div class="vv" style="color:var(--ok-ink)">${r.bonus}</div></div>
+          <div class="st"><div class="k">Сумма</div><div class="vv">${r.sum} ₽</div></div>
+          <div class="st"><div class="k">Товары</div><div class="vv" style="font-size:13px;padding-top:1px">${r.sku}</div></div>
+        </div>
+      </div>`;
+    deck.appendChild(c);
+    if(k===0) attachDrag(c);
+  }
+}
+let drag=null;
+function attachDrag(card){
+  let sx,sy,dx=0,dy=0,moved=false,active=false;
+  const down=e=>{const p=pt(e);sx=p.x;sy=p.y;active=true;moved=false;card.style.transition='none';};
+  const move=e=>{
+    if(!active)return;
+    const p=pt(e);dx=p.x-sx;dy=p.y-sy;
+    if(Math.abs(dx)+Math.abs(dy)>6)moved=true;
+    if(moved&&e.cancelable)e.preventDefault();
+    const rot=dx*0.06;
+    card.style.transform=`translate(${dx}px,${dy}px) rotate(${rot}deg)`;
+    const up = dy<-60 && Math.abs(dy)>Math.abs(dx);
+    const okv=!up?Math.max(0,Math.min(1,dx/120)):0;
+    const dgv=!up?Math.max(0,Math.min(1,-dx/120)):0;
+    const upv=up?Math.max(0,Math.min(1,-dy/120)):0;
+    card.querySelector('.stamp.ok').style.opacity=okv;
+    card.querySelector('.stamp.dg').style.opacity=dgv;
+    card.querySelector('.stamp.up').style.opacity=upv;
+    card.querySelector('[data-ok]').style.opacity=okv*0.22;
+    card.querySelector('[data-dg]').style.opacity=dgv*0.22;
+    card.querySelector('[data-up]').style.opacity=upv*0.22;
+  };
+  const upE=e=>{
+    if(!active)return; active=false;
+    card.style.transition='transform .32s cubic-bezier(.3,.8,.4,1),opacity .32s';
+    if(!moved){ openDetail(+card.dataset.i); reset(); return; }
+    const up = dy<-90 && Math.abs(dy)>Math.abs(dx);
+    if(up){ fly('up'); }
+    else if(dx>95){ fly('ok'); }
+    else if(dx<-95){ fly('dg'); }
+    else reset();
+  };
+  function reset(){card.style.transform='translate(0,0) rotate(0)';['.stamp.ok','.stamp.dg','.stamp.up','[data-ok]','[data-dg]','[data-up]'].forEach(s=>card.querySelector(s).style.opacity=0);}
+  function fly(dir){
+    if(dir==='ok'){ card.style.transform='translate(520px,-40px) rotate(24deg)'; }
+    else if(dir==='dg'){ card.style.transform='translate(-520px,-40px) rotate(-24deg)'; }
+    else { card.style.transform='translate(0,-880px) rotate(0deg)'; }
+    card.style.opacity='0';
+    finishSwipe(dir);
+  }
+  card._fly=fly;
+  card.addEventListener('mousedown',down);
+  window.addEventListener('mousemove',move);
+  window.addEventListener('mouseup',upE);
+  card.addEventListener('touchstart',down,{passive:true});
+  card.addEventListener('touchmove',move,{passive:false});
+  card.addEventListener('touchend',upE);
+  function pt(e){return e.touches&&e.touches[0]?{x:e.touches[0].clientX,y:e.touches[0].clientY}:(e.changedTouches&&e.changedTouches[0]?{x:e.changedTouches[0].clientX,y:e.changedTouches[0].clientY}:{x:e.clientX,y:e.clientY});}
+}
+function finishSwipe(dir){
+  processed[dir]++;
+  const lbl=dir==='ok'?['Чек одобрен · бонус начислен',I.check]:dir==='dg'?['Чек отклонён',I.x]:['Отправлен на доработку',I.arrUp];
+  toast(lbl[0],lbl[1],dir);
+  setTimeout(()=>{ deckIdx++; buildDeck(); },300);
+}
+function swipeBtn(dir){
+  const top=$('#deck .swcard:last-child');
+  if(top&&top._fly) top._fly(dir); else if(RECEIPTS.length-deckIdx<=0) {} 
+}
+function resetDeck(){deckIdx=0;processed={ok:0,dg:0,up:0};buildDeck();}
+function openDetailTop(){ if(RECEIPTS.length-deckIdx>0) openDetail(deckIdx); }
+
+/* ---------- DETAIL SHEET ---------- */
+function openDetail(i){
+  const r=RECEIPTS[i], s=SELLERS[r.s];
+  const kv=(k,v)=>`<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+  $('#sheetSc').innerHTML=`
+    <div style="display:flex;align-items:center;gap:11px;margin:4px 0 14px">
+      <div class="av" style="border-radius:13px">${s.in}</div>
+      <div style="flex:1"><div style="font-weight:800;font-size:17px">Чек №${r.id}</div><div class="muted" style="font-size:12.5px">${s.n} · ${s.store}</div></div>
+      <div class="pill p-${r.dupc}">${r.dupc==='ok'?I.shield:I.alert} Дубль: ${r.dup}</div>
+    </div>
+    <div class="bigrecpt">${recpt(r)}<div class="fzoom">${I.zoom}</div></div>
+    <div style="font-weight:700;font-size:14px;margin:4px 0 2px">Распознанные данные</div>
+    ${kv('Пользователь',s.n)}
+    ${kv('Дата загрузки',r.date)}
+    ${kv('Магазин',r.shop)}
+    ${kv('Адрес',r.addr)}
+    ${kv('Сумма покупки',r.sum+' ₽')}
+    ${kv('Найдено товаров',r.sku)}
+    ${kv('ФН / ФД / ФП',r.fn.slice(-6)+' / '+r.fd+' / '+r.fp.slice(-4))}
+    <div style="font-weight:700;font-size:14px;margin:16px 0 2px">Товары</div>
+    ${r.items.map(it=>`<div class="kv"><span class="k">${it[0]}</span><span class="v">${it[1].toLocaleString('ru')} ₽</span></div>`).join('')}
+    <div class="kv" style="margin-top:4px"><span class="k" style="font-weight:700;color:var(--text)">Сумма бонуса</span><span class="v" style="color:var(--ok-ink);font-size:16px">${r.bonus}</span></div>
+    <div class="warn" style="background:var(--${r.dupc}-bg);color:var(--${r.dupc}-ink)">${r.dupc==='ok'?I.shield:I.alert}<span>Комментарий системы: ${r.cmt}</span></div>
+    <div class="actgrid">
+      <button class="actbtn a-ok" onclick="sheetAct('ok',${i})">${I.check}Одобрить</button>
+      <button class="actbtn a-up" onclick="sheetAct('up',${i})">${I.arrUp}На доработку</button>
+      <button class="actbtn a-dg" onclick="sheetAct('dg',${i})">${I.x}Отклонить</button>
+    </div>
+    <div class="actgrid" style="grid-template-columns:1fr 1fr">
+      <button class="actbtn line" onclick="toast('Сумма бонуса изменена',I.edit)">${I.edit}Изменить бонус</button>
+      <button class="actbtn line" onclick="toast('Комментарий добавлен',I.cmt)">${I.cmt}Комментарий</button>
+    </div>
+    <button class="actbtn line" style="width:100%;flex-direction:row;margin:9px 0 6px;color:var(--dg-ink)" onclick="toast('Пользователь заблокирован',I.block)">${I.block}Заблокировать пользователя</button>
+  `;
+  showSheet(true);
+}
+function sheetAct(dir,i){
+  showSheet(false);
+  if(tab==='review' && i>=deckIdx){
+    const top=$('#deck .swcard:last-child');
+    setTimeout(()=>{ if(top&&top._fly&&+top.dataset.i===i) top._fly(dir); else { processed[dir]++; toast(dir==='ok'?'Чек одобрен':dir==='dg'?'Чек отклонён':'На доработку', dir==='ok'?I.check:dir==='dg'?I.x:I.arrUp,dir); } },260);
+  } else {
+    toast(dir==='ok'?'Чек одобрен · бонус начислен':dir==='dg'?'Чек отклонён':'Отправлен на доработку', dir==='ok'?I.check:dir==='dg'?I.x:I.arrUp,dir);
+  }
+}
+function openSheet(kind,i){
+  if(kind==='seller'){
+    const s=SELLERS[i];
+    $('#sheetSc').innerHTML=`<div style="display:flex;align-items:center;gap:13px;margin:6px 0 16px">
+      <div class="av" style="width:52px;height:52px;border-radius:15px;font-size:19px">${s.in}</div>
+      <div><div style="font-weight:800;font-size:18px">${s.n}</div><div class="muted" style="font-size:13px">${s.pos}</div></div></div>
+      <div class="kv"><span class="k">Город</span><span class="v">${s.city}</span></div>
+      <div class="kv"><span class="k">Торговая точка</span><span class="v">${s.store}</span></div>
+      <div class="kv"><span class="k">Телефон</span><span class="v">+7 ••• ••• 41 17</span></div>
+      <div class="kv"><span class="k">Дата регистрации</span><span class="v">02.04.2026</span></div>
+      <div class="kv"><span class="k">Баланс</span><span class="v" style="color:var(--ok-ink)">2 350 ₽</span></div>
+      <div class="kv"><span class="k">Чеков всего</span><span class="v">42 · 38 одобрено</span></div>
+      <div class="actgrid" style="grid-template-columns:1fr 1fr;margin-top:16px">
+        <button class="actbtn line" onclick="toast('Открыта история чеков',I.receipt)">${I.receipt}Чеки</button>
+        <button class="actbtn line" style="color:var(--dg-ink)" onclick="toast('Пользователь заблокирован',I.block)">${I.block}Заблокировать</button>
+      </div>`;
+  } else if(kind==='payout'){
+    $('#sheetSc').innerHTML=`<div style="font-weight:800;font-size:18px;margin:6px 0 14px">Заявка на выплату</div>
+      <div class="kv"><span class="k">Продавец</span><span class="v">Алексей Морозов</span></div>
+      <div class="kv"><span class="k">Сумма</span><span class="v" style="font-size:16px">2 350 ₽</span></div>
+      <div class="kv"><span class="k">Способ</span><span class="v">СБП · Сбербанк</span></div>
+      <div class="kv"><span class="k">Реквизиты</span><span class="v">+7 ••• ••• 41 17</span></div>
+      <div class="kv"><span class="k">Статус</span><span class="v"><span class="pill p-wn">Новая</span></span></div>
+      <div class="warn"><span style="display:flex">${I.shield}</span><span>Антифрод: подозрительной активности не выявлено. Лимиты не превышены.</span></div>
+      <div class="actgrid" style="grid-template-columns:1fr 1fr;margin-top:6px">
+        <button class="actbtn a-ok" onclick="toast('Выплата подтверждена',I.check)">${I.check}Подтвердить</button>
+        <button class="actbtn a-dg" onclick="toast('Заявка отклонена',I.x)">${I.x}Отклонить</button>
+      </div>`;
+  } else if(kind==='notif'){
+    $('#sheetSc').innerHTML=`<div style="font-weight:800;font-size:18px;margin:6px 0 14px">Уведомления</div>
+      ${[['Чек одобрен','+250 ₽ начислено за чек №10482','ok',I.check],['Новая акция','SWONQ — двойной бонус до 31 мая','brand',I.gift],['Чек на проверке','Чек №10481 принят в работу','wn',I.clock],['Выплата отправлена','3 350 ₽ · СБП','ok',I.cashout]].map(n=>`<div class="row" style="cursor:default;padding-left:0;padding-right:0"><div class="ic" style="background:var(--${n[2]==='brand'?'field':n[2]+'-bg'});color:${n[2]==='brand'?'var(--brand)':`var(--${n[2]}-ink)`}">${n[3]}</div><div class="tx"><b style="font-weight:700">${n[0]}</b><span>${n[1]}</span></div></div>`).join('')}`;
+  }
+  showSheet(true);
+}
+function showSheet(on){ $('#sheet').classList.toggle('on',on); $('#sheetBg').classList.toggle('on',on); }
+$('#sheetBg').onclick=()=>showSheet(false);
+
+/* ---------- TOAST ---------- */
+let tT;
+function toast(msg,ic,kind){
+  const t=$('#toast');
+  t.innerHTML=(ic||'')+`<span>${msg}</span>`;
+  t.style.background = kind==='ok'?'var(--ok-ink)':kind==='dg'?'var(--dg-ink)':kind==='up'?'var(--wn-ink)':'';
+  if(kind) t.style.color='#fff';
+  t.classList.add('on'); clearTimeout(tT);
+  tT=setTimeout(()=>t.classList.remove('on'),1700);
+}
+
+/* ---------- ROUTER ---------- */
+function render(){
+  const sc=$('#screens');
+  if(mode==='seller'){
+    sc.innerHTML=sellerHome()+regScreen()+uploadScreen()+statusScreen()+balanceScreen()+historyScreen()+promoScreen()+profileScreen()+payoutScreen();
+  } else {
+    sc.innerHTML=adash()+reviewScreen()+payoutsScreen()+sellersScreen();
+  }
+  showScreen(tab);
+  header(); tabbar();
+}
+function showScreen(name){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active',s.dataset.s===name));
+  $('#scroll').scrollTop=0;
+  const isDeck = (mode==='admin'&&name==='review');
+  $('#scroll').style.overflowY = isDeck?'hidden':'auto';
+  if(isDeck) buildDeck();
+}
+function nav(name){ tab=name; showScreen(name); header(); tabbar(); }
+function goHome(){ nav(mode==='seller'?'home':'adash'); }
+window.nav=nav;window.goHome=goHome;window.openDetail=openDetail;window.openSheet=openSheet;
+window.swipeBtn=swipeBtn;window.resetDeck=resetDeck;window.sheetAct=sheetAct;window.openDetailTop=openDetailTop;window.toast=toast;window.I=I;
+
+/* mode + theme */
+$('#modeSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  [...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));
+  mode=b.dataset.mode; tab = mode==='seller'?'home':'adash';
+  showSheet(false); render();
+});
+$('#themeSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b)return;
+  [...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));
+  const dark=b.dataset.theme==='dark';
+  $('#wrap').className='screen-wrap '+(dark?'theme-dark':'theme-light');
+  document.body.className=dark?'bg-dark':'bg-light';
+});
+
+render();
+</script>
+</body>
+</html>

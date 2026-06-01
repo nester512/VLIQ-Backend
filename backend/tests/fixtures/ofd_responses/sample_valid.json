@@ -1,0 +1,37 @@
+{
+  "fn": "9999000000000001",
+  "fd": "100001",
+  "fp": "2345678",
+  "total_sum": 59900,
+  "purchase_date": "2026-05-20T14:30:00+03:00",
+  "shop_name": "ООО Тестовый Магазин",
+  "shop_inn": "7701234567",
+  "shop_address": "г. Москва, ул. Примерная, д. 1",
+  "items": [
+    {
+      "name": "Молоко 1л",
+      "quantity": 2.0,
+      "price": 8990,
+      "total": 17980,
+      "nds_rate": 20
+    },
+    {
+      "name": "Хлеб пшеничный",
+      "quantity": 1.0,
+      "price": 4190,
+      "total": 4190,
+      "nds_rate": 10
+    },
+    {
+      "name": "Сыр Российский 200г",
+      "quantity": 1.0,
+      "price": 37730,
+      "total": 37730,
+      "nds_rate": 20
+    }
+  ],
+  "raw_response": {
+    "source": "sample_valid_fixture",
+    "code": 1
+  }
+}

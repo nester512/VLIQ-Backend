@@ -1,0 +1,31 @@
+{
+  "code": 1,
+  "data": {
+    "json": {
+      "fiscalDriveNumber": "9960440300115271",
+      "fiscalDocumentNumber": 41234,
+      "fiscalSign": 2093842751,
+      "totalSum": 59900,
+      "dateTime": "2026-04-10T14:30:00",
+      "user": "ООО \"Ромашка\"",
+      "userInn": "7701234567",
+      "retailPlaceAddress": "г. Москва, ул. Арбат, д. 10",
+      "items": [
+        {
+          "name": "Кофе латте",
+          "quantity": 1,
+          "price": 35000,
+          "sum": 35000,
+          "nds": 20
+        },
+        {
+          "name": "Круассан",
+          "quantity": 2,
+          "price": 12450,
+          "sum": 24900,
+          "nds": 20
+        }
+      ]
+    }
+  }
+}
