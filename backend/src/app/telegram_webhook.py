@@ -14,6 +14,7 @@ Register the webhook URL with Telegram once after deploying:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from fastapi import APIRouter, Request, status
@@ -23,8 +24,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Telegram Webhook"])
 
-# URL of the Telegram Mini App frontend (must match the configured TMA URL).
-_TMA_URL = "https://04a0-165-231-150-10.ngrok-free.app"
+# URL of the Telegram Mini App frontend. Read from the TMA_URL env var so it
+# stays in sync with the bot (src/bot/__main__.py); falls back to the public link.
+_TMA_URL = os.environ.get("TMA_URL", "https://t.me/vliq_bot/app")
 
 _WELCOME_TEXT = (
     "👋 Добро пожаловать в VLIQ!\n\n"
