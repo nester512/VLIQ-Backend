@@ -11,6 +11,7 @@ Transitions (from OCR plan § 6):
   needs_revision   → rejected                (admin)
   on_review        → approved                (admin)
   on_review        → rejected                (admin)
+  on_review        → needs_revision          (admin: send back for rework)
   on_review        → ocr_in_progress         (system: OFD retry after unblock)
   approved         → paid_out               (system: payout completed)
   approved         → rejected               (admin: cancellation with reason)
@@ -35,6 +36,7 @@ _TRANSITIONS: dict[tuple[str, str], frozenset[str]] = {
     (ReceiptStatus.needs_revision.value, ReceiptStatus.rejected.value): frozenset({"admin"}),
     (ReceiptStatus.on_review.value, ReceiptStatus.approved.value): frozenset({"admin"}),
     (ReceiptStatus.on_review.value, ReceiptStatus.rejected.value): frozenset({"admin"}),
+    (ReceiptStatus.on_review.value, ReceiptStatus.needs_revision.value): frozenset({"admin"}),
     (ReceiptStatus.on_review.value, "ocr_in_progress"): frozenset({"system"}),
     (ReceiptStatus.approved.value, ReceiptStatus.paid_out.value): frozenset({"system"}),
     (ReceiptStatus.approved.value, ReceiptStatus.rejected.value): frozenset({"admin"}),

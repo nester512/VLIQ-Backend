@@ -47,6 +47,9 @@ class TestValidTransitions:
     def test_on_review_to_rejected__admin(self, sm: ReceiptStateMachine):
         assert sm.can_transition(from_status="on_review", to_status="rejected", actor="admin") is True
 
+    def test_on_review_to_needs_revision__admin(self, sm: ReceiptStateMachine):
+        assert sm.can_transition(from_status="on_review", to_status="needs_revision", actor="admin") is True
+
     def test_on_review_to_ocr_in_progress__system(self, sm: ReceiptStateMachine):
         assert sm.can_transition(from_status="on_review", to_status="ocr_in_progress", actor="system") is True
 
@@ -99,7 +102,7 @@ class TestAllowedNext:
 
     def test_allowed_next__on_review__admin(self, sm: ReceiptStateMachine):
         nexts = sm.allowed_next(from_status="on_review", actor="admin")
-        assert set(nexts) == {"approved", "rejected"}
+        assert set(nexts) == {"approved", "rejected", "needs_revision"}
 
     def test_allowed_next__paid_out__system__empty(self, sm: ReceiptStateMachine):
         nexts = sm.allowed_next(from_status="paid_out", actor="system")

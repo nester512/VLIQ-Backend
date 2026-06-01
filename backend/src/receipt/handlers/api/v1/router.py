@@ -593,6 +593,8 @@ async def revise_receipt(
         receipt = await _get_receipt_for_update(session, receipt_id)
         _require_transition(receipt, ReceiptStatus.needs_revision.value, "admin")
 
+        seller_id = receipt.seller_id
+
         await session.execute(
             update(Receipt)
             .where(Receipt.id == receipt_id)
@@ -602,6 +604,20 @@ async def revise_receipt(
                 updated_by=token["user_id"],
             )
         )
+
+        # Notify the seller that their receipt needs rework — same transaction
+        # as the status update (outbox pattern, mirrors approve/reject).
+        await notification_outbox.enqueue(
+            session,
+            recipient_id=seller_id,
+            channel="telegram",
+            template="receipt.needs_revision",
+            payload={
+                "receipt_id": receipt_id,
+                "reason": body.comment or "Уточните данные по чеку",
+            },
+        )
+
         _insert_audit_log(
             session,
             actor_id=token["user_id"],

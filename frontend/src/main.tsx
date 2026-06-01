@@ -18,7 +18,13 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1,
       staleTime: 30_000,
-      refetchOnWindowFocus: false,
+      // Telegram Mini Apps are constantly minimised/reopened, and the same
+      // account is used across devices. Refetch stale data when the WebView
+      // regains visibility so the seller never stares at a stale balance /
+      // profile / receipt list after coming back. `staleTime` (30s) still
+      // debounces rapid focus toggles, and `refetchOnReconnect` (default true)
+      // covers dropped-connection resumes.
+      refetchOnWindowFocus: true,
     },
   },
 })

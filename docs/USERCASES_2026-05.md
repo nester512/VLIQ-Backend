@@ -21,6 +21,7 @@
 | Подставить телефон в СБП-поле автоматом | ✅ | `RegPage.tsx:90-109` |
 | Зашифровать payout_account_raw (Fernet) | ✅ | `update_me` + `PayoutCrypto` |
 | Авто-флип `pending → active` после заполнения | ✅ | `update_me` (исключение: phone `+99...` — synthetic, не флипает) |
+| Дубликат телефона при регистрации | ✅ — 409 `SELLER_PHONE_TAKEN` (раньше → 500) | `update_me` ловит `IntegrityError` на `seller_phone_e164_key` |
 | `invalidateQueries` + `navigate('/seller/home')` после submit | ✅ | `RegPage.tsx:147-152` |
 
 ### Главная (HomePage)
@@ -112,7 +113,7 @@
 ### ReceiptDetailSheet (карточка чека)
 | User case | Статус | Детали |
 |---|---|---|
-| Одобрить / Доработка / Отклонить | ✅ — **только если status=on_review** | gate в этой волне |
+| Одобрить / Доработка / Отклонить | ✅ — **только если status=on_review** | gate в этой волне. «Доработка» (`POST /receipts/:id/revise`) переводит `on_review → needs_revision` и шлёт продавцу telegram-уведомление `receipt.needs_revision`. _Fix: добавлен недостающий admin-переход `on_review→needs_revision` (раньше → 409) + enqueue нотификации._ |
 | Изменить бонус | ✅ | `PATCH /receipts/:id/bonus` (correction-row на approved) — gate: on_review/approved |
 | Комментарий | ✅ | `POST /receipts/:id/comment` → JSONB `admin_comments` |
 | Заблокировать пользователя | ✅ | `POST /sellers/:id/block` → outbox-уведомление |
@@ -142,6 +143,7 @@
 | Notifications outbox (idempotent + retry) | ✅ |
 | Telegram-channel доставка | ✅ если бот polling/webhook жив |
 | In-app notifications (DB row) | ✅ |
+| Шаблоны: `receipt.approved` / `receipt.rejected` / `receipt.needs_revision` / `payout.sent` | ✅ — `receipt.needs_revision` добавлен в этой волне (продавец узнаёт про «Доработку») |
 
 ---
 

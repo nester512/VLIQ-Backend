@@ -14,6 +14,7 @@ import structlog
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import func, or_, select
 from sqlalchemy import update as sa_update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.pagination import PagedResponse
@@ -224,8 +225,17 @@ async def update_me(
 
     if update_data:
         update_data["updated_by"] = telegram_id
-        await session.execute(sa_update(Seller).where(Seller.telegram_id == telegram_id).values(**update_data))
-        await session.commit()
+        try:
+            await session.execute(sa_update(Seller).where(Seller.telegram_id == telegram_id).values(**update_data))
+            await session.commit()
+        except IntegrityError as exc:
+            # phone_e164 is UNIQUE — a seller registering with a number already
+            # used by another account would otherwise surface as a raw 500.
+            await session.rollback()
+            err = str(getattr(exc, "orig", exc)).lower()
+            if "phone_e164" in err:
+                raise AppError("SELLER_PHONE_TAKEN", status_code=409) from exc
+            raise AppError("VALIDATION_ERROR", status_code=409) from exc
         await session.refresh(row)
 
     return SellerRead.model_validate(row, from_attributes=True)
@@ -404,8 +414,15 @@ async def update_seller(
 
     if update_data:
         update_data["updated_by"] = token["user_id"]
-        await session.execute(sa_update(Seller).where(Seller.telegram_id == telegram_id).values(**update_data))
-        await session.commit()
+        try:
+            await session.execute(sa_update(Seller).where(Seller.telegram_id == telegram_id).values(**update_data))
+            await session.commit()
+        except IntegrityError as exc:
+            await session.rollback()
+            err = str(getattr(exc, "orig", exc)).lower()
+            if "phone_e164" in err:
+                raise AppError("SELLER_PHONE_TAKEN", status_code=409) from exc
+            raise AppError("VALIDATION_ERROR", status_code=409) from exc
         await session.refresh(row)
 
     return SellerRead.model_validate(row, from_attributes=True)
