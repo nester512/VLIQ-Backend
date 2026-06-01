@@ -1,0 +1,811 @@
+@import "tailwindcss";
+
+/* vaul drawer reset (inlined from vaul/style.css — pkg doesn't export it) */
+[data-vaul-drawer] {
+  touch-action: none;
+  will-change: transform;
+  transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+}
+[data-vaul-overlay] {
+  opacity: 0;
+  transition: opacity 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+}
+[data-vaul-overlay][data-state="open"] { opacity: 1; }
+[data-vaul-drawer][data-state="open"] { transform: translateY(0%); }
+
+/* ===== Tailwind v4 CSS-based theme config ===== */
+@theme {
+  --font-family-sans: "Onest", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  --radius-brand: 20px;
+  --radius-card: 20px;
+  --radius-hero: 24px;
+  --radius-sheet: 26px;
+  --radius-pill: 9999px;
+
+  /* Brand status colours (static — never overridden by Telegram theme) */
+  --color-ok: #16B981;
+  --color-dg: #F0455A;
+  --color-wn: #F39A12;
+  --color-acc: #2F8FED;
+
+  /* Semantic colours — resolved from CSS vars at runtime (Telegram themed) */
+  --color-brand:  var(--vliq-brand);
+  --color-brand2: var(--vliq-brand-2);
+  --color-bg:     var(--vliq-bg);
+  --color-card:   var(--vliq-card);
+  --color-card2:  var(--vliq-card-2);
+  --color-field:  var(--vliq-field);
+  --color-text:   var(--vliq-text);
+  --color-hint:   var(--vliq-hint);
+  --color-sep:    var(--vliq-sep);
+  --color-nav:    var(--vliq-nav);
+  --color-ok-bg:  var(--vliq-ok-bg);
+  --color-ok-ink: var(--vliq-ok-ink);
+  --color-dg-bg:  var(--vliq-dg-bg);
+  --color-dg-ink: var(--vliq-dg-ink);
+  --color-wn-bg:  var(--vliq-wn-bg);
+  --color-wn-ink: var(--vliq-wn-ink);
+}
+
+/* ===== Light theme (default) ===== */
+:root {
+  --vliq-brand:   #6C4CF0;
+  --vliq-brand-2: #9B6BFF;
+
+  --vliq-bg:      #EEF0F4;
+  --vliq-card:    #FFFFFF;
+  --vliq-card-2:  #F6F7FB;
+  --vliq-field:   #F2F3F8;
+  --vliq-text:    #0E1320;
+  /* Darker hint to pass WCAG AA (4.5:1) for 11.5px+ medium text on `--vliq-bg`. */
+  --vliq-hint:    #6B7282;
+  --vliq-sep:     #E7E9F0;
+  --vliq-nav:     #FFFFFFE6;
+
+  --vliq-shadow:    0 10px 30px -12px rgba(20, 22, 40, 0.16);
+  --vliq-shadow-sm: 0 2px 10px -4px rgba(20, 22, 40, 0.12);
+
+  --vliq-ok-bg:  #E5F8F0;
+  --vliq-ok-ink: #0B8A5E;
+  --vliq-dg-bg:  #FDE8EB;
+  --vliq-dg-ink: #C3293B;
+  --vliq-wn-bg:  #FEF0DC;
+  /* Darker amber for AA contrast at 11.5px bold on `--vliq-wn-bg`. */
+  --vliq-wn-ink: #95610A;
+
+  --tma-height: 100dvh;
+}
+
+/* ===== Dark theme ===== */
+.dark {
+  --vliq-brand:   #7C5CFF;
+  --vliq-brand-2: #9B6BFF;
+
+  --vliq-bg:      #0E1621;
+  --vliq-card:    #17212B;
+  --vliq-card-2:  #1C2733;
+  --vliq-field:   #222E3A;
+  --vliq-text:    #FFFFFF;
+  --vliq-hint:    #7E8B99;
+  --vliq-sep:     #222F3D;
+  --vliq-nav:     #17212BE6;
+
+  --vliq-shadow:    0 14px 34px -14px rgba(0, 0, 0, 0.6);
+  --vliq-shadow-sm: 0 2px 12px -4px rgba(0, 0, 0, 0.5);
+
+  --vliq-ok-bg:  #0F3329;
+  --vliq-ok-ink: #3FDCA0;
+  --vliq-dg-bg:  #3A1822;
+  --vliq-dg-ink: #FF7184;
+  --vliq-wn-bg:  #3A2C12;
+  --vliq-wn-ink: #F4B045;
+}
+
+/* ===== Base reset ===== */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  font-family: "Onest", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--vliq-bg);
+  color: var(--vliq-text);
+  overflow: hidden;
+  /* Smooth transition for all colour-dependent properties when theme flips */
+  transition: background-color .25s ease, color .25s ease;
+}
+
+/* Focus ring — visible only on keyboard navigation (mouse/touch suppressed) */
+:focus-visible {
+  outline: 2px solid var(--vliq-brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* Tighten the ring on full-width buttons that already have their own corners */
+button.vliq-btn:focus-visible,
+.vliq-row:focus-visible,
+.vliq-list > button:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Apply same transition to every surface so a Telegram theme swap is fluid */
+.vliq-themed {
+  transition:
+    background-color .25s ease,
+    color .25s ease,
+    border-color .25s ease,
+    box-shadow .25s ease;
+}
+
+/* ====== Responsive frame ======
+   Phone-first. The TMA contract is "phone in your pocket"; on iPad / desktop
+   we don't expand the layout (would break tap-target geometry) — we just
+   centre the phone frame and add a subtle border so it doesn't look
+   abandoned. */
+.vliq-page-inner { width: 100%; max-width: 100%; }
+@media (min-width: 600px) {
+  .vliq-page-inner {
+    max-width: 520px;
+    box-shadow: 0 0 0 1px var(--vliq-sep);
+  }
+}
+@media (min-width: 1024px) {
+  .vliq-page-inner {
+    max-width: 560px;
+    box-shadow: 0 0 0 1px var(--vliq-sep), 0 30px 80px -20px rgba(0,0,0,.35);
+    border-radius: 24px;
+    margin-block: max(0px, calc((100dvh - var(--tma-height, 100dvh)) / 2));
+  }
+}
+/* On very-tall viewports (desktop fullscreen, kiosk) cap the height so the
+   phone frame doesn't stretch into a pillar. */
+@media (min-width: 1024px) and (min-height: 900px) {
+  .vliq-page-outer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .vliq-page-inner {
+    max-height: 900px;
+  }
+}
+
+/* ===== Prototype building blocks ===== */
+
+/* .pad — horizontal screen padding (mirror prototype .pad{padding:16px}; vertical added per-page) */
+.vliq-pad { padding-left: 16px; padding-right: 16px; }
+
+/* Section header — mirrors prototype .sec-t */
+.vliq-sec-t {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 18px 4px 10px;
+}
+.vliq-sec-t b { font-size: 17px; font-weight: 700; letter-spacing: -.1px; }
+.vliq-sec-t a, .vliq-sec-t button {
+  color: var(--vliq-brand);
+  font-weight: 600; font-size: 14px; cursor: pointer;
+  background: transparent; border: 0;
+}
+
+/* Card surface — prototype .card */
+.vliq-card {
+  background: var(--vliq-card);
+  border-radius: 20px;
+  box-shadow: var(--vliq-shadow-sm);
+  transition: background-color .25s ease, box-shadow .25s ease;
+}
+
+/* List wrapper — mirrors prototype .list + .row+.row::before divider */
+.vliq-list {
+  background: var(--vliq-card);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: var(--vliq-shadow-sm);
+  transition: background-color .25s ease;
+}
+.vliq-list > * + * { position: relative; }
+.vliq-list > * + *::before {
+  content: "";
+  position: absolute;
+  left: 55px; right: 0; top: 0;
+  height: 1px;
+  background: var(--vliq-sep);
+  pointer-events: none;
+}
+
+/* Row — mirrors prototype .row{display:flex;align-items:center;gap:13px;padding:14px 16px} */
+.vliq-row {
+  display: flex; align-items: center; gap: 13px;
+  padding: 14px 16px;
+  width: 100%;
+  min-width: 0;          /* allow flex children to shrink */
+  text-align: left;
+  background: transparent;
+  border: 0;
+  position: relative;
+  cursor: pointer;
+  color: var(--vliq-text);
+  transition: background-color .15s ease;
+}
+.vliq-row:active { background: var(--vliq-field); }
+.vliq-row.is-static { cursor: default; }
+.vliq-row.is-static:active { background: transparent; }
+/* `.vliq-list` rows get extra right padding so trailing pills / amounts don't
+   sit flush against the rounded card corner (~20px radius). Uniform across
+   first/middle/last to avoid the optical-jitter of asymmetric pill insets. */
+.vliq-list > .vliq-row { padding-right: 20px; }
+
+.vliq-row-ic {
+  width: 40px; height: 40px;
+  border-radius: 13px;
+  display: grid; place-items: center;
+  flex: none;
+}
+.vliq-row-tx { flex: 1; min-width: 0; }
+.vliq-row-tx > b {
+  display: block;
+  font-size: 15px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vliq-row-tx > span {
+  font-size: 12.5px;
+  color: var(--vliq-hint);
+  font-weight: 500;
+}
+
+/* Hero — mirrors prototype .hero */
+.vliq-hero {
+  margin: 16px;
+  border-radius: 24px;
+  padding: 22px;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--vliq-brand), var(--vliq-brand-2));
+  box-shadow: 0 22px 40px -18px var(--vliq-brand);
+}
+.vliq-hero::after {
+  content: ""; position: absolute;
+  width: 220px; height: 220px; border-radius: 50%;
+  background: rgba(255,255,255,.13);
+  right: -70px; top: -90px;
+}
+.vliq-hero::before {
+  content: ""; position: absolute;
+  width: 160px; height: 160px; border-radius: 50%;
+  background: rgba(255,255,255,.10);
+  left: -60px; bottom: -80px;
+}
+
+/* Hero internal elements — mirrors prototype .hero .lbl / .big / .foot / .mini */
+.vliq-hero__lbl {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.85;
+  position: relative;
+}
+.vliq-hero__big {
+  position: relative;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1.05;
+  margin: 4px 0 16px;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vliq-hero__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  position: relative;
+  gap: 12px;
+  min-width: 0;
+}
+.vliq-hero__mini {
+  text-align: right;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+.vliq-hero__mini > span {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.8;
+}
+.vliq-hero__mini > b {
+  display: block;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hero action chip — prototype .hchip{...bg:rgba(255,255,255,.18);padding:9px 14px;border-radius:12px} */
+.vliq-hero-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255, 255, 255, 0.18);
+  padding: 9px 14px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 14px;
+  color: #fff;
+  border: 0;
+  cursor: pointer;
+  flex: none;
+  white-space: nowrap;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: transform 0.12s ease;
+}
+.vliq-hero-chip:active { transform: scale(0.97); }
+
+/* Field — mirrors prototype .field */
+.vliq-field {
+  background: var(--vliq-field);
+  border-radius: 14px;
+  padding: 11px 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--vliq-sep);
+  transition: background-color .25s ease, border-color .15s, box-shadow .15s;
+}
+.vliq-field:focus-within {
+  border-color: var(--vliq-brand);
+  box-shadow: 0 0 0 3px rgba(108, 76, 240, 0.16);
+}
+.vliq-field > label {
+  display: block;
+  font-size: 11.5px;
+  color: var(--vliq-hint);
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.vliq-field .vliq-field-v {
+  font-size: 15.5px; font-weight: 600;
+  color: var(--vliq-text);
+  background: transparent;
+  border: 0; outline: 0;
+  width: 100%;
+}
+.vliq-field .vliq-field-v::placeholder { color: var(--vliq-hint); font-weight: 500; }
+
+/* Pill — mirrors prototype .pill */
+.vliq-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; font-weight: 700;
+  padding: 5px 10px; border-radius: 999px;
+  white-space: nowrap;
+  /* Containment: must never overflow past a card's rounded corner */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Pill color variants — keyed to --vliq-* tokens */
+.vliq-pill--ok    { background: var(--vliq-ok-bg);  color: var(--vliq-ok-ink); }
+.vliq-pill--dg    { background: var(--vliq-dg-bg);  color: var(--vliq-dg-ink); }
+.vliq-pill--wn    { background: var(--vliq-wn-bg);  color: var(--vliq-wn-ink); }
+.vliq-pill--muted { background: var(--vliq-field);  color: var(--vliq-hint); }
+.vliq-pill--brand { background: var(--vliq-brand);  color: #fff; }
+
+/* Primary button — mirrors prototype .btn */
+.vliq-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%;
+  border: 0; cursor: pointer;
+  font: 700 16px/1 "Onest";
+  padding: 16px;
+  border-radius: 15px;
+  color: #fff;
+  background: var(--vliq-brand);
+  box-shadow: 0 14px 26px -12px var(--vliq-brand);
+  transition: transform .12s ease, background-color .25s ease;
+}
+.vliq-btn:active { transform: scale(.985); }
+.vliq-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.vliq-btn.is-ghost {
+  background: var(--vliq-field);
+  color: var(--vliq-text);
+  box-shadow: none;
+}
+.vliq-btn.is-sm { padding: 12px; font-size: 14px; border-radius: 12px; }
+
+/* Scrollbar hide utility (used by snap rails and modal sheets) */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* Toast fade-in (used by Toast atom). The container handles centering, so
+   the keyframe must NOT translate horizontally — that was the "slides in
+   from the left edge" bug. */
+@keyframes vliq-toast-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== Skeleton shimmer ===== */
+/* Bone background token (slightly lighter than field in both themes). */
+:root { --vliq-skeleton: rgba(0, 0, 0, .05); }
+.dark { --vliq-skeleton: rgba(255, 255, 255, .06); }
+
+@keyframes vliq-shimmer {
+  0%   { background-position: -240px 0; }
+  100% { background-position: 240px  0; }
+}
+
+.vliq-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--vliq-skeleton) 0%,
+    color-mix(in srgb, var(--vliq-skeleton) 40%, transparent) 50%,
+    var(--vliq-skeleton) 100%
+  );
+  background-size: 480px 100%;
+  animation: vliq-shimmer 1.4s ease-in-out infinite;
+}
+
+/* Disable all motion-heavy animations for users who prefer it. */
+@media (prefers-reduced-motion: reduce) {
+  .vliq-shimmer { animation: none; }
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* ===== PromoCard — mirrors prototype .promo ===== */
+.vliq-promo-card {
+  margin: 0 16px 12px;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: var(--vliq-shadow-sm);
+  position: relative;
+  color: #fff;
+}
+.vliq-promo-card__inner  { padding: 18px; }
+.vliq-promo-card__tag    {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 8px;
+  letter-spacing: 0.4px;
+}
+.vliq-promo-card__title  {
+  font-size: 19px;
+  font-weight: 800;
+  margin: 10px 0 6px;
+  letter-spacing: -0.3px;
+  line-height: 1.2;
+}
+.vliq-promo-card__desc   {
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0.92;
+  line-height: 1.45;
+}
+.vliq-promo-card__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ===== MetricCard — mirrors prototype .mc ===== */
+.vliq-metric-card {
+  padding: 16px;
+  overflow: hidden;
+  min-width: 0;
+}
+.vliq-metric-card__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vliq-hint);
+  letter-spacing: 0.1px;
+  /* Cap at 1 line with ellipsis */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vliq-metric-card__value {
+  font-weight: 800;
+  margin-top: 6px;
+  letter-spacing: -0.4px;
+  color: var(--vliq-text);
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.vliq-metric-card__delta {
+  font-size: 11.5px;
+  font-weight: 700;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== Skeleton shell classes (stable replacements for inline-style on skeletons) ===== */
+.vliq-metric-card-skel {
+  padding: 16px;
+  box-shadow: var(--vliq-shadow-sm);
+}
+.vliq-hero-skel {
+  margin: 16px;
+  border-radius: 24px;
+  background: var(--vliq-card);
+  box-shadow: var(--vliq-shadow-sm);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ===== Card & row press feedback ===== */
+/* Applied on interactive cards (not .vliq-row which already has :active bg). */
+.vliq-press:active {
+  transform: scale(0.96);
+  transition: transform 0.05s ease;
+}
+/* Ensure transition back to normal is smooth. */
+.vliq-press {
+  transition: transform 0.12s ease;
+}
+
+/* Subtle scale for tap feedback on list rows (button only, not static) */
+.vliq-list > button.vliq-row:active:not(.is-static) {
+  transform: scale(0.985);
+}
+.vliq-list > button.vliq-row:not(.is-static) {
+  transition: background-color .15s ease, transform .1s ease;
+}
+
+/* ===== Numeric alignment ===== */
+.vliq-tabnum { font-variant-numeric: tabular-nums; }
+
+/* ===== Design-system stable classes =====
+   These replace Tailwind arbitrary-value classes that Tailwind v4 JIT can
+   silently drop in production (e.g. p-[16px] -> computed 0px).
+   Every class here maps to a named semantic shape from the prototype.
+   The responsive agent adds media queries on top — don't add any here. */
+
+/* Quick-action tile — prototype .q{background:var(--card);border-radius:18px;padding:16px} */
+.vliq-action-card {
+  background: var(--vliq-card);
+  border-radius: 18px;
+  padding: 16px;
+  overflow: hidden;
+  box-shadow: var(--vliq-shadow-sm);
+  cursor: pointer;
+  border: 0;
+  text-align: left;
+  width: 100%;
+  transition: transform 0.1s ease, background-color 0.25s ease, box-shadow 0.25s ease;
+}
+.vliq-action-card:active { transform: scale(0.97); }
+
+/* Icon bubble inside action card — prototype .q .qi{margin-bottom:30px} */
+.vliq-action-card__icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-bottom: 30px;
+}
+
+/* Title line — prototype .q b{font-size:15px;font-weight:700} */
+.vliq-action-card__title {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--vliq-text);
+}
+
+/* Subtitle line — prototype .q span{font-size:12px;color:var(--hint)} */
+.vliq-action-card__subtitle {
+  display: block;
+  font-size: 12px;
+  color: var(--vliq-hint);
+  font-weight: 500;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Card padding variants */
+.vliq-card--compact { padding: 12px; }
+.vliq-card--hero    { padding: 18px 20px; }
+
+/* Chip — inline badge/tag inside cards (e.g. promo tag, deck legend) */
+.vliq-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+/* Section title — already covered by .vliq-sec-t but this is the semantic alias */
+.vliq-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 18px 4px 10px;
+}
+.vliq-section-title b   { font-size: 17px; font-weight: 700; letter-spacing: -0.1px; }
+.vliq-section-title a,
+.vliq-section-title button {
+  color: var(--vliq-brand);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+/* Trailing amount inside .vliq-row — prevents text from escaping right corner */
+.vliq-row-amount {
+  flex: none;
+  max-width: 120px;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* min-width:0 utility for flex/grid children holding dynamic text */
+.vliq-min-w-0 { min-width: 0; }
+
+/* ===== EmptyState — centered card with icon + text ===== */
+.vliq-empty-state {
+  padding: 36px 20px;
+  text-align: center;
+}
+
+/* ===== SwipeDeck stamps — mirrors prototype .stamp ===== */
+/* Stable class so Tailwind v4 JIT arbitrary-value pruning can't drop the border/padding. */
+.vliq-swipe-stamp {
+  position: absolute;
+  z-index: 20;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  padding: 8px 18px;
+  border: 4px solid;
+  border-radius: 14px;
+  pointer-events: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* Stamps are positioned within the card (overflow:hidden on card container),
+     so they are already clipped at the card boundary */
+}
+.vliq-swipe-stamp--ok { border-color: var(--vliq-ok-ink); color: var(--vliq-ok-ink); }
+.vliq-swipe-stamp--dg { border-color: var(--vliq-dg-ink); color: var(--vliq-dg-ink); }
+.vliq-swipe-stamp--wn { border-color: var(--vliq-wn-ink); color: var(--vliq-wn-ink); }
+
+/* ===== TabBar — mirrors prototype .tabbar / .tab ===== */
+.vliq-tabbar {
+  display: flex;
+  background: var(--vliq-nav);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid var(--vliq-sep);
+  z-index: 20;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+/* Bottom bar (mobile) */
+.vliq-tabbar--bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+/* Vertical variant — responsive agent adds this to the sidebar layout */
+.vliq-tabbar--vertical {
+  flex-direction: column;
+  border-top: 0;
+  border-right: 1px solid var(--vliq-sep);
+}
+/* Tab item — prototype .tab */
+.vliq-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  /* Ensure inner <span> flex column is correct */
+}
+.vliq-tab > span {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-width: 0;
+}
+/* Label — clamp stops it from overflowing on 320px screens */
+.vliq-tab__label {
+  font-size: clamp(10px, 2.6vw, 11px);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ===== TgHeader — mirrors prototype .tg-head ===== */
+.vliq-tg-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 14px;
+  padding-right: 14px;
+  background: var(--vliq-card);
+  border-bottom: 1px solid var(--vliq-sep);
+  position: relative;
+  z-index: 30;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+/* Header icon button — prototype .hbtn{width:34px;height:34px} */
+.vliq-hbtn {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--vliq-text);
+  flex: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.vliq-hbtn:active { background: var(--vliq-field); }
+/* Center group */
+.vliq-tg-header__center {
+  flex: 1;
+  text-align: center;
+  min-width: 0;
+}
+/* Title truncates with ellipsis — prototype .htitle{font-weight:700;font-size:17px} */
+.vliq-tg-header__title {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Subtitle — prototype .hsub{font-size:12px;color:var(--hint)} */
+.vliq-tg-header__subtitle {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--vliq-hint);
+  margin-top: -2px;
+}
+
+/* ===== Responsive adaptive layout ===== */
+@import './styles/responsive.css';

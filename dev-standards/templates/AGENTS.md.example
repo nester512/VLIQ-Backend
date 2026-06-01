@@ -1,0 +1,23 @@
+# Контекст для агентов (Cursor)
+
+Монорепозиторий: несколько пакетов (например `A-Lab-server/`, `students-profile/`). Перед изменениями открой README и скрипты **конкретного** пакета.
+
+## Где что лежит
+
+| Путь | Назначение |
+|------|------------|
+| `.cursor/rules/*.mdc` | Правила по областям (всегда `core-workflow.mdc` + globs для py/ts) |
+| `.cursor/commands/*.md` | Slash-команды: `/branch`, `/switch-branch`, `/push`, `/code-review`, `/respond-to-review`, `/work-item`, `/sync-cursor-standards` |
+| `.cursor/agents/*.md` | Профили субагентов для Task / ручного делегирования (в т.ч. FSR/MSSQL: `mssql-catalog-qa`, `fsr-mssql-integration-qa`, `fsr-mssql-read-side-reviewer`, `fsr-mssql-workstream-coordinator`) |
+| `.cursor/skills/pro-dev-standards/` | Skill: как переносить внешние workflow-шаблоны без vendor-specific мусора |
+| `.cursor/plans/` | Черновики планов по задачам (создаёт `/work-item`) |
+
+## Минимальный чеклист после правок кода
+
+1. Линтер и типы — команды из `package.json` / `pyproject.toml` / `Makefile` пакета.  
+2. Тесты — хотя бы затронутый модуль.  
+3. Не коммить секреты и локальные `.env` с реальными ключами.
+
+## Удалённые репозитории
+
+Имя основной ветки на `origin` может быть `main` или `master` — команды `/push` и `/work-item` определяют автоматически.

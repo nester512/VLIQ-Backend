@@ -1,0 +1,57 @@
+---
+description: Правила производительности для бэкенда и БД-слоя
+globs: ["**/services/**", "**/repositories/**", "**/*services.py", "**/*repository.py", "**/*read_side.py"]
+alwaysApply: false
+---
+
+# Правила: производительность
+
+## Запросы к БД
+
+1. **Никогда не делай N+1.** Если в цикле появляется `await pg.fetch(...)`,
+   `conn.execute(...)`, или `requests.get(...)` — переписывай на batched/IN-list/CROSS APPLY.
+2. **Все запросы — параметризованные.** Никаких f-string в SQL. Если нужен
+   динамический IN-list — через `OPENJSON` (MSSQL) / `= ANY(:ids)` (PG).
+3. **Каждый внешний вызов имеет таймаут.** Без таймаута — баг, который
+   проявится под нагрузкой.
+4. **Каждый внешний вызов — с retry на сетевые ошибки.** 1–2 ретрая с
+   экспоненциальным backoff.
+
+## Кэширование
+
+1. **Hot-path читает кэш, пишет кэш.** Cache stampede protection — обязательна
+   (per-key lock).
+2. **Ключ кэша должен быть стабильным** в окне TTL. `now().isoformat()` в
+   ключе → каждый запрос промахивается. Квантуй до bucket'а (см.
+   [students-profile/fastapi/src/global_stats_v2/services.py](students-profile/fastapi/src/global_stats_v2/services.py) — `_quantize_for_cache_key`).
+3. **TTL в коде, не в комментарии.** `CACHE_TTL_SECONDS = 60` — константа.
+
+## Connection pools
+
+1. **Размер пула — обоснован.** «На всякий случай» 500 — фейл. Считай:
+   `pool_size × instances ≤ max_connections_at_db × 0.6`.
+2. **`pool_pre_ping=True`** — обязательно для долгоживущих коннектов.
+3. **`pool_recycle`** короче, чем idle-timeout у БД.
+
+## Async-correctness
+
+1. **Sync-вызовы в async-коде — только через `asyncio.to_thread`** или
+   thread-pool executor. Не блокируй event loop.
+2. **`asyncio.gather(...)`** для независимых вызовов. Последовательный
+   `await x; await y;` для независимых задач — баг производительности.
+3. **`asyncio.gather(..., return_exceptions=True)`** если один из фолбэков
+   допустим. Без него один failed task роняет все.
+
+## In-memory агрегации
+
+1. **Не загружай >10к строк в память для агрегации.** Делай SUM/COUNT/GROUP BY
+   на стороне БД.
+2. **Если без агрегации в Python никак** (источник без GROUP BY) — лимитируй
+   диапазон/добавь pre-aggregation таблицу.
+
+## Профилирование
+
+1. **Перед мерджем PR с подозрением на регрессию** — измерь латенси хотя бы
+   локально (`time curl ...` или wrk).
+2. **prometheus-метрики** на каждый внешний вызов (latency Histogram) —
+   обязательно для analytics-слоя.

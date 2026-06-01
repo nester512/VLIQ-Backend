@@ -1,0 +1,116 @@
+[tool.poetry]
+name = "vliq-backend"
+version = "0.1.0"
+description = "VLIQ loyalty/bonus backend — entity scaffold"
+authors = ["Vlad Nesterov nestvlad2004@gmail.com"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.15"
+fastapi = "^0.124.4"
+uvicorn = "0.38.0"
+SQLAlchemy = "^2.0.45"
+asyncpg = "^0.30.0"
+greenlet = "^3.0.0"
+pydantic = "^2.9.2"
+pydantic-settings = "^2.2.1"
+alembic = "^1.14.0"
+orjson = "^3.11.5"
+python-jose = "^3.5.0"
+structlog = "^24.4.0"
+httpx = "^0.27"                    # async HTTP for OFD client (OCR sprint)
+python-multipart = "^0.0.9"        # multipart upload for receipt files
+slowapi = "^0.1.9"                 # rate limiting (will be wired in P1)
+pyjwt = "^2.9"                     # future migration from python-jose (H1)
+
+# Sprint 1 / OCR pipeline deps
+zxing-cpp = "^2.2"                # QR decode — no native libzbar required
+Pillow = "^10.4"                  # image open for phash + QR
+imagehash = "^4.3"                # perceptual hash (phash) for near-duplicate detection
+arq = "^0.26"                     # asyncio-native task queue (same event loop as FastAPI)
+redis = {version = "^5.0", extras = ["hiredis"]}  # OFD response cache + arq broker
+rapidfuzz = "^3.6"                # fuzzy SKU name matching
+cryptography = "^43.0"            # Fernet encryption for payout_encrypted (H4, API-agent)
+aioboto3 = "^15.5.0"
+aiogram = "^3.14"                 # Telegram Bot framework (long polling for dev)
+aiohttp = "^3.13.5"
+prometheus-fastapi-instrumentator = ">=7.0"  # FastAPI /metrics endpoint (Prometheus format)
+prometheus-client = ">=0.21"       # Custom counters/histograms/gauges
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.1.1"
+pytest-asyncio = "^0.23.6"
+mypy = "^1.17.1"
+ruff = "^0.12.9"
+black = "^25.1.0"
+isort = "^6.0.1"
+respx = "^0.21"                    # mock httpx in tests
+moto = {extras = ["s3"], version = "^5.2.1"}
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+target-version = ["py312"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | dist
+  | build
+  | migrations
+  | alembic
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 120
+py_version = 312
+src_paths = ["src", "tests"]
+known_first_party = ["src"]
+combine_as_imports = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+extend-exclude = ["migrations", "alembic", "dist", "build"]
+
+[tool.ruff.lint]
+select = ["F","E","W","I","UP","B","C4","PIE","PT","SIM","PL"]
+ignore = [
+    "E501",
+    # FastAPI / Security idioms — Depends() and Security() in parameter defaults
+    # are the *official* FastAPI pattern; flagging them as B008 is noise.
+    "B008",
+    # SIM117 would collapse nested `with` blocks that are intentionally separate
+    # (e.g. outer session + inner begin() in receipt router for readability).
+    "SIM117",
+    # B904 (raise-without-from) fires on re-raises that deliberately hide the
+    # original error context (e.g. auth token errors where leaking internals is
+    # undesirable). Not worth a blanket fix.
+    "B904",
+    # PLC0415: tests and optional-dependency code (arq, rapidfuzz) intentionally
+    # import inside functions so env vars are set before app modules are loaded,
+    # or to guard optional heavy imports. Allow globally; tighten if needed.
+    "PLC0415",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# HTTP status codes (200, 401, 403, …) in test assertions are self-documenting;
+# extracting them into named constants would hurt readability.
+"tests/**" = ["PLR2004"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "integration: full business-process integration smoke tests (require mock DB session)",
+]

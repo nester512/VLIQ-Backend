@@ -1,0 +1,62 @@
+---
+description: Стандарты юнит-тестов Python (имена, AAA, моки, запуск pytest).
+globs: "**/tests/**/*.py"
+alwaysApply: false
+---
+
+После написания или изменения **юнит**-тестов проверь пункты ниже.
+
+**Why:** Быстрые, детерминированные тесты.  
+**How to apply:** Файлы под `tests/**/*.py` (и зеркала в других пакетах — по аналогии).
+
+## Third-party test utilities
+
+Стек проекта (`pytest`, `pytest-mock`, фикстуры). Сначала `conftest.py` и хелперы.
+
+## Test naming
+
+`test_<поведение>__<сценарий>__<ожидание>` или `test_<поведение>` для одного happy path.
+
+## Control flow in tests
+
+Без циклов и условий в тестах, кроме случаев когда тестируемый API сам по себе итерируемый/табличный.
+
+## Mocking
+
+Моки на границах (I/O, HTTP, время). `pytest-mock`: `mocker` с **`spec=`** или `autospec=True` для классов.
+
+## Runtime settings and env
+
+Меняй конфиг через фикстуры/env проекта, не патчь «всё подряд» без принятого паттерна.
+
+## Test location
+
+Зеркало коду приложения: `src/foo/bar.py` → `tests/foo/test_bar.py` (или как принято в пакете).
+
+## Minimum scenarios
+
+Happy path, осмысленный edge, негатив/валидация — когда применимо.
+
+## AAA pattern
+
+Блоки arrange / act / assert (комментарии по желанию).
+
+## Assertions
+
+Равенство целых структур или снапшоты, если контракт — весь ответ. Не проверяй один ключ, если важна форма целиком.
+
+## Async tests
+
+Стиль async тестов проекта (`pytest-asyncio`, anyio и т.д.) — без смешения несовместимых маркеров.
+
+## Running tests
+
+С корня пакета/репо — команда из документации, например:
+
+```bash
+poetry run pytest tests/path/test_file.py -q --tb=short --disable-warnings
+```
+
+## Lint
+
+Тот же lint/typecheck, что и для прикладного кода, после существенных правок тестов.

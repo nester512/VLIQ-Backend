@@ -1,0 +1,242 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vliq-postgres
+    environment:
+      POSTGRES_DB: vliq
+      POSTGRES_USER: vliq
+      POSTGRES_PASSWORD: vliq_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vliq -d vliq"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: vliq-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: vliq-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO web console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  createbuckets:
+    image: minio/mc:latest
+    container_name: vliq-createbuckets
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb --ignore-existing local/vliq-receipts;
+      /usr/bin/mc anonymous set download local/vliq-receipts;
+      exit 0;
+      "
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: vliq-backend
+    env_file:
+      - .env
+    environment:
+      # Override DB/Redis/S3 hosts to point at docker service names.
+      POSTGRES__POSTGRES_URL: postgresql+asyncpg://vliq:vliq_dev@postgres:5432/vliq
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://minio:9000
+      RECEIPT_STORAGE: s3
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
+    # Run migrations + seed, then start the app.
+    command: >
+      sh -c "
+        alembic upgrade head &&
+        python -m src.scripts.seed_dev &&
+        uvicorn src.app.main:app --host 0.0.0.0 --port 8000
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  bot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: vliq-bot
+    env_file:
+      - .env
+    environment:
+      POSTGRES__POSTGRES_URL: postgresql+asyncpg://vliq:vliq_dev@postgres:5432/vliq
+      REDIS_URL: redis://redis:6379/0
+      # Webhook mode — set BOT_MODE=webhook in .env to activate.
+      # BOT_WEBHOOK_HOST is read from CADDY_HOSTNAME by default (set in .env).
+      BOT_MODE: ${BOT_MODE:-polling}
+      BOT_WEBHOOK_HOST: ${BOT_WEBHOOK_HOST:-${CADDY_HOSTNAME:-vliq.local}}
+      BOT_WEBHOOK_SECRET: ${BOT_WEBHOOK_SECRET:-change-me}
+      BOT_WEBHOOK_PORT: ${BOT_WEBHOOK_PORT:-8081}
+    expose:
+      - "8081"
+    depends_on:
+      backend:
+        condition: service_healthy
+    command: ["python", "-m", "src.bot"]
+    restart: unless-stopped
+
+  notifications-worker:
+    build:
+      context: ./backend
+    command: python -m src.notification
+    env_file:
+      - .env
+    environment:
+      POSTGRES__POSTGRES_URL: postgresql+asyncpg://vliq:vliq_dev@postgres:5432/vliq
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  receipt-pipeline-worker:
+    # Drains receipt processing jobs enqueued by /receipts/upload and
+    # /receipts/qr-payload — runs the full QR-extract → fraud → OFD →
+    # SKU-match → bonus pipeline asynchronously.
+    build:
+      context: ./backend
+    command: arq src.app.arq_worker.WorkerSettings
+    env_file:
+      - .env
+    environment:
+      POSTGRES__POSTGRES_URL: postgresql+asyncpg://vliq:vliq_dev@postgres:5432/vliq
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vliq-frontend
+    expose:
+      - "80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      CADDY_HOSTNAME: ${CADDY_HOSTNAME:-vliq.local}
+      CADDY_TLS_DIRECTIVE: ${CADDY_TLS_DIRECTIVE:-internal}
+      CADDY_EMAIL: ${CADDY_EMAIL:-admin@example.com}
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    expose:
+      - "9090"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:2.9.4
+    command: "-config.file=/etc/loki/local-config.yaml"
+    volumes:
+      - loki_data:/loki
+    expose:
+      - "3100"
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:2.9.4
+    command: "-config.file=/etc/promtail/promtail.yml"
+    volumes:
+      - ./ops/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  minio_data:
+  caddy_data:
+  caddy_config:
+  prometheus_data:
+  loki_data:
+  grafana_data:

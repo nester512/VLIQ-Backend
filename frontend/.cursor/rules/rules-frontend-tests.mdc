@@ -1,0 +1,62 @@
+---
+description: Тесты фронтенда — RTL/Vitest/Jest, Playwright/Cypress, флейки.
+globs: "**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx,**/e2e/**/*.ts"
+alwaysApply: false
+---
+
+После правок тестов UI проверь пункты ниже.
+
+**Why:** Меньше флейков и привязки к реализации.  
+**How to apply:** `*.test.*`, `*.spec.*`, каталоги `e2e/`.
+
+## Tooling
+
+Runner и конфиги пакета (`vitest.config.*`, `jest.config.*`, `playwright.config.*`).
+
+## Naming
+
+Имена `describe`/`it`/`test` читаются как поведение + сценарий.
+
+## Queries (component tests)
+
+Testing Library: `getByRole`, `getByLabelText`, затем текст; избегай хрупких CSS-селекторов без причины.
+
+## Implementation detail
+
+Не проверяй внутреннее состояние компонента; только UI и границы (сеть, навигация).
+
+## AAA
+
+Явные arrange / act / assert; `beforeEach` — только дешёвый общий сетап.
+
+## Asynchrony
+
+`findBy*` / `waitFor`; без произвольных `setTimeout`. В E2E — auto-wait раннера.
+
+## Network
+
+Компонентные тесты: MSW/принятый в проекте мок. E2E: реальный стенд или задокументированные стабы.
+
+## Data
+
+Фабрики/фикстуры из принятого в репо места; без огромных JSON в теле теста.
+
+## Flakiness
+
+Fake timers для таймеров; при анимациях — снижение движения в тестовом окружении, если мешает.
+
+## Snapshots
+
+Точечно; большие DOM-снапшоты — с осторожностью и ревью диффов.
+
+## E2E scope
+
+Один сценарий — одна пользовательская цель; тесты независимы по порядку.
+
+## Running tests
+
+Команды из README / `package.json` пакета.
+
+## Lint
+
+Те же ESLint/Prettier правила, что и для прод-кода.
