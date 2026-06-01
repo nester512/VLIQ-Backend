@@ -312,3 +312,20 @@ async def test_outbox__drain_due__skip_locked_for_concurrent_workers():
     assert len(rows2) == 1
     assert rows1[0].id == 50
     assert rows2[0].id == 51
+
+
+# ---------------------------------------------------------------------------
+# T7: worker message templates
+# ---------------------------------------------------------------------------
+
+
+def test_template__receipt_needs_revision__renders_with_reason():
+    """The needs_revision template renders the receipt id and reason (not the fallback)."""
+    from src.notification.worker import _render  # noqa: PLC0415, PLC2701
+
+    text = _render("receipt.needs_revision", {"receipt_id": 7, "reason": "Фото нечитаемо"})
+
+    assert "📬 Уведомление" not in text  # not the unknown-template fallback
+    assert "7" in text
+    assert "Фото нечитаемо" in text
+    assert "доработку" in text

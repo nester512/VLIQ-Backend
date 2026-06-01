@@ -35,6 +35,17 @@ INSERT INTO vliq.admin (
     (99998, '+79990099998', 'Regular', 'Admin', 'admin', '[]'::jsonb, true, now(), now())
 ON CONFLICT (telegram_id) DO NOTHING;
 
+-- Real owner/tester admin (Telegram id 997459169). seed_dev.sql runs on every
+-- backend start, so this keeps the owner an admin across rebuilds / DB resets.
+-- Without it, opening the Mini App with this account falls through to the
+-- seller auto-create flow (role=seller) and gets stuck on registration.
+INSERT INTO vliq.admin (
+    telegram_id, phone_e164, first_name, last_name, role, brand_ids,
+    is_active, created_at, updated_at
+) VALUES
+    (997459169, '+79990000002', 'Owner', 'VLIQ', 'super_admin', '[]'::jsonb, true, now(), now())
+ON CONFLICT (telegram_id) DO UPDATE SET is_active = true, role = 'super_admin';
+
 -- ---------------------------------------------------------------------------
 -- Sellers — mix of pending / active / blocked across cities.
 --   12345 is the local dev mock identity (matches AuthGate's MOCK_TELEGRAM_ID)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { loginByTgId, tmaVerify } from '../../api/auth'
 import { useAuthStore } from '../../store/authStore'
 import { isTmaEnvironment, isLikelyTmaContext, waitForInitData, getTgWebApp } from '../../utils/tma'
@@ -30,8 +30,24 @@ export function useAuthFlow(): AuthFlowState {
   const [error, setError] = useState<string | null>(null)
 
   const doAuth = useCallback(async () => {
-    setStatus('loading')
+    // Snapshot the persisted session BEFORE re-verifying. When a token already
+    // exists this is a silent background refresh — keep rendering the app (no
+    // blocking loader) and never tear the session down on a transient failure.
+    const prev = useAuthStore.getState()
+    const prevRole = prev.role
+    const hadToken = !!prev.token
+
+    if (!hadToken) setStatus('loading')
     setError(null)
+
+    // Apply a fresh session. If the role changed (e.g. seller → admin after
+    // being added to the admin table), reboot at "/" so RoleRedirect routes to
+    // the correct home — useAuthFlow lives above the Router, so we can't navigate().
+    const applyAuth = (accessToken: string, role: typeof prevRole) => {
+      setAuth(accessToken, role!)
+      setStatus('authenticated')
+      if (prevRole && role !== prevRole) window.location.assign('/')
+    }
 
     try {
       // On Android, `initData` may arrive ~200-1500ms AFTER WebView paint.
@@ -47,16 +63,14 @@ export function useAuthFlow(): AuthFlowState {
         if (initData) {
           try {
             const result = await tmaVerify({ init_data: initData })
-            setAuth(result.access_token, result.role)
-            setStatus('authenticated')
+            applyAuth(result.access_token, result.role)
             return
           } catch (verifyErr) {
             // DEV escape hatch only — never in prod, where this would be an auth bypass.
             if (import.meta.env.DEV && tgUserId) {
               try {
                 const result = await loginByTgId({ id: tgUserId })
-                setAuth(result.access_token, result.role)
-                setStatus('authenticated')
+                applyAuth(result.access_token, result.role)
                 return
               } catch (loginErr) {
                 console.warn('[auth] /auth/login dev-fallback failed', loginErr)
@@ -66,8 +80,18 @@ export function useAuthFlow(): AuthFlowState {
             }
           }
         }
+        // Re-verify didn't produce a session this open. If we already had a
+        // valid cached token, keep it rather than logging the user out.
+        if (hadToken) {
+          setStatus('authenticated')
+          return
+        }
       }
 
+      if (hadToken) {
+        setStatus('authenticated')
+        return
+      }
       setStatus('error')
       // If we know we're in TMA (initData present or strong context hints),
       // the failure was a signature/network problem — not "outside Telegram".
@@ -78,14 +102,26 @@ export function useAuthFlow(): AuthFlowState {
           : 'Приложение доступно только через Telegram.',
       )
     } catch (err) {
+      // Network/unexpected error: keep an existing session if we have one.
+      if (useAuthStore.getState().token) {
+        setStatus('authenticated')
+        return
+      }
       const message = err instanceof Error ? err.message : 'Ошибка авторизации'
       setStatus('error')
       setError(message)
     }
   }, [setAuth])
 
+  // Re-verify exactly once per app open. We intentionally run tma-verify even
+  // when a cached token already exists, so a role change (e.g. promotion to
+  // admin after being added to vliq.admin) is picked up without the user having
+  // to clear the Mini App. The ref guard prevents a verify→setAuth→token-change
+  // →effect loop and StrictMode's double-mount from re-firing it.
+  const didInit = useRef(false)
   useEffect(() => {
-    if (token) return
+    if (didInit.current) return
+    didInit.current = true
     // All state updates happen inside the async function, not directly in the
     // effect body, so the react-hooks/set-state-in-effect rule is satisfied.
     void (async () => {
@@ -93,6 +129,9 @@ export function useAuthFlow(): AuthFlowState {
       // 2.5s for initData to arrive (Android delay).
       if (isTmaEnvironment() || isLikelyTmaContext()) {
         await doAuth()
+      } else if (token) {
+        // Outside Telegram but a cached session exists (e.g. DEV mock login).
+        setStatus('authenticated')
       } else if (!import.meta.env.DEV) {
         setStatus('error')
         setError('Приложение доступно только через Telegram.')
