@@ -17,7 +17,7 @@ interface UiState {
 
   openSheet: (sheet: SheetKind, payload?: unknown) => void
   closeSheet: () => void
-  pushToast: (message: string, kind?: ToastKind, icon?: string) => void
+  pushToast: (message: string, kind?: ToastKind, icon?: string, duration?: number) => void
   dismissToast: (id: string) => void
 }
 
@@ -36,17 +36,19 @@ export const useUiStore = create<UiState>()((set) => ({
     set({ activeSheet: null, sheetPayload: null })
   },
 
-  pushToast: (message, kind = 'info', icon) => {
+  pushToast: (message, kind = 'info', icon, duration) => {
     const id = `toast-${++toastCounter}`
     set((state) => ({
       toastQueue: [...state.toastQueue, { id, message, kind, icon }],
     }))
-    // Auto-dismiss after 3 seconds
+    // Errors/warnings linger longer so they aren't missed — e.g. a 409 surfaced
+    // on submit while the user is looking at a different step. Still tap-to-dismiss.
+    const ttl = duration ?? (kind === 'dg' || kind === 'wn' ? 6000 : 3000)
     setTimeout(() => {
       set((state) => ({
         toastQueue: state.toastQueue.filter((t) => t.id !== id),
       }))
-    }, 3000)
+    }, ttl)
   },
 
   dismissToast: (id) => {

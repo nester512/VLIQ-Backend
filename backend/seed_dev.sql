@@ -47,7 +47,21 @@ INSERT INTO vliq.admin (
 ON CONFLICT (telegram_id) DO UPDATE SET is_active = true, role = 'super_admin';
 
 -- ---------------------------------------------------------------------------
+-- Cities — reference dictionary (source of truth for the registration form).
+--   Mirrors migration 0004. Add more cities via DB / admin later.
+-- ---------------------------------------------------------------------------
+
+INSERT INTO vliq.city (name, region, is_active, sort_order, created_at, updated_at)
+VALUES
+    ('Воронеж',      'Воронежская',  true, 10, now(), now()),
+    ('Москва',       'Москва',       true, 20, now(), now()),
+    ('Екатеринбург', 'Свердловская', true, 30, now(), now())
+ON CONFLICT (name) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
 -- Sellers — mix of pending / active / blocked across cities.
+--   Cities are kept within the dictionary above so editing a demo seller in
+--   the app never trips the city validation.
 --   12345 is the local dev mock identity (matches AuthGate's MOCK_TELEGRAM_ID)
 -- ---------------------------------------------------------------------------
 
@@ -58,11 +72,11 @@ INSERT INTO vliq.seller (
     created_at, updated_at
 ) VALUES
     (12345,    1, '+79991234567', 'Алексей',  'Морозов',   'Москва',           'Москва',          'Дымов · ТЦ Авиапарк',     'Ходынский б-р 4',   'Продавец-консультант', 'active',  'sbp_phone', '•••• 4117', now() - interval '40 days', now() - interval '40 days', now()),
-    (10000001, 1, '+79991110002', 'Ирина',    'Соколова',  'Санкт-Петербург',  'Ленинградская',   'VapeShop · Лиговский 50','Лиговский пр. 50',  'Старший продавец',     'active',  'card',      '•••• 8842', now() - interval '30 days', now() - interval '30 days', now()),
-    (10000002, 1, '+79991110003', 'Дмитрий',  'Кравцов',   'Казань',           'Татарстан',       'CloudStore · Кольцо',     'ТРК Кольцо',         'Продавец',             'active',  'sbp_phone', '•••• 2093', now() - interval '25 days', now() - interval '25 days', now()),
+    (10000001, 1, '+79991110002', 'Ирина',    'Соколова',  'Воронеж',          'Воронежская',     'VapeShop · Лиговский 50','Лиговский пр. 50',  'Старший продавец',     'active',  'card',      '•••• 8842', now() - interval '30 days', now() - interval '30 days', now()),
+    (10000002, 1, '+79991110003', 'Дмитрий',  'Кравцов',   'Екатеринбург',     'Свердловская',    'CloudStore · Кольцо',     'ТРК Кольцо',         'Продавец',             'active',  'sbp_phone', '•••• 2093', now() - interval '25 days', now() - interval '25 days', now()),
     (10000003, 1, '+79991110004', 'Марина',   'Лебедева',  'Москва',           'Москва',          'Дымов · Европейский',    'ТЦ Европейский',     'Продавец',             'active',  'card',      '•••• 4417', now() - interval '20 days', now() - interval '20 days', now()),
     (10000004, 1, '+79991110005', 'Сергей',   'Иванов',    'Екатеринбург',     'Свердловская',    'Гринвич · точка 12',     'ТЦ Гринвич',         'Продавец',             'pending', NULL,        NULL,         NULL,                       now() - interval '3 days',  now()),
-    (10000005, 1, '+79991110006', 'Анна',     'Кузнецова', 'Новосибирск',      'Новосибирская',   'СибВейп',                 'Красный пр. 17',     'Продавец',             'blocked', NULL,        NULL,         now() - interval '60 days', now() - interval '60 days', now())
+    (10000005, 1, '+79991110006', 'Анна',     'Кузнецова', 'Воронеж',          'Воронежская',     'СибВейп',                 'Красный пр. 17',     'Продавец',             'blocked', NULL,        NULL,         now() - interval '60 days', now() - interval '60 days', now())
 ON CONFLICT (telegram_id) DO UPDATE SET
     -- Idempotent re-seed: ensure the mock identity stays demo-ready even if
     -- the auth handler created a pending row first.
@@ -172,11 +186,11 @@ INSERT INTO vliq.promotion (
      NULL, NULL, NULL,
      now() - interval '10 days', now()),
 
-    (1, 'Новая линейка +400 ₽', 'КАЗАНЬ',
-     'Бонус 400 ₽ за чек с новинками в точках Казани.',
+    (1, 'Новая линейка +400 ₽', 'ЕКАТЕРИНБУРГ',
+     'Бонус 400 ₽ за чек с новинками в точках Екатеринбурга.',
      now() - interval '5 days', now() + interval '20 days',
      'active', 20,
-     '[{"flat_bonus":400}]'::jsonb, '["Казань"]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+     '[{"flat_bonus":400}]'::jsonb, '["Екатеринбург"]'::jsonb, '[]'::jsonb, '[]'::jsonb,
      NULL, NULL, NULL,
      now() - interval '5 days', now()),
 

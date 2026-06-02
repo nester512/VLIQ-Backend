@@ -31,6 +31,7 @@ USER_MESSAGES: dict[str, str] = {
     "SELLER_NOT_REGISTERED": "Продавец не зарегистрирован.",
     "SELLER_NOT_FOUND": "Продавец не найден.",
     "SELLER_PHONE_TAKEN": "Этот номер телефона уже зарегистрирован. Укажите другой.",
+    "SELLER_CITY_INVALID": "Выберите город из списка.",
     # Payout errors
     "PAYOUT_INVALID_AMOUNT": "Неверная сумма выплаты.",
     "PAYOUT_INSUFFICIENT_BALANCE": "Недостаточно бонусов для выплаты.",

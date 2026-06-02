@@ -14,6 +14,7 @@ from src.admin import models as _admin  # noqa: F401
 from src.audit_log import models as _audit  # noqa: F401
 from src.bonus_transaction import models as _bt  # noqa: F401
 from src.brand import models as _brand  # noqa: F401
+from src.city import models as _city  # noqa: F401
 from src.notification import models as _notif  # noqa: F401  # also registers NotificationOutbox
 from src.payout_request import models as _payout  # noqa: F401
 from src.promotion import models as _promo  # noqa: F401

@@ -58,7 +58,9 @@ test.describe('Registration flow', () => {
     await phoneInput.fill('+79001234567')
     await phoneInput.blur()
 
-    await page.getByLabel('Город').fill('Москва')
+    // City is a searchable combobox — open it and pick an option.
+    await page.getByRole('combobox').click()
+    await page.getByRole('option', { name: 'Москва' }).click()
 
     // Click "Далее" to go to step 2
     await page.getByRole('button', { name: 'Далее' }).click()
@@ -95,7 +97,9 @@ test.describe('Registration flow', () => {
     // Fill name and city but leave phone empty
     await page.getByLabel('Имя').fill('Алексей')
     await page.getByLabel('Фамилия').fill('Морозов')
-    await page.getByLabel('Город').fill('Москва')
+    // City is a searchable combobox — open it and pick an option.
+    await page.getByRole('combobox').click()
+    await page.getByRole('option', { name: 'Москва' }).click()
 
     // Focus and blur the phone field without entering a value — triggers the
     // touched state and switches the hint text from informational grey to error red.

@@ -36,26 +36,59 @@
 - **Образы запекают исходники (нет volume-mount).** Правка файла на хосте НЕ влияет на
   работающий контейнер — нужен ребилд + пересоздание (`docker compose up -d --build <svc>`).
 - **Runtime-образ бэкенда ставит `--only main`** — внутри **нет pytest** (dev-deps).
+  → собери один раз тест-образ `vliq-backend-test` (см. «Как проверять правки»), не ставь deps на каждый прогон.
 - **Сеть доступна** (docker pull, npm ci, pip install работают).
 - **`sleep` в Bash заблокирован** в foreground — фоновые задачи через `run_in_background`.
 - `cd` в составной bash-команде может триггерить prompt — используй `git -C <path>` / абсолютные пути.
 
 ## Как проверять правки (verified-команды)
+Репо-корень — **абсолютный путь** `/srv/VLIQ-things/VLIQ-Backend`. В `docker run -v` подставляй
+его, **не `$PWD`**: cwd дрейфует между вызовами Bash, и `$PWD/backend` молча превращается в пустой
+`/work` → «file or directory not found: tests/…». (Тот же принцип, что и в «Ограничениях».)
+
+### Backend-тесты (мок-сессии, реальная БД НЕ нужна)
+Runtime-образ — `--only main` (без pytest). Чтобы НЕ платить `pip install` на каждый прогон
+(главный тормоз debug-цикла), **один раз** собери тест-образ с dev-deps:
 ```bash
-# Backend-тесты (мок-сессии, реальная БД НЕ нужна; ставим dev-deps на лету, исходники монтируем в /work):
-docker run --rm -v "$PWD/backend":/work -w /work vliq-backend-backend sh -c \
-  'pip install -q "pytest>=8,<9" "pytest-asyncio>=0.23,<0.24" "respx>=0.21,<0.22" && \
-   python -m pytest tests/receipt_pipeline tests/receipt tests/notification tests/seller -q'
-
-# Быстрая логика без pytest (venv на /app/.venv; нужны env для Settings()):
-docker run --rm -v "$PWD/backend":/work -w /work \
-  -e JWT_SECRET_SALT=x -e POSTGRES__POSTGRES_URL=postgresql+asyncpg://vliq:vliq_dev@localhost:5432/vliq_test \
-  -e TG_BOT_TOKEN=1:t vliq-backend-backend python -c 'import src...; ...'
-
-# Frontend typecheck + lint (node_modules .dockerignore'нут, на хост попадёт после npm ci — это ок, gitignore):
-docker run --rm -v "$PWD/frontend":/app -w /app node:22-alpine sh -c 'npm ci && npx tsc -b && npx eslint <file>'
+docker build -t vliq-backend-test - <<'EOF'
+FROM vliq-backend-backend
+RUN pip install --no-cache-dir "pytest>=8,<9" "pytest-asyncio>=0.23,<0.24" "respx>=0.21,<0.22"
+EOF
 ```
-Тесты используют мок-сессии (`backend/tests/conftest.py` оверрайдит `get_pg_session`; lifespan не запускается под ASGITransport). Полный прогон с интеграциями требует отдельную БД `vliq_test`.
+Дальше каждый прогон мгновенный (deps уже в образе), исходники монтируем в /work:
+```bash
+docker run --rm -v /srv/VLIQ-things/VLIQ-Backend/backend:/work -w /work vliq-backend-test \
+  python -m pytest --ignore=tests/integration --ignore=tests/migrations -q
+```
+- `--ignore` отсекает тесты, которым нужна живая БД `vliq_test`; остальное — на мок-сессиях
+  (`tests/conftest.py` оверрайдит `get_pg_session`; lifespan не стартует под ASGITransport).
+- `--ignore` вместо списка папок: новые тест-дир (`tests/city` и т.п.) подхватываются сами.
+- Пересобери `vliq-backend-test` после ребилда базового `vliq-backend-backend` (одна строка выше).
+- Для точечной итерации просто допиши путь: `… python -m pytest tests/seller -q`.
+> ⚠️ Pre-existing red в базе (не связан с текущими фичами, чинить отдельно):
+> `tests/ofd_client/test_proverkacheka.py::test_unexpected_code__raises_ofd_blocked`
+> (code=99 → impl кидает `OFDNotFoundError`, тест ждёт `OFDBlockedError`). Остальное зелёное.
+
+### Frontend (typecheck + lint + unit — ОДНОЙ командой)
+node_modules монтируется на хост (gitignore) и переживает прогоны: `npm ci` нужен только при смене
+package.json/lock, иначе сразу `npx`. Гоняй tsc+vitest+eslint **вместе** — раздельно легко принять
+зелёный vitest за общий успех, а tsc упадёт (напр. на типах в тесте):
+```bash
+docker run --rm -v /srv/VLIQ-things/VLIQ-Backend/frontend:/app -w /app node:22-alpine sh -c \
+  'npm ci && npx tsc -b && npx vitest run && npx eslint src/<путь>'
+```
+- vitest заскоплен на `src/**` (`vitest.config.ts` → `include`/`exclude`).
+- `e2e/`, `e2e-real/` — это **Playwright, только в CI** (браузеры в этом окружении не ставятся;
+  локально максимум `npx playwright test --list <spec>` для проверки парсинга спек).
+
+### Smoke-импорт (ОПЦИОНАЛЬНО — точечная диагностика import/route, без pytest)
+```bash
+docker run --rm -v /srv/VLIQ-things/VLIQ-Backend/backend:/work -w /work \
+  -e JWT_SECRET_SALT=x -e POSTGRES__POSTGRES_URL=postgresql+asyncpg://vliq:vliq_dev@localhost:5432/vliq_test \
+  -e TG_BOT_TOKEN=1:t vliq-backend-backend python -c 'import src.app.api.v1; print("ok")'
+```
+Только когда отлаживаешь конкретную import/route-ошибку — **не рутинный шаг** (pytest и так
+импортирует приложение при сборе тестов).
 
 ## Дисциплина тестов (обязательно)
 На **каждый** improve / интеграцию / реализацию:
@@ -67,6 +100,11 @@ docker run --rm -v "$PWD/frontend":/app -w /app node:22-alpine sh -c 'npm ci && 
 4. Тест должен проверять **новое** поведение, а не закреплять старое.
    (Антипример из репо: тест `allowed_next(on_review, admin)` фиксировал баг —
    admin-переход в `needs_revision` отсутствовал и не покрывался тестом.)
+5. Грабли мок-сессий: функциональный тест эндпоинта, возвращающего Pydantic-модель
+   (напр. `SellerRead`), требует **полностью заполненный** мок-`row` — иначе финальный
+   `model_validate` падает на `MagicMock`-полях, а не на проверяемой логике (None для
+   опциональных, реальный `datetime` для `created_at`). Образец полного мока:
+   `tests/seller/test_get_seller_by_id.py`.
 
 Стандарты тестов: `backend/.cursor/rules/rules-python-tests.mdc`
 (+ `…-functional-tests.mdc`). Помощники: скилл `/code-review`, агент `python-test-qa`.
