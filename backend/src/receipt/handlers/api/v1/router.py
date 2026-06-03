@@ -210,13 +210,14 @@ async def submit_qr_payload(
     # Duplicate check on fn/fd/fp triple (same as pipeline fraud check, but early).
     existing = await _fraud_checker.check_fn_fd_fp(session, parsed.fn, parsed.fd, parsed.fp)
     if existing is not None and existing.seller_id == seller_id:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "DUPLICATE_RECEIPT",
-                "existing_receipt_id": existing.id,
-                "message": "QR already submitted",
-            },
+        # AppError → envelope with a user-facing Russian message, same as the
+        # qr_hash check below and POST /receipts/upload. The old dict-detail
+        # HTTPException had no user_message, so re-scanning the same QR showed a
+        # generic "что-то пошло не так" in the TMA.
+        raise AppError(
+            "RECEIPT_DUPLICATE",
+            status_code=409,
+            extra={"existing_receipt_id": existing.id},
         )
 
     # Hash the QR string itself so the partial-unique `file_hash` constraint
