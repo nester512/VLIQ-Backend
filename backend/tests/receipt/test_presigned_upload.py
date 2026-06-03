@@ -210,3 +210,43 @@ async def test_finalize__uri_from_other_seller__returns_403(client: AsyncClient,
     assert response.status_code == 403, response.text
     body = response.json()
     assert body.get("code") == "RECEIPT_NOT_YOURS"
+
+
+# ---------------------------------------------------------------------------
+# T3 — POST /receipts/upload (legacy multipart) duplicate handling
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_upload__duplicate_file__returns_409_RECEIPT_DUPLICATE(
+    client: AsyncClient, app: Any
+) -> None:
+    """A file whose hash already exists → 409 with the RECEIPT_DUPLICATE envelope.
+
+    Regression guard: the duplicate path used to raise HTTPException with a dict
+    `detail` (no `user_message`), so the TMA showed a generic "что-то пошло не
+    так". It now raises AppError → structured envelope with a Russian message
+    and the existing receipt id, which the frontend surfaces via extractApiError.
+    """
+    token = _seller_token(12345)
+
+    import src.receipt.handlers.api.v1.router as router_mod  # noqa: PLC0415
+
+    existing = MagicMock()
+    existing.id = 777
+
+    with patch.object(
+        router_mod._fraud_checker, "check_file_hash", new=AsyncMock(return_value=existing)
+    ):
+        response = await client.post(
+            "/api/v1/receipts/upload",
+            files={"file": ("receipt.jpg", b"\xff\xd8\xff\xe0" + b"\x00" * 12, "image/jpeg")},
+            data={"brand_id": "1"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 409, response.text
+    body = response.json()
+    assert body["code"] == "RECEIPT_DUPLICATE"
+    assert "user_message" in body
+    assert body["extra"]["existing_receipt_id"] == 777

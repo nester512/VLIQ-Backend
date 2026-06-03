@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Form, UploadFile
 from httpx import ASGITransport, AsyncClient
 from pydantic_settings import SettingsConfigDict
 from src.app.settings import Settings
@@ -36,6 +38,13 @@ def _build_bare_app(env: str = "local") -> FastAPI:
     async def bad_json_endpoint(body: dict):
         return body
 
+    # Mirrors POST /receipts/upload — UploadFile + required Form() field. A
+    # missing/invalid form field makes Pydantic raise RequestValidationError
+    # whose .body is starlette FormData (not JSON-serializable).
+    @app.post("/_test/multipart")
+    async def multipart_endpoint(file: UploadFile, brand_id: Annotated[int, Form()]):
+        return {"ok": True, "brand_id": brand_id}
+
     return app
 
 
@@ -52,6 +61,38 @@ async def test_validation_error__returns_422_with_envelope(client: AsyncClient):
     assert body.get("code") == "VALIDATION_ERROR"
     assert "user_message" in body
     assert "debug_id" in body
+
+
+@pytest.mark.asyncio
+async def test_validation_error__multipart_formdata__returns_422_not_500():
+    """Multipart request missing a required Form field → 422 envelope, NOT 500.
+
+    Regression guard: ``exc.body`` / ``exc.errors()['input']`` is starlette
+    FormData on multipart requests, which json.dumps could not serialize, so
+    the handler crashed with 500 and masked the real validation error (the
+    bug seen on POST /receipts/upload). Asserts the handler now emits a clean
+    422 envelope with JSON-serializable details.
+    """
+    app = _build_bare_app(env="local")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as ac:
+        # Send the file but OMIT the required `brand_id` form field.
+        response = await ac.post(
+            "/_test/multipart",
+            files={"file": ("receipt.jpg", b"\xff\xd8\xff\xe0", "image/jpeg")},
+        )
+
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["code"] == "VALIDATION_ERROR"
+    assert "user_message" in body
+    assert "debug_id" in body
+    # Details survived serialization: a list of field errors, no FormData leak.
+    assert isinstance(body["extra"]["errors"], list)
+    assert body["extra"]["errors"], "expected at least one field error"
 
 
 @pytest.mark.asyncio

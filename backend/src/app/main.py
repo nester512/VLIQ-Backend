@@ -131,13 +131,27 @@ def setup_exception_handlers(app: FastAPI, cfg: Settings) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
         debug_id = uuid.uuid4().hex
+        # Pydantic v2 errors carry an ``input`` (and sometimes ``ctx``) field that,
+        # for multipart/form-data requests, is the raw starlette ``FormData`` /
+        # ``UploadFile`` — neither is JSON-serializable and json.dumps raised
+        # TypeError here, masking the real 422 with a 500. Keep only the
+        # serializable fields. Likewise ``exc.body`` is FormData on multipart.
+        safe_errors = [
+            {"type": err.get("type"), "loc": list(err.get("loc", ())), "msg": err.get("msg")}
+            for err in exc.errors()
+        ]
+        body = exc.body
+        if isinstance(body, bytes):
+            body = body.decode("utf-8", "replace")
+        elif not isinstance(body, (str, int, float, bool, dict, list, type(None))):
+            body = None  # multipart FormData / UploadFile — not serializable
         return JSONResponse(
             status_code=422,
             content={
                 "code": "VALIDATION_ERROR",
                 "user_message": "Проверь введённые данные.",
                 "debug_id": debug_id,
-                "extra": {"errors": exc.errors(), "body": exc.body},
+                "extra": {"errors": safe_errors, "body": body},
             },
         )
 

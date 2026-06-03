@@ -54,8 +54,14 @@ export function useSwipeAction() {
       return reviseReceipt(id, comment ?? '')
     },
     onSuccess: (_, { dir }) => {
-      // Invalidate the review queue and the dashboard (which also queries receipts).
-      queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
+      // Do NOT invalidate ['admin','review-queue'] here. The SwipeDeck walks a
+      // session-local `deckIdx` that increments on each swipe; refetching the
+      // queue removes the just-actioned receipt (it leaves `on_review`), so the
+      // list shrank by one WHILE deckIdx advanced by one — consuming two cards
+      // per swipe and making the rest "disappear" as if the queue ended.
+      // The local index already hides swiped cards; fresh receipts arrive via
+      // fetchNextPage / staleTime refetch on re-entry. Only the dashboard
+      // counters need refreshing.
       queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] })
 
       if (dir === 'approve') {
