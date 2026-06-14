@@ -131,10 +131,15 @@ export const uploadReceipt = (file: File, brandId: number): Promise<{ id: string
   const formData = new FormData()
   formData.append('file', file)
   formData.append('brand_id', String(brandId))
-  // Don't set Content-Type — axios derives it (with the multipart boundary)
-  // from the FormData payload automatically.
+  // The shared axios instance defaults Content-Type to application/json. Axios
+  // v1's transformRequest, seeing a JSON content-type on a FormData payload,
+  // SERIALIZES the FormData to JSON — so the multipart body never reaches the
+  // server and FastAPI returns 422 (file/brand_id "field required"). Null out
+  // the header so the browser sets `multipart/form-data; boundary=…` itself.
   return api
-    .post<BackendReceiptUpload>('/receipts/upload', formData)
+    .post<BackendReceiptUpload>('/receipts/upload', formData, {
+      headers: { 'Content-Type': null },
+    })
     .then((r) => ({ id: String(r.data.receipt_id) }))
 }
 

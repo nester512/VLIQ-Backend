@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { submitQrPayload, uploadReceipt, getUploadUrl, finalizeUpload } from '@/api/receipts'
+import { extractApiError } from '@/api/client'
 import { useUiStore } from '@/store/uiStore'
 
 // Fallback brand_id when the seller profile hasn't loaded yet.
@@ -134,9 +135,13 @@ export function useUploadReceipt() {
       void queryClient.invalidateQueries({ queryKey: ['balance'] })
       pushToast('Чек успешно загружен', 'ok')
     },
-    onError: () => {
+    onError: (err: unknown) => {
       setProgress(null)
-      pushToast('Ошибка загрузки чека. Попробуйте снова.', 'dg')
+      // Surface the backend's user_message (e.g. "Этот чек уже был загружен
+      // ранее.") instead of a generic toast. Falls back to a default string
+      // when the error carries no envelope.
+      const { userMessage } = extractApiError(err)
+      pushToast(userMessage || 'Ошибка загрузки чека. Попробуйте снова.', 'dg')
     },
   })
 

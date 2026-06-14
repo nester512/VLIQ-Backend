@@ -114,12 +114,13 @@ async def upload_receipt(
     # 2. Duplicate check — before any DB insert.
     existing = await _fraud_checker.check_file_hash(session, file_hash)
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "detail": "duplicate_receipt",
-                "existing_receipt_id": existing.id,
-            },
+        # AppError → structured envelope with a user-facing Russian message,
+        # so the TMA shows "Этот чек уже был загружен ранее." instead of a
+        # generic error (the old dict-detail HTTPException had no user_message).
+        raise AppError(
+            "RECEIPT_DUPLICATE",
+            status_code=409,
+            extra={"existing_receipt_id": existing.id},
         )
 
     # 3. Store file.
@@ -209,13 +210,14 @@ async def submit_qr_payload(
     # Duplicate check on fn/fd/fp triple (same as pipeline fraud check, but early).
     existing = await _fraud_checker.check_fn_fd_fp(session, parsed.fn, parsed.fd, parsed.fp)
     if existing is not None and existing.seller_id == seller_id:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "DUPLICATE_RECEIPT",
-                "existing_receipt_id": existing.id,
-                "message": "QR already submitted",
-            },
+        # AppError → envelope with a user-facing Russian message, same as the
+        # qr_hash check below and POST /receipts/upload. The old dict-detail
+        # HTTPException had no user_message, so re-scanning the same QR showed a
+        # generic "что-то пошло не так" in the TMA.
+        raise AppError(
+            "RECEIPT_DUPLICATE",
+            status_code=409,
+            extra={"existing_receipt_id": existing.id},
         )
 
     # Hash the QR string itself so the partial-unique `file_hash` constraint
@@ -588,10 +590,10 @@ async def revise_receipt(
     token: JwtTokenT = Depends(require_admin),
     session: AsyncSession = Depends(get_pg_session),
 ) -> dict:
-    """Move receipt to needs_revision — seller must re-upload or clarify."""
+    """Stub: revise action rejects the receipt (needs_revision flow not yet implemented)."""
     async with session.begin():
         receipt = await _get_receipt_for_update(session, receipt_id)
-        _require_transition(receipt, ReceiptStatus.needs_revision.value, "admin")
+        _require_transition(receipt, ReceiptStatus.rejected.value, "admin")
 
         seller_id = receipt.seller_id
 
@@ -599,22 +601,20 @@ async def revise_receipt(
             update(Receipt)
             .where(Receipt.id == receipt_id)
             .values(
-                status=ReceiptStatus.needs_revision.value,
+                status=ReceiptStatus.rejected.value,
                 rejection_reason=body.comment,
                 updated_by=token["user_id"],
             )
         )
 
-        # Notify the seller that their receipt needs rework — same transaction
-        # as the status update (outbox pattern, mirrors approve/reject).
         await notification_outbox.enqueue(
             session,
             recipient_id=seller_id,
             channel="telegram",
-            template="receipt.needs_revision",
+            template="receipt.rejected",
             payload={
                 "receipt_id": receipt_id,
-                "reason": body.comment or "Уточните данные по чеку",
+                "reason": body.comment or "Чек отклонён",
             },
         )
 
@@ -628,8 +628,8 @@ async def revise_receipt(
             comment=body.comment,
         )
 
-    logger.info("receipt.revision_requested, receipt_id=%d, admin=%d", receipt_id, token["user_id"])
-    return {"receipt_id": receipt_id, "status": ReceiptStatus.needs_revision.value}
+    logger.info("receipt.revise_as_rejected, receipt_id=%d, admin=%d", receipt_id, token["user_id"])
+    return {"receipt_id": receipt_id, "status": ReceiptStatus.rejected.value}
 
 
 @router.post(

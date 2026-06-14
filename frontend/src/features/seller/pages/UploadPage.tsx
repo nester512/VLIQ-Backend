@@ -60,6 +60,7 @@ const CHECK_ITEMS = [
 
 interface TgQrApi {
   showScanQrPopup?: (p: { text?: string }, cb?: (data: string) => void) => void
+  closeScanQrPopup?: () => void
 }
 
 function UploadContent() {
@@ -106,10 +107,16 @@ function UploadContent() {
     const tgApp = (window as Window & { Telegram?: { WebApp?: TgQrApi } }).Telegram?.WebApp
     if (tgApp?.showScanQrPopup) {
       tgApp.showScanQrPopup({ text: 'Отсканируйте QR-код на чеке' }, (data) => {
-        // Send raw QR string via dedicated /qr-payload endpoint, not as a file.
+        // Capture the raw QR string (submitted later via the dedicated
+        // /qr-payload endpoint, not as a file). Telegram keeps the scanner
+        // overlay open until the page explicitly closes it — without this the
+        // popup stays on top of the Mini App, so the user never sees the
+        // "QR отсканирован" screen or the send button ("находит, но не
+        // отправляет"). Close it so the captured QR surfaces in the UI.
         setScannedQr(data)
         setSelectedFile(null)
         setPreview(null)
+        tgApp.closeScanQrPopup?.()
       })
     } else {
       fileRef.current?.click()

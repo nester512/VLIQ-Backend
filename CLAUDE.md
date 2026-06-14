@@ -8,7 +8,8 @@
 чеков → проверка ФНС/OFD → бонусы → выплаты; роли seller/admin/super_admin).
 - `backend/` — FastAPI + SQLAlchemy 2.0 async + asyncpg + Alembic, Python 3.12, Poetry.
 - `frontend/` — React 19 + Vite + TanStack Query + Telegram SDK (TMA).
-- `docs/` — use-cases / userstories / контракт-аудит (`USERCASES_2026-05.md` — чек-лист «что реально работает»).
+- `docs/` — **источник правды по продукту: `docs/VLIQ PRD+BRD/Use cases VLIQ.md`** (+ `FLOW Seller`s recipt.md`).
+  Реализация в коде аргументом не является. Удалённое/устаревшее — выжимкой в `docs/DEPRECATED.md`, архив — `docs/NOT_ACTUAL_DOCS/`.
 - `docker-compose.yml` (+ `docker-compose.override.yml` для прод-домена) — весь стек.
 - **Живой деплой:** `https://shamilara.fun` (этот сервер).
 
@@ -144,6 +145,6 @@ session-mgmt, …) в **каждую** новую сессию. Передава
 
 ## Указатели
 - Код-конвенции/модули: `backend/AGENTS.md`, `frontend/AGENTS.md` (часть статусов там устарела — сверяйся с кодом).
-- Чек-лист фич: `docs/USERCASES_2026-05.md`. Схема БД: `backend/erd.md`.
+- Требования: `docs/VLIQ PRD+BRD/Use cases VLIQ.md` (источник правды). Схема БД: `backend/erd.md`.
 - Приватная auto-memory (только эта машина): `~/.claude/projects/-srv-VLIQ-things-VLIQ-Backend/memory/`.
 - История правок: `git log` (последняя волна — коммит `7fd0599`, ветка `dev-validate-seller-use-cases`).

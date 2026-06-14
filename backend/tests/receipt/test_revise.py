@@ -1,10 +1,9 @@
-"""Tests for POST /receipts/{id}/revise (H22 — "Доработка" / needs_revision).
+"""Tests for POST /receipts/{id}/revise.
 
-Regression guard for the bug where the receipt state machine was missing the
-``on_review → needs_revision`` (admin) transition, so every revise returned
-409 RECEIPT_INVALID_STATE_TRANSITION, and the endpoint never notified the
-seller. These tests assert the happy path returns 200 and enqueues a
-``receipt.needs_revision`` telegram outbox row.
+Stub behaviour: until the needs_revision flow is implemented, the revise
+action transitions the receipt to ``rejected`` (blocked) so the seller cannot
+resubmit. Happy path returns 200 and enqueues a ``receipt.rejected`` telegram
+outbox row.
 """
 
 from __future__ import annotations
@@ -91,7 +90,7 @@ def _enqueued_outbox_rows(session_mock: MagicMock) -> list[NotificationOutbox]:
 
 @pytest.mark.asyncio
 async def test_revise_on_review__200_and_notifies_seller(client: AsyncClient, app) -> None:
-    """Admin sends an on_review receipt to needs_revision → 200 (no 409),
+    """Admin revises an on_review receipt → 200 (no 409); stub routes to rejected,
     and a telegram notification is enqueued for the seller."""
     receipt = _make_receipt(status="on_review")
     session_mock = _make_session(receipt)
@@ -110,12 +109,12 @@ async def test_revise_on_review__200_and_notifies_seller(client: AsyncClient, ap
     )
 
     assert resp.status_code == 200
-    assert resp.json()["status"] == "needs_revision"
+    assert resp.json()["status"] == "rejected"
 
     outbox_rows = _enqueued_outbox_rows(session_mock)
     assert len(outbox_rows) == 1
     row = outbox_rows[0]
-    assert row.template == "receipt.needs_revision"
+    assert row.template == "receipt.rejected"
     assert row.channel == "telegram"
     assert row.recipient_id == receipt.seller_id
     assert row.payload["receipt_id"] == 1
@@ -144,7 +143,7 @@ async def test_revise_without_comment__defaults_reason(client: AsyncClient, app)
     assert resp.status_code == 200
     outbox_rows = _enqueued_outbox_rows(session_mock)
     assert len(outbox_rows) == 1
-    assert outbox_rows[0].payload["reason"] == "Уточните данные по чеку"
+    assert outbox_rows[0].payload["reason"] == "Чек отклонён"
 
 
 @pytest.mark.asyncio
