@@ -1,0 +1,29 @@
+# Explicit DEV / handover overlay — run with:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Goal: exercise the QR flow end-to-end for manual testing WITHOUT a live
+# ФНС / proverkacheka lookup. The pipeline still runs real QR extraction +
+# parsing; only the OFD step is served by the deterministic FakeOFDClient
+# (fixtures in backend/tests/fixtures/ofd_responses/).
+#
+# Result: any scanned/uploaded receipt lands in `on_review` (the admin queue):
+#   - the sample QR  (fn=1234567890,i=12345,fp=67890)  → enriched from a fixture;
+#   - the 2nd sample (fn=9876543210,i=54321,fp=22222)  → enriched from a fixture;
+#   - any other QR/photo                               → on_review for manual review.
+#
+# For the REAL ФНС instead, just run the base file alone (`docker compose up`)
+# with OFD_PROVIDER=proverkacheka + PROVERKACHEKA_TOKEN set in .env.
+services:
+  backend:
+    # Publish the API to the host for local testing / curl (dev only).
+    ports:
+      - "8000:8000"
+    environment:
+      OFD_PROVIDER: fake
+      OCR_MODE: full
+
+  receipt-pipeline-worker:
+    environment:
+      OFD_PROVIDER: fake
+      OCR_MODE: full

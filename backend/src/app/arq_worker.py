@@ -36,6 +36,7 @@ from src.payout_request import models as _payout_models  # noqa: F401
 from src.promotion import models as _promo_models  # noqa: F401
 from src.receipt import models as _receipt_models  # noqa: F401
 from src.receipt_ocr.qr_extractor import QRExtractor
+from src.receipt_ocr.storage import get_receipt_storage
 from src.receipt_pipeline.orchestrator import ReceiptPipelineOrchestrator
 from src.seller import models as _seller_models  # noqa: F401
 from src.sku import models as _sku_models  # noqa: F401
@@ -117,15 +118,27 @@ async def on_startup(ctx: dict) -> None:
         ofd_client = FakeOFDClient()  # type: ignore[assignment]
         ofd_cache = InMemoryOFDCache()
 
+    # Storage MUST match the API's backend (RECEIPT_STORAGE): otherwise photos
+    # uploaded to S3/MinIO are unreadable by the worker (it would default to
+    # LocalFileStorage) and every photo receipt's QR extraction fails.
+    storage = get_receipt_storage()
+
     ctx["orchestrator"] = ReceiptPipelineOrchestrator(
         ofd_client=ofd_client,  # type: ignore[arg-type]
         ofd_cache=ofd_cache,  # type: ignore[arg-type]
         qr_extractor=QRExtractor(),
         sku_matcher=SkuMatcher(),
         fraud_checker=FraudChecker(),
+        ocr_mode=settings.OCR_MODE,
+        storage=storage,
     )
 
-    logger.info("arq.worker_startup, ofd_provider=%s", provider)
+    logger.info(
+        "arq.worker_startup, ofd_provider=%s, ocr_mode=%s, storage=%s",
+        provider,
+        settings.OCR_MODE,
+        type(storage).__name__,
+    )
 
 
 async def on_shutdown(ctx: dict) -> None:

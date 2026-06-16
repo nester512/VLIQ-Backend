@@ -3,7 +3,7 @@
   "fd": "12345",
   "fp": "67890",
   "total_sum": 59900,
-  "purchase_date": "2026-05-01T14:30:00+03:00",
+  "purchase_date": "2026-06-10T14:30:00+03:00",
   "shop_name": "ИП Тестов Тест Тестович",
   "shop_inn": "123456789012",
   "shop_address": "г. Москва, ул. Тестовая, д. 1",
@@ -16,5 +16,7 @@
       "nds_rate": 20
     }
   ],
-  "raw_response": {"source": "fake"}
+  "raw_response": {
+    "source": "fake"
+  }
 }

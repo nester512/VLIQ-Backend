@@ -63,6 +63,32 @@ interface TgQrApi {
   closeScanQrPopup?: () => void
 }
 
+/**
+ * S3.3 client-side pre-check: does this image contain a QR code?
+ *
+ * Uses the native BarcodeDetector when available (Chromium / Telegram WebView).
+ * Returns:
+ *   - true / false when detection actually ran;
+ *   - null when detection is unsupported or the file is not an image — the
+ *     caller treats null as "cannot tell", so no false warning is shown.
+ * Non-blocking: the upload is allowed regardless of the result.
+ */
+async function imageHasQr(file: File): Promise<boolean | null> {
+  const BD = (window as unknown as { BarcodeDetector?: new (o?: { formats?: string[] }) => { detect: (s: ImageBitmapSource) => Promise<unknown[]> } }).BarcodeDetector
+  if (!BD || typeof createImageBitmap !== 'function' || !file.type.startsWith('image/')) {
+    return null
+  }
+  try {
+    const detector = new BD({ formats: ['qr_code'] })
+    const bitmap = await createImageBitmap(file)
+    const codes = await detector.detect(bitmap)
+    ;(bitmap as { close?: () => void }).close?.()
+    return codes.length > 0
+  } catch {
+    return null
+  }
+}
+
 function UploadContent() {
   const navigate = useNavigate()
   const { mutateAsync: uploadReceipt, isPending, progress } = useUploadReceipt()
@@ -72,8 +98,10 @@ function UploadContent() {
     staleTime: 60_000,
   })
   const [preview, setPreview] = useState<string | null>(null)
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  // Multiple photos / PDFs per submission (spec S3.2 «одно или несколько»).
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [scannedQr, setScannedQr] = useState<string | null>(null)
+  const [qrWarning, setQrWarning] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -86,18 +114,28 @@ function UploadContent() {
   }, [preview])
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = Array.from(e.target.files ?? [])
+    if (files.length === 0) return
     if (preview) URL.revokeObjectURL(preview)
-    setSelectedFile(file)
-    setPreview(URL.createObjectURL(file))
+    setScannedQr(null)
+    setSelectedFiles(files)
+    const firstImage = files.find((f) => f.type.startsWith('image/'))
+    setPreview(firstImage ? URL.createObjectURL(firstImage) : null)
+    // S3.3: warn (non-blocking) if the photo has no detectable QR code.
+    setQrWarning(false)
+    if (firstImage) {
+      void imageHasQr(firstImage).then((found) => {
+        if (found === false) setQrWarning(true)
+      })
+    }
   }
 
   function clearSelection() {
     if (preview) URL.revokeObjectURL(preview)
     setPreview(null)
-    setSelectedFile(null)
+    setSelectedFiles([])
     setScannedQr(null)
+    setQrWarning(false)
     setUploadProgress(null)
     if (cameraRef.current) cameraRef.current.value = ''
     if (fileRef.current)   fileRef.current.value = ''
@@ -114,36 +152,52 @@ function UploadContent() {
         // "QR отсканирован" screen or the send button ("находит, но не
         // отправляет"). Close it so the captured QR surfaces in the UI.
         setScannedQr(data)
-        setSelectedFile(null)
+        setSelectedFiles([])
         setPreview(null)
+        setQrWarning(false)
         tgApp.closeScanQrPopup?.()
       })
     } else {
+      // Outside Telegram (e.g. desktop browser) there is no in-app scanner —
+      // fall back to picking a photo of the receipt; the server extracts the QR.
       fileRef.current?.click()
     }
   }
 
   async function handleSend() {
-    if (!selectedFile && !scannedQr) return
+    if (selectedFiles.length === 0 && !scannedQr) return
     setUploadProgress(null)
     try {
-      const receipt = await uploadReceipt({
-        file: selectedFile ?? undefined,
-        qrRaw: scannedQr ?? undefined,
-        brandId: profile?.brand_id,
-        onProgress: (pct) => setUploadProgress(pct),
-      })
+      // QR-scan path → single /qr-payload submission.
+      if (scannedQr) {
+        const receipt = await uploadReceipt({ qrRaw: scannedQr, brandId: profile?.brand_id })
+        clearSelection()
+        navigate(`/seller/status/${receipt.id}`)
+        return
+      }
+
+      // Photo / PDF path → upload each selected file (one receipt per file).
+      let firstId: string | null = null
+      for (const file of selectedFiles) {
+        const receipt = await uploadReceipt({
+          file,
+          brandId: profile?.brand_id,
+          onProgress: (pct) => setUploadProgress(pct),
+        })
+        if (firstId === null) firstId = receipt.id
+      }
       setUploadProgress(null)
       clearSelection()
-      navigate(`/seller/status/${receipt.id}`)
+      if (firstId) navigate(`/seller/status/${firstId}`)
     } catch {
       setUploadProgress(null)
-      // Error toast is dispatched inside the hook
+      // Error toast is dispatched inside the hook.
     }
   }
 
   // Resolved progress: prefer real-time callback value, fall back to hook state.
   const displayProgress = uploadProgress ?? progress
+  const hasSelection = selectedFiles.length > 0 || Boolean(scannedQr)
 
   return (
     <div>
@@ -183,23 +237,48 @@ function UploadContent() {
               Очистить
             </button>
           </div>
-        ) : preview ? (
+        ) : selectedFiles.length > 0 ? (
           <div>
-            <img
-              src={preview}
-              alt="Превью чека"
-              style={{
-                display: 'block',
-                maxHeight: 240,
-                maxWidth: '100%',
-                margin: '0 auto',
-                borderRadius: 12,
-                objectFit: 'contain',
-              }}
-            />
+            {preview ? (
+              <img
+                src={preview}
+                alt="Превью чека"
+                style={{
+                  display: 'block',
+                  maxHeight: 240,
+                  maxWidth: '100%',
+                  margin: '0 auto',
+                  borderRadius: 12,
+                  objectFit: 'contain',
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: 64, height: 64, borderRadius: 20, margin: '0 auto',
+                  display: 'grid', placeItems: 'center',
+                  background: 'var(--vliq-field)', color: 'var(--vliq-hint)',
+                }}
+              >
+                <Icon name="file" size={28} />
+              </div>
+            )}
             <p style={{ fontSize: 13, color: 'var(--vliq-hint)', marginTop: 10, fontWeight: 500 }}>
-              {selectedFile?.name ?? 'Файл выбран'}
+              {selectedFiles.length === 1
+                ? (selectedFiles[0]?.name ?? 'Файл выбран')
+                : `Выбрано файлов: ${selectedFiles.length}`}
             </p>
+            {qrWarning && (
+              <p
+                style={{
+                  fontSize: 12, fontWeight: 500, lineHeight: 1.4, marginTop: 8,
+                  padding: '8px 12px', borderRadius: 10, textAlign: 'left',
+                  background: 'var(--vliq-wn-bg)', color: 'var(--vliq-wn-ink)',
+                }}
+              >
+                QR-код на фото не найден. Чек всё равно можно отправить — мы проверим его вручную.
+              </p>
+            )}
             <button
               type="button"
               onClick={clearSelection}
@@ -243,8 +322,8 @@ function UploadContent() {
         )}
       </div>
 
-      <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={handleFileChange} />
-      <input ref={fileRef}   type="file" accept="image/*,application/pdf"       hidden onChange={handleFileChange} />
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" multiple hidden onChange={handleFileChange} />
+      <input ref={fileRef}   type="file" accept="image/*,application/pdf"       multiple hidden onChange={handleFileChange} />
 
       {/* Options */}
       <div style={{ display: 'flex', gap: 10, padding: '0 16px', marginTop: 6 }}>
@@ -327,8 +406,8 @@ function UploadContent() {
         )}
 
         <div style={{ marginTop: 16 }}>
-          <Btn loading={isPending} disabled={isPending || (!selectedFile && !scannedQr)} onClick={() => void handleSend()}>
-            {selectedFile || scannedQr ? 'Отправить чек' : 'Выберите файл'}
+          <Btn loading={isPending} disabled={isPending || !hasSelection} onClick={() => void handleSend()}>
+            {hasSelection ? 'Отправить чек' : 'Выберите файл'}
           </Btn>
         </div>
       </div>

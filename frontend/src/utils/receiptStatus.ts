@@ -4,17 +4,21 @@ export type StatusKind = 'ok' | 'dg' | 'wn' | 'muted'
 
 /**
  * Single source of truth for receipt status visuals + labels.
- * Backend statuses: pending, ocr_in_progress, on_review, approved,
- *                   rejected, needs_revision, paid_out.
+ *
+ * Per spec (Use cases S3 / FLOW) the seller sees ONLY 4 statuses:
+ *   «На проверке» · «Одобрен» · «Отклонён» · «Выплачен».
+ * The backend keeps finer internal states (pending / ocr_in_progress /
+ * on_review and the legacy, now-unreachable needs_revision) — they ALL collapse
+ * to the single seller-facing «На проверке» here. There is no «на доработке».
  */
 export const RECEIPT_STATUS: Record<ReceiptStatus, { label: string; short: string; kind: StatusKind }> = {
-  pending:         { label: 'Принят',           short: 'Принят',     kind: 'wn' },
-  ocr_in_progress: { label: 'Распознаётся',     short: 'OCR',         kind: 'wn' },
-  on_review:       { label: 'На проверке',       short: 'Проверка',    kind: 'wn' },
-  needs_revision:  { label: 'Нужны правки',     short: 'Правки',      kind: 'wn' },
-  approved:        { label: 'Одобрен',           short: 'Одобрен',     kind: 'ok' },
-  paid_out:        { label: 'Выплачен',          short: 'Выплата',     kind: 'ok' },
-  rejected:        { label: 'Отклонён',          short: 'Отказ',       kind: 'dg' },
+  pending:         { label: 'На проверке', short: 'Проверка', kind: 'wn' },
+  ocr_in_progress: { label: 'На проверке', short: 'Проверка', kind: 'wn' },
+  on_review:       { label: 'На проверке', short: 'Проверка', kind: 'wn' },
+  needs_revision:  { label: 'На проверке', short: 'Проверка', kind: 'wn' },
+  approved:        { label: 'Одобрен',     short: 'Одобрен',  kind: 'ok' },
+  paid_out:        { label: 'Выплачен',    short: 'Выплата',  kind: 'ok' },
+  rejected:        { label: 'Отклонён',    short: 'Отказ',    kind: 'dg' },
 }
 
 /** Statuses that mean "user is waiting on us". */

@@ -166,10 +166,8 @@ class TestQrPayloadThresholds:
         )
         assert response.status_code == 400
         body = response.json()
-        # Code is nested in detail dict.
-        detail = body.get("detail", {})
-        code = detail.get("code") if isinstance(detail, dict) else None
-        assert code == "QR_PARSE_FAILED"
+        # AppError envelope: top-level code (not nested under detail).
+        assert body["code"] == "QR_PARSE_FAILED"
 
     @pytest.mark.asyncio
     async def test_qr_payload__future_date__flagged_or_rejected(self, app, client: AsyncClient):
@@ -258,9 +256,9 @@ class TestQrPayloadThresholds:
 
         assert response.status_code == 409
         body = response.json()
-        detail = body.get("detail", {})
-        code = detail.get("code") if isinstance(detail, dict) else None
-        assert code == "DUPLICATE_RECEIPT"
+        # AppError envelope: top-level code + user_message + extra (not nested detail).
+        assert body["code"] == "RECEIPT_DUPLICATE"
+        assert body["extra"]["existing_receipt_id"] == 999
 
 
 # ---------------------------------------------------------------------------
@@ -333,8 +331,8 @@ class TestPipelineOFDThresholds:
         return session
 
     @pytest.mark.asyncio
-    async def test_pipeline__ofd_404__sets_status_needs_revision(self):
-        """When OFD returns OFDNotFoundError the receipt status is set to rejected."""
+    async def test_pipeline__ofd_404__sets_status_on_review(self):
+        """When OFD returns OFDNotFoundError the receipt is routed to on_review (admin decides)."""
         from src.ofd_client.exceptions import OFDNotFoundError  # noqa: PLC0415
 
         mock_ofd = MagicMock()
@@ -497,7 +495,7 @@ class TestPipelineRetryThresholds(TestPipelineOFDThresholds):
                 patch.object(orch, "_load_skus", AsyncMock(return_value=[])),
                 patch.object(orch, "_load_active_promotions", AsyncMock(return_value=[])),
                 patch.object(orch, "_count_seller_receipts", AsyncMock(return_value=0)),
-                patch.object(orch, "_step_atomic_commit", AsyncMock()),
+                patch.object(orch, "_step_finalize_review", AsyncMock()),
             ):
                 with patch.dict(os.environ, {"OFD_RETRY_MAX_ATTEMPTS": "3"}):
                     await orch.process(receipt.id, session)
@@ -505,10 +503,10 @@ class TestPipelineRetryThresholds(TestPipelineOFDThresholds):
         assert call_count == 3  # failed twice, succeeded on 3rd
 
     @pytest.mark.asyncio
-    async def test_pipeline__ofd_timeout__sets_status_needs_revision_with_OFD_UPSTREAM_UNAVAILABLE(self):
-        """When OFD times out on every attempt the receipt is moved to needs_revision.
+    async def test_pipeline__ofd_timeout__sets_status_on_review_with_OFD_UPSTREAM_UNAVAILABLE(self):
+        """When OFD times out on every attempt the receipt is moved to on_review (manual fallback).
 
-        rejection_reason must be set to OFD_UPSTREAM_UNAVAILABLE.
+        rejection_reason carries OFD_UPSTREAM_UNAVAILABLE as admin context.
         """
         from src.ofd_client.exceptions import OFDBlockedError  # noqa: PLC0415
 
@@ -549,10 +547,11 @@ class TestPipelineRetryThresholds(TestPipelineOFDThresholds):
 
     @pytest.mark.asyncio
     async def test_pipeline__ofd_500__retries_then_fails_after_max_attempts(self):
-        """OFD returns OFDBlockedError on every attempt; pipeline sets needs_revision.
+        """OFD returns OFDBlockedError on every attempt; pipeline routes to on_review.
 
         This covers the HTTP-5xx / general transient-error path via
-        OFDBlockedError (the client maps 5xx → OFDBlockedError).
+        OFDBlockedError (the client maps 5xx → OFDBlockedError). Per spec there is
+        no auto-reject: an unreachable OFD becomes a manual-review (on_review) case.
         """
         from src.ofd_client.exceptions import OFDBlockedError  # noqa: PLC0415
 
@@ -583,7 +582,7 @@ class TestPipelineRetryThresholds(TestPipelineOFDThresholds):
 
         # All 3 attempts were made.
         assert call_count == 3
-        # Status was committed (needs_revision).
+        # Status was committed (on_review — manual fallback).
         assert session.commit.called
 
     @pytest.mark.asyncio
@@ -620,7 +619,7 @@ class TestPipelineRetryThresholds(TestPipelineOFDThresholds):
             patch.object(orch, "_load_skus", AsyncMock(return_value=[])),
             patch.object(orch, "_load_active_promotions", AsyncMock(return_value=[])),
             patch.object(orch, "_count_seller_receipts", AsyncMock(return_value=0)),
-            patch.object(orch, "_step_atomic_commit", AsyncMock()),
+            patch.object(orch, "_step_finalize_review", AsyncMock()),
         ):
             # Must not raise.
             await orch.process(receipt.id, session)
@@ -656,8 +655,9 @@ class TestDuplicateDetectionThresholds(TestPipelineOFDThresholds):
             )
 
         assert response.status_code == 409
-        detail = response.json().get("detail", {})
-        assert detail.get("code") == "DUPLICATE_RECEIPT"
+        body = response.json()
+        assert body["code"] == "RECEIPT_DUPLICATE"
+        assert body["extra"]["existing_receipt_id"] == 888
 
     @pytest.mark.asyncio
     async def test_pipeline__different_sellers_same_fn_fd_fp__fraud_cross_seller(self):
@@ -702,11 +702,12 @@ class TestUploadPdfThreshold(TestPipelineOFDThresholds):
     """PDF upload behaviour — documents what happens when a PDF has no extractable QR."""
 
     @pytest.mark.asyncio
-    async def test_upload__pdf__pipeline_sets_needs_revision_when_qr_unreadable(self):
-        """A PDF upload whose QR cannot be extracted should end up needs_revision.
+    async def test_upload__pdf__pipeline_sets_on_review_when_qr_unreadable(self):
+        """A PDF upload whose QR cannot be extracted should end up on_review.
 
-        The QR extractor returns None for a minimal PDF blob.  The pipeline
-        then sets status=needs_revision so the seller can re-upload a clearer image.
+        The QR extractor returns None for a minimal PDF blob.  The pipeline then
+        routes status=on_review (manual fallback) so an admin can verify it —
+        per spec there is no 'needs_revision'/re-upload dead-end.
         """
         orch = self._make_orchestrator()
         session = self._make_session()
@@ -749,7 +750,7 @@ class TestUploadPdfThreshold(TestPipelineOFDThresholds):
 
     @pytest.mark.asyncio
     async def test_pipeline__ofd_retry_env_var__1_attempt_fails_fast(self):
-        """With OFD_RETRY_MAX_ATTEMPTS=1, a single failure immediately sets needs_revision.
+        """With OFD_RETRY_MAX_ATTEMPTS=1, a single failure immediately routes to on_review.
 
         No backoff sleep should occur.
         """

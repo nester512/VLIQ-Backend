@@ -20,14 +20,17 @@ interface StatusVisual {
   kind: StatusKind
 }
 
+// Per spec the seller sees one pre-decision state — «На проверке». pending /
+// ocr_in_progress / on_review / (legacy) needs_revision all render the same
+// review card; there is no «Нужны правки»/re-upload dead-end.
 const STATUS_VISUAL: Record<ReceiptStatus, StatusVisual> = {
-  pending:         { icon: 'clock',  title: 'Чек получен',           subtitle: 'Обрабатываем ваш чек…',                     kind: 'wn' },
-  ocr_in_progress: { icon: 'clock',  title: 'Распознаём данные',     subtitle: 'Система извлекает информацию из чека',       kind: 'wn' },
-  on_review:       { icon: 'clock',  title: 'Чек на проверке',        subtitle: 'Мы проверим чек и пришлём уведомление',     kind: 'wn' },
-  needs_revision:  { icon: 'alert',  title: 'Нужны правки',           subtitle: 'Загрузите чёткий снимок чека ещё раз',       kind: 'wn' },
-  approved:        { icon: 'check',  title: 'Чек одобрен',            subtitle: 'Бонус начислен на ваш баланс',               kind: 'ok' },
-  paid_out:        { icon: 'check',  title: 'Бонус выплачен',         subtitle: 'Сумма уже на ваших реквизитах',              kind: 'ok' },
-  rejected:        { icon: 'x',      title: 'Чек отклонён',           subtitle: 'К сожалению, чек не прошёл проверку',         kind: 'dg' },
+  pending:         { icon: 'clock',  title: 'Чек на проверке', subtitle: 'Мы проверим чек и пришлём уведомление', kind: 'wn' },
+  ocr_in_progress: { icon: 'clock',  title: 'Чек на проверке', subtitle: 'Мы проверим чек и пришлём уведомление', kind: 'wn' },
+  on_review:       { icon: 'clock',  title: 'Чек на проверке', subtitle: 'Мы проверим чек и пришлём уведомление', kind: 'wn' },
+  needs_revision:  { icon: 'clock',  title: 'Чек на проверке', subtitle: 'Мы проверим чек и пришлём уведомление', kind: 'wn' },
+  approved:        { icon: 'check',  title: 'Чек одобрен',     subtitle: 'Бонус начислен на ваш баланс',          kind: 'ok' },
+  paid_out:        { icon: 'check',  title: 'Бонус выплачен',  subtitle: 'Сумма уже на ваших реквизитах',         kind: 'ok' },
+  rejected:        { icon: 'x',      title: 'Чек отклонён',    subtitle: 'К сожалению, чек не прошёл проверку',    kind: 'dg' },
 }
 
 const KIND_SURFACE: Record<StatusKind, { bg: string; ink: string; pill: 'ok' | 'wn' | 'dg' | 'muted' }> = {
@@ -69,7 +72,12 @@ export function StatusPage() {
     retry: false,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      if (status === 'pending' || status === 'ocr_in_progress') return 3000
+      // Poll while the receipt is still in the review pipeline (pending →
+      // ocr_in_progress → on_review) so the seller sees the admin's decision
+      // (approved/rejected) land without a manual refresh.
+      if (status && status !== 'approved' && status !== 'paid_out' && status !== 'rejected') {
+        return 4000
+      }
       return false
     },
   })

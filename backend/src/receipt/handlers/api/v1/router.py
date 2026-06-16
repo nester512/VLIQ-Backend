@@ -201,11 +201,10 @@ async def submit_qr_payload(
     try:
         parsed = parse_qr_string(body.qr_raw)
     except QRParseError as exc:
-        # TODO migrate to AppError (QR_PARSE_FAILED) once errors.py is published by parallel agent.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "QR_PARSE_FAILED", "message": str(exc)},
-        ) from exc
+        # AppError → structured envelope with a user-facing Russian message so the
+        # TMA shows "Не удалось прочитать QR-код. Попробуй ещё раз." instead of a
+        # generic toast (the old dict-detail HTTPException had no user_message).
+        raise AppError("QR_PARSE_FAILED", status_code=400, extra={"reason": str(exc)}) from exc
 
     # Duplicate check on fn/fd/fp triple (same as pipeline fraud check, but early).
     existing = await _fraud_checker.check_fn_fd_fp(session, parsed.fn, parsed.fd, parsed.fp)
@@ -369,12 +368,12 @@ async def finalize_upload(
     file_hash = sha256_hash(file_bytes)
     existing = await _fraud_checker.check_file_hash(session, file_hash)
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "detail": "duplicate_receipt",
-                "existing_receipt_id": existing.id,
-            },
+        # Same AppError envelope as /upload and /qr-payload so the presigned-S3
+        # path also shows "Этот чек уже был загружен ранее." (not a generic toast).
+        raise AppError(
+            "RECEIPT_DUPLICATE",
+            status_code=409,
+            extra={"existing_receipt_id": existing.id},
         )
 
     # Insert receipt row.

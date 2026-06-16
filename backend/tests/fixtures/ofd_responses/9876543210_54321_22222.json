@@ -1,0 +1,22 @@
+{
+  "fn": "9876543210",
+  "fd": "54321",
+  "fp": "22222",
+  "total_sum": 35000,
+  "purchase_date": "2026-06-10T10:15:00+03:00",
+  "shop_name": "ООО Ромашка",
+  "shop_inn": "7701234567",
+  "shop_address": "г. Москва, пр. Мира, д. 5",
+  "items": [
+    {
+      "name": "Тестовый товар 2",
+      "quantity": 1.0,
+      "price": 35000,
+      "total": 35000,
+      "nds_rate": 20
+    }
+  ],
+  "raw_response": {
+    "source": "fake"
+  }
+}
