@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Avatar } from '@/components/atoms/Avatar'
 import { Pill } from '@/components/atoms/Pill'
@@ -6,7 +6,6 @@ import { Icon } from '@/components/atoms/Icon'
 import { Btn } from '@/components/atoms/Btn'
 import { Spinner } from '@/components/atoms/Spinner'
 import { ReceiptGraphic } from '@/components/molecules/ReceiptGraphic'
-import { KVRow } from '@/components/molecules/KVRow'
 import { EditBonusSheet } from '@/components/molecules/EditBonusSheet'
 import { AddCommentSheet } from '@/components/molecules/AddCommentSheet'
 import { BlockSellerSheet } from '@/components/molecules/BlockSellerSheet'
@@ -22,6 +21,17 @@ import type { Receipt } from '@/types/models'
 interface ReceiptDetailSheetProps {
   receiptId: string | null
   receipt?: AdminReceipt
+}
+
+/** One label/value cell in the 2-column "Распознанные данные" grid.
+ *  `wide` spans both columns for long values (shop, address, ФН/ФД/ФП). */
+function KV({ label, value, wide }: { label: string; value: ReactNode; wide?: boolean }) {
+  return (
+    <div className={wide ? 'col-span-2 min-w-0' : 'min-w-0'}>
+      <div className="text-[11.5px] font-medium text-[var(--vliq-hint)] mb-0.5">{label}</div>
+      <div className="text-[14px] font-semibold text-[var(--vliq-text)] leading-snug break-words">{value}</div>
+    </div>
+  )
 }
 
 export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetProps) {
@@ -184,31 +194,29 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
           </button>
         </div>
 
-        {/* KV data */}
-        <b className="text-[14px] font-bold block mb-0.5">Распознанные данные</b>
-        <div className="bg-[var(--vliq-card)] rounded-[16px] px-4 shadow-[var(--vliq-shadow-sm)] mb-4">
-          <KVRow label="Пользователь" value={sellerName} />
-          <KVRow
+        {/* KV data — compact 2-column grid (less empty space, aligned, no overlap) */}
+        <b className="text-[14px] font-bold block mb-1.5">Распознанные данные</b>
+        <div className="bg-[var(--vliq-card)] rounded-[16px] p-4 shadow-[var(--vliq-shadow-sm)] mb-3 grid grid-cols-2 gap-x-4 gap-y-3.5">
+          <KV label="Пользователь" value={sellerName} />
+          <KV
             label="Дата загрузки"
             value={new Intl.DateTimeFormat('ru-RU', {
               day: '2-digit', month: '2-digit', year: 'numeric',
               hour: '2-digit', minute: '2-digit',
             }).format(new Date(receipt.created_at))}
           />
-          <KVRow label="Магазин" value={receipt.shop_name ?? '—'} />
-          <KVRow label="Адрес" value={receipt.shop_address ?? '—'} />
-          <KVRow label="Сумма покупки" value={fmtMoney(receipt.amount)} />
-          <KVRow
-            label="Найдено товаров"
-            value={receipt.items?.length != null ? String(receipt.items.length) : '—'}
-          />
-          <KVRow
+          <KV label="Сумма покупки" value={fmtMoney(receipt.amount)} />
+          <KV label="Найдено товаров" value={receipt.items?.length != null ? String(receipt.items.length) : '—'} />
+          <KV label="Магазин" value={receipt.shop_name ?? '—'} wide />
+          <KV label="Адрес" value={receipt.shop_address ?? '—'} wide />
+          <KV
             label="ФН / ФД / ФП"
             value={
               receipt.fn && receipt.fd && receipt.fp
                 ? `${receipt.fn.slice(-6)} / ${receipt.fd} / ${receipt.fp.slice(-4)}`
                 : '—'
             }
+            wide
           />
         </div>
 
@@ -231,19 +239,29 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
         {receipt.items && receipt.items.length > 0 && (
           <>
             <b className="text-[14px] font-bold block mb-0.5">Товары</b>
-            <div className="bg-[var(--vliq-card)] rounded-[16px] px-4 shadow-[var(--vliq-shadow-sm)] mb-4">
+            <div className="bg-[var(--vliq-card)] rounded-[16px] px-4 shadow-[var(--vliq-shadow-sm)] mb-3">
               {receipt.items.map((item, i) => (
                 <div
                   key={i}
-                  className="flex justify-between items-start gap-4 py-[10px] border-b border-[var(--vliq-sep)] last:border-b-0"
+                  className="flex items-start gap-3 py-[10px] border-b border-[var(--vliq-sep)] last:border-b-0"
                 >
-                  <span className="text-[13px] text-[var(--vliq-hint)] font-medium">{item.name}</span>
-                  <span className="text-[13px] font-semibold">{fmtMoney(item.price)}</span>
+                  <span className="flex-1 min-w-0 text-[13px] text-[var(--vliq-text)] font-medium leading-snug break-words">
+                    {item.name}
+                  </span>
+                  <span
+                    className="flex-none text-[13px] font-semibold whitespace-nowrap"
+                    style={{ fontVariantNumeric: 'tabular-nums' }}
+                  >
+                    {fmtMoney(item.price)}
+                  </span>
                 </div>
               ))}
-              <div className="flex justify-between items-start gap-4 py-[10px]">
-                <span className="text-[13px] font-bold">Сумма бонуса</span>
-                <span className="text-[14px] font-extrabold text-[var(--vliq-ok-ink)]">
+              <div className="flex items-center gap-3 py-[11px] border-t-2 border-[var(--vliq-sep)]">
+                <span className="flex-1 text-[13px] font-bold">Сумма бонуса</span>
+                <span
+                  className="flex-none text-[14px] font-extrabold text-[var(--vliq-ok-ink)] whitespace-nowrap"
+                  style={{ fontVariantNumeric: 'tabular-nums' }}
+                >
                   {receipt.bonus_amount != null ? fmtMoneyDelta(receipt.bonus_amount) : '—'}
                 </span>
               </div>

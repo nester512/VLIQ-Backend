@@ -133,7 +133,14 @@ function SellerHeader() {
   )
 }
 
-const SELLER_TAB_ROUTES = ['/seller/home', '/seller/history', '/seller/promo', '/seller/profile']
+// Tabbar-visible seller pages: the 4 tabs + the destination pages reached from
+// them (balance, my payout requests) so the bottom nav stays present and content
+// gets the correct bottom spacing. Transient flows (reg/upload/status/payout
+// form) keep the back-button instead.
+const SELLER_TAB_ROUTES = [
+  '/seller/home', '/seller/history', '/seller/promo', '/seller/profile',
+  '/seller/balance', '/seller/payouts',
+]
 
 /**
  * Seller profile gate — once a seller is auto-created on first TMA login, the
