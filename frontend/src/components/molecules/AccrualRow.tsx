@@ -1,4 +1,5 @@
 import { Icon } from '@/components/atoms/Icon'
+import { fmtMoneyDelta } from '@/utils/formatMoney'
 import type { BonusTransaction } from '@/types/models'
 
 interface AccrualRowProps {
@@ -11,8 +12,9 @@ function formatDate(iso: string) {
 
 export function AccrualRow({ transaction }: AccrualRowProps) {
   const isPayout = transaction.type === 'payout'
-  const sign = isPayout ? '−' : '+'
-  const amountStr = `${sign}${Math.abs(transaction.amount)} ₽`
+  // Money is stored in KOPECKS — fmtMoneyDelta divides by 100, adds the ₽ and a
+  // +/− sign from the amount's own sign (was rendering raw kopecks: "10000 ₽").
+  const amountStr = fmtMoneyDelta(transaction.amount)
   const desc = transaction.description ?? (isPayout ? 'Выплата' : 'Начисление бонуса')
   const sub = [
     formatDate(transaction.created_at),
