@@ -196,7 +196,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
 
         {/* KV data — compact 2-column grid (less empty space, aligned, no overlap) */}
         <b className="text-[14px] font-bold block mb-1.5">Распознанные данные</b>
-        <div className="bg-[var(--vliq-field)] rounded-[16px] p-4 shadow-[var(--vliq-shadow-sm)] mb-3 grid grid-cols-2 gap-x-4 gap-y-3.5">
+        <div className="bg-[var(--vliq-field)] rounded-[16px] p-4 sm:p-5 shadow-[var(--vliq-shadow-sm)] mb-3 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-4">
           <KV label="Пользователь" value={sellerName} />
           <KV
             label="Дата загрузки"
@@ -238,28 +238,28 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
         {/* Items */}
         {receipt.items && receipt.items.length > 0 && (
           <>
-            <b className="text-[14px] font-bold block mb-0.5">Товары</b>
-            <div className="bg-[var(--vliq-field)] rounded-[16px] px-4 shadow-[var(--vliq-shadow-sm)] mb-3">
-              {receipt.items.map((item, i) => (
-                <div
-                  key={i}
-                  className="flex items-start gap-3 py-[10px] border-b border-[var(--vliq-sep)] last:border-b-0"
-                >
-                  <span className="flex-1 min-w-0 text-[13px] text-[var(--vliq-text)] font-medium leading-snug break-words">
-                    {item.name}
-                  </span>
-                  <span
-                    className="flex-none text-[13px] font-semibold whitespace-nowrap"
-                    style={{ fontVariantNumeric: 'tabular-nums' }}
-                  >
-                    {fmtMoney(item.price)}
-                  </span>
-                </div>
-              ))}
-              <div className="flex items-center gap-3 py-[11px] border-t-2 border-[var(--vliq-sep)]">
-                <span className="flex-1 text-[13px] font-bold">Сумма бонуса</span>
+            <b className="text-[14px] font-bold block mb-1.5">Товары</b>
+            <div className="bg-[var(--vliq-field)] rounded-[16px] p-4 sm:p-5 shadow-[var(--vliq-shadow-sm)] mb-3">
+              {/* Items reflow into 2 columns on wide screens instead of one tall list */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8">
+                {receipt.items.map((item, i) => (
+                  <div key={i} className="flex items-start justify-between gap-3 py-2.5">
+                    <span className="flex-1 min-w-0 text-[13px] text-[var(--vliq-text)] font-medium leading-snug break-words">
+                      {item.name}
+                    </span>
+                    <span
+                      className="flex-none text-[13px] font-semibold whitespace-nowrap"
+                      style={{ fontVariantNumeric: 'tabular-nums' }}
+                    >
+                      {fmtMoney(item.price)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between gap-3 pt-3 mt-2 border-t border-[var(--vliq-sep)]">
+                <span className="text-[13px] font-bold">Сумма бонуса</span>
                 <span
-                  className="flex-none text-[14px] font-extrabold text-[var(--vliq-ok-ink)] whitespace-nowrap"
+                  className="text-[14px] font-extrabold text-[var(--vliq-ok-ink)] whitespace-nowrap"
                   style={{ fontVariantNumeric: 'tabular-nums' }}
                 >
                   {receipt.bonus_amount != null ? fmtMoneyDelta(receipt.bonus_amount) : '—'}
