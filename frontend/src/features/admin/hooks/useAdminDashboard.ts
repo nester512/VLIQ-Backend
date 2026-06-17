@@ -3,6 +3,15 @@ import { getAdminSellers, getAdminPayouts, getAdminReceipts } from '@/api/admin'
 import { isApprovedStatus } from '@/utils/receiptStatus'
 import type { AdminSellerRow } from '@/api/admin'
 
+export interface ChartData {
+  /** Real receipt count per bucket (10 even time-slices across the date range). */
+  values: number[]
+  /** Max bucket count (≥1) — the y-axis top tick; bars scale to this. */
+  max: number
+  /** [start, middle, end] calendar-date labels for the x-axis (e.g. «1 июн»). */
+  labels: [string, string, string]
+}
+
 export interface DashboardData {
   sellers_total: number
   sellers_active: number
@@ -10,8 +19,8 @@ export interface DashboardData {
   receipts_pending: number
   payouts_pending: number
   payouts_paid_month: number
-  /** Heights 0–100 for the placeholder bar chart (10 buckets). */
-  chart: number[]
+  /** Receipt-dynamics bar chart: real per-bucket counts + axis tick labels. */
+  chart: ChartData
   /** UC-01 — средний чек продажи (mean approved total_sum). */
   avg_check: number
   /** UC-01 — сводная таблица товаров, отсортированная по кол-ву. */
@@ -143,22 +152,39 @@ export function useAdminDashboard() {
   })
 }
 
-function buildChartBuckets(dates: string[], buckets = 10): number[] {
-  if (dates.length === 0) return new Array(buckets).fill(0)
-  const ts = dates.map((d) => new Date(d).getTime()).sort((a, b) => a - b)
+const RU_DAY = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' })
+const fmtDay = (ms: number) => RU_DAY.format(new Date(ms))
+
+/**
+ * Bucket receipt timestamps into `buckets` even time-slices and return the REAL
+ * per-bucket counts plus calendar-date axis labels — so the dashboard chart can
+ * show actual magnitudes (y-axis) and the period covered (x-axis), instead of
+ * the previous opaque 0–100 heights with no dates.
+ */
+function buildChartBuckets(dates: string[], buckets = 10): ChartData {
+  const empty: ChartData = { values: new Array(buckets).fill(0), max: 1, labels: ['—', '—', '—'] }
+  const ts = dates
+    .map((d) => new Date(d).getTime())
+    .filter((t) => !Number.isNaN(t))
+    .sort((a, b) => a - b)
+  if (ts.length === 0) return empty
+
   const min = ts[0]!
   const max = ts[ts.length - 1]!
-  if (min === max) {
-    const out = new Array(buckets).fill(0)
-    out[buckets - 1] = dates.length
-    return out
-  }
-  const step = (max - min) / buckets
   const counts = new Array(buckets).fill(0)
-  for (const t of ts) {
-    const idx = Math.min(buckets - 1, Math.floor((t - min) / step))
-    counts[idx] += 1
+  if (min === max) {
+    counts[buckets - 1] = ts.length
+  } else {
+    const step = (max - min) / buckets
+    for (const t of ts) {
+      const idx = Math.min(buckets - 1, Math.floor((t - min) / step))
+      counts[idx] += 1
+    }
   }
-  const top = Math.max(...counts, 1)
-  return counts.map((c) => Math.round((c / top) * 100))
+  const mid = min + (max - min) / 2
+  return {
+    values: counts,
+    max: Math.max(...counts, 1),
+    labels: [fmtDay(min), fmtDay(mid), fmtDay(max)],
+  }
 }

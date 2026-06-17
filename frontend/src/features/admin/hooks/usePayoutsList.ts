@@ -25,6 +25,10 @@ export function usePayoutActions() {
     mutationFn: (id: string) => approvePayoutRequest(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'payouts'] })
+      // The dashboard's «Выплачено» counter is a SEPARATE query (['admin',
+      // 'dashboard']) — invalidate it too, else it stays stale after marking
+      // requests paid (mirrors useReviewQueue / useSellersList).
+      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] })
       closeSheet()
       pushToast('Выплата подтверждена', 'ok')
     },
@@ -38,6 +42,7 @@ export function usePayoutActions() {
     mutationFn: (id: string) => rejectPayoutRequest(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'payouts'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] })
       closeSheet()
       pushToast('Заявка отклонена', 'dg')
     },

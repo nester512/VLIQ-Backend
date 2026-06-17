@@ -119,10 +119,11 @@ function DashContent() {
             <div className="bg-[var(--vliq-field)] rounded-[8px] animate-pulse" style={{ height: 112 }} />
           ) : (
             <MiniBarChart
-              data={data.chart}
-              startLabel="Старт периода"
-              middleLabel="Середина"
-              endLabel="Сейчас"
+              data={data.chart.values}
+              max={data.chart.max}
+              startLabel={data.chart.labels[0]}
+              middleLabel={data.chart.labels[1]}
+              endLabel={data.chart.labels[2]}
               height={112}
             />
           )}
