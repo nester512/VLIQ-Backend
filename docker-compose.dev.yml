@@ -1,0 +1,34 @@
+# Explicit DEV / handover overlay — run with:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# OFD: real ФНС via proverkacheka (OFD_PROVIDER=proverkacheka). The pipeline
+# fetches shop name + line items for real receipts; PROVERKACHEKA_TOKEN comes
+# from .env. Every receipt lands in `on_review` (admin assigns the bonus, S8).
+#
+# To test WITHOUT a live ФНС instead, set `OFD_PROVIDER: fake` below — the
+# FakeOFDClient serves fixtures from backend/tests/fixtures/ofd_responses/
+# (sample QRs fn=1234567890,i=12345,fp=67890 and fn=9876543210,i=54321,fp=22222);
+# any other QR/photo still reaches on_review with its parsed QR data.
+services:
+  backend:
+    # Publish the API to the host for local testing / curl (dev only).
+    ports:
+      - "8000:8000"
+    environment:
+      OFD_PROVIDER: proverkacheka
+      OCR_MODE: full
+      # Browser-reachable MinIO base for viewable receipt photo URLs (the
+      # in-container S3_ENDPOINT_URL=minio:9000 is not reachable from the browser).
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+
+  receipt-pipeline-worker:
+    environment:
+      OFD_PROVIDER: proverkacheka
+      OCR_MODE: full
+
+  # Publish the frontend nginx (serves SPA + proxies /api → backend, accepts any
+  # Host) on the host so ngrok can tunnel it for the Telegram Mini App.
+  frontend:
+    ports:
+      - "8080:80"

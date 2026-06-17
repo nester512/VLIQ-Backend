@@ -58,13 +58,16 @@ export function ScreenLayout({
     ? `calc(${TABBAR_H}px + env(safe-area-inset-bottom, 0px))`
     : '0px'
 
-  // Scrollable bodies also leave breathing room before the tabbar so the
-  // last list item / button isn't visually flush with the chrome.
+  // Scrollable bodies also leave breathing room before the tabbar / screen edge
+  // so the last list item / button isn't flush with the chrome. Pages WITHOUT a
+  // bottom tabbar must add the iOS home-indicator safe-area themselves (the
+  // tabbar branch already includes it via `bottomOffset`), otherwise the last
+  // element sits under the home indicator and looks cut off.
   const extraScrollPad = noScroll
-    ? 0
+    ? '0px'
     : (!isWide && tabBar)
-      ? 24
-      : 30
+      ? '24px'
+      : 'calc(28px + env(safe-area-inset-bottom, 0px))'
 
   if (isWide && tabBar) {
     // Wide layout: sidebar + main content

@@ -45,7 +45,11 @@ function map(tx: BackendBonusTx): BonusTransaction {
     seller_id: tx.seller_id,
     type: mapKind(tx.kind),
     amount: tx.amount,
-    description: tx.reason ?? defaultDescription(tx.kind),
+    // Corrections carry an internal, English, admin-facing audit reason
+    // ("Bonus correction on receipt #N by admin …: 0 → 2000") — not meant for
+    // sellers. Show the localized default for those; keep curated reasons
+    // (e.g. manual accruals) otherwise.
+    description: tx.kind === 'correction' ? defaultDescription(tx.kind) : (tx.reason ?? defaultDescription(tx.kind)),
     receipt_id: tx.source_type === 'receipt' && tx.source_id ? String(tx.source_id) : undefined,
     created_at: tx.created_at,
   }

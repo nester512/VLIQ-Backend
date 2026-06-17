@@ -9,7 +9,7 @@ import { TopSellersBoard } from '@/components/organisms/TopSellersBoard'
 import { EmptyState } from '@/components/molecules/EmptyState'
 import { useAdminDashboard } from '@/features/admin/hooks/useAdminDashboard'
 import { useUiStore } from '@/store/uiStore'
-import { fmtInt } from '@/utils/formatMoney'
+import { fmtInt, fmtMoney } from '@/utils/formatMoney'
 
 interface QuickNavRowProps {
   icon: 'receipt' | 'pay' | 'users'
@@ -82,6 +82,7 @@ function DashContent() {
           <>
             <MetricCardSkeleton /><MetricCardSkeleton />
             <MetricCardSkeleton /><MetricCardSkeleton />
+            <MetricCardSkeleton /><MetricCardSkeleton />
           </>
         ) : (
           <>
@@ -89,6 +90,8 @@ function DashContent() {
             <MetricCard title="Активных"        value={fmtInt(data?.sellers_active)}   delta={activeShare}                                deltaColor="ok"   />
             <MetricCard title="Чеков загружено" value={fmtInt(data?.receipts_loaded)}  delta="за всё время"                              deltaColor="hint" tween />
             <MetricCard title="На проверке"     value={fmtInt(data?.receipts_pending)} delta={data && data.receipts_pending > 0 ? 'требует действий' : 'очередь пуста'} deltaColor={data && data.receipts_pending > 0 ? 'wn' : 'hint'} />
+            <MetricCard title="Средний чек"     value={data?.avg_check ? fmtMoney(data.avg_check) : '—'} delta="продажи (наши товары)" deltaColor="hint" />
+            <MetricCard title="Выплачено"        value={fmtInt(data?.payouts_paid_month)} delta="заявок выплачено" deltaColor="ok" />
           </>
         )}
       </div>
@@ -116,10 +119,11 @@ function DashContent() {
             <div className="bg-[var(--vliq-field)] rounded-[8px] animate-pulse" style={{ height: 112 }} />
           ) : (
             <MiniBarChart
-              data={data.chart}
-              startLabel="Старт периода"
-              middleLabel="Середина"
-              endLabel="Сейчас"
+              data={data.chart.values}
+              max={data.chart.max}
+              startLabel={data.chart.labels[0]}
+              middleLabel={data.chart.labels[1]}
+              endLabel={data.chart.labels[2]}
               height={112}
             />
           )}
@@ -160,6 +164,34 @@ function DashContent() {
             title="Данных пока нет"
             description="Топ продавцов появится, когда пройдут первые одобрения чеков."
           />
+        )}
+      </div>
+
+      {/* UC-01 — товары, отсортированные по количеству */}
+      <div className="vliq-pad" style={{ paddingBottom: 20 }}>
+        <div className="vliq-sec-t">
+          <b>Товары по количеству</b>
+        </div>
+        {isLoading ? (
+          <div className="vliq-list"><RowSkeleton /><RowSkeleton /><RowSkeleton /></div>
+        ) : data && data.top_products.length > 0 ? (
+          <div className="vliq-list">
+            {data.top_products.map((p, i) => (
+              <div key={`${p.name}-${i}`} className="vliq-row is-static">
+                <div className="vliq-row-ic" style={{ background: 'var(--vliq-field)', color: 'var(--vliq-hint)', fontWeight: 800 }}>
+                  {i + 1}
+                </div>
+                <div className="vliq-row-tx" style={{ minWidth: 0 }}>
+                  <b style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</b>
+                </div>
+                <span style={{ flex: 'none', marginRight: 6, fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', fontVariantNumeric: 'tabular-nums' }}>
+                  {fmtInt(p.count)}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState icon="list" tone="muted" title="Товаров пока нет" description="Появятся после распознавания первых чеков." />
         )}
       </div>
     </div>

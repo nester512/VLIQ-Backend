@@ -1,131 +1,91 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
 import { HeroBalance } from '@/components/molecules/HeroBalance'
-import { ChecklistItem } from '@/components/molecules/ChecklistItem'
+import { Field } from '@/components/atoms/Field'
 import { Btn } from '@/components/atoms/Btn'
 import { Icon } from '@/components/atoms/Icon'
 import { HeroSkeleton } from '@/components/atoms/Skeleton'
 import { useBalance } from '../hooks/useBalance'
 import { useRequestPayout } from '../hooks/useRequestPayout'
-import { getMe } from '@/api/sellers'
 import { fmtMoney } from '@/utils/formatMoney'
 
-const MIN_PAYOUT = 1_000
-
-const METHOD_LABEL: Record<string, string> = {
-  sbp_phone: 'СБП · телефон',
-  sbp_bank:  'СБП · банк',
-  card:      'Банковская карта',
+// S5.3: requisites are entered in THIS form on every request and never stored
+// in the profile. The only payout method per spec is СБП by phone number.
+function normalizePhone(raw: string): string {
+  return raw.replace(/[^\d+]/g, '')
+}
+function isValidPhone(p: string): boolean {
+  const digits = p.replace(/\D/g, '')
+  return digits.length >= 10 && digits.length <= 15
 }
 
 export function PayoutPage() {
   const navigate = useNavigate()
   const { data: balance, isLoading: balanceLoading } = useBalance()
-  const { data: profile, isLoading: profileLoading } = useQuery({
-    queryKey: ['sellers', 'me'],
-    queryFn: getMe,
-    staleTime: 60_000,
-  })
   const { mutateAsync: requestPayout, isPending } = useRequestPayout()
 
-  const available  = balance?.available ?? 0
-  const hasDetails = Boolean(profile?.payout_details)
-  const checklist = {
-    minAmount: available >= MIN_PAYOUT,
-    hasDetails,
-    noBlock: profile?.status !== 'blocked',
-    noFlag:  true, // TODO: surface real antifraud signal once backend exposes it
-  }
-  const allOk = Object.values(checklist).every(Boolean)
-  const methodLabel = profile?.payout_method ? METHOD_LABEL[profile.payout_method] ?? profile.payout_method : '—'
+  const available = balance?.available ?? 0
+
+  // S5.1: partial withdrawal — the amount is editable (default = full balance).
+  const [amountStr, setAmountStr] = useState('')
+  const [phone, setPhone] = useState('')
+
+  // The seller types rubles; balance/amount are stored in kopecks → ×100.
+  const amount = amountStr === '' ? available : Math.round((Number(amountStr) || 0) * 100)
+  const amountValid = amount > 0 && amount <= available
+  const phoneValid = isValidPhone(phone)
+  const notBlocked = true // status gate is enforced server-side
+  const canSubmit = amountValid && phoneValid && available > 0
+
+  const amountError =
+    amountStr !== '' && amount > available ? 'Больше доступного баланса' : undefined
 
   async function handleRequest() {
-    if (!allOk || !profile?.payout_method) return
-    await requestPayout({
-      amount: available,
-      method: profile.payout_method,
-      details: profile.payout_details,
-    })
+    if (!canSubmit) return
+    await requestPayout({ amount, method: 'sbp_phone', details: normalizePhone(phone) })
+    navigate('/seller/payouts')
   }
 
   return (
     <div className="vliq-pad" style={{ paddingTop: 16, paddingBottom: 32 }}>
       {balanceLoading ? (
-        /* HeroSkeleton includes a 16px margin so we counteract the vliq-pad left/right */
-        <div style={{ margin: '0 -16px' }}>
-          <HeroSkeleton />
-        </div>
+        <div style={{ margin: '0 -16px' }}><HeroSkeleton /></div>
       ) : (
         <HeroBalance available={available} margin="0 0 16px" />
       )}
 
-      {/* Read-only summary fields */}
-      <div className="vliq-field">
-        <label>Сумма выплаты</label>
-        <div className="vliq-field-v">{fmtMoney(available)}</div>
-      </div>
-      <div className="vliq-field">
-        <label>Способ</label>
-        <div className="vliq-field-v" style={profile?.payout_method ? undefined : { color: 'var(--vliq-hint)', fontWeight: 500 }}>
-          {methodLabel}
-        </div>
-      </div>
-      <div className="vliq-field" style={{ marginBottom: 14 }}>
-        <label>Реквизиты</label>
-        <div className="vliq-field-v" style={!hasDetails ? { color: 'var(--vliq-hint)', fontWeight: 500 } : undefined}>
-          {profile?.payout_details
-            ? `•••• ${profile.payout_details.slice(-4)}`
-            : profileLoading ? '…' : 'Не заполнено — обновите профиль'}
-        </div>
-      </div>
+      {/* S5.1 — partial amount input */}
+      <Field
+        label="Сумма выплаты, ₽"
+        inputMode="numeric"
+        value={amountStr}
+        placeholder={String(available)}
+        error={amountError}
+        hint={`Доступно ${fmtMoney(available)} · можно вывести часть`}
+        onChange={(e) => setAmountStr(e.target.value.replace(/[^\d]/g, ''))}
+      />
 
-      {!hasDetails && !profileLoading && (
-        <button
-          type="button"
-          onClick={() => navigate('/seller/reg')}
-          style={{
-            display: 'block',
-            width: '100%',
-            background: 'var(--vliq-field)',
-            color: 'var(--vliq-brand)',
-            fontSize: 13.5,
-            fontWeight: 600,
-            padding: '12px 14px',
-            borderRadius: 12,
-            border: 0,
-            cursor: 'pointer',
-            marginBottom: 14,
-            textAlign: 'left',
-          }}
-        >
-          Заполнить реквизиты →
-        </button>
-      )}
-
-      {/* Checklist */}
-      <div className="vliq-card" style={{ padding: 16, marginBottom: 14 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--vliq-text)', marginBottom: 10 }}>
-          Проверка перед выплатой
-        </div>
-        <ChecklistItem label={`Минимальная сумма — ${fmtMoney(MIN_PAYOUT)}`} ok={checklist.minAmount} />
-        <ChecklistItem label="Реквизиты заполнены"                            ok={checklist.hasDetails} />
-        <ChecklistItem label="Блокировок нет"                                  ok={checklist.noBlock} />
-        <ChecklistItem label="Подозрительной активности нет"                   ok={checklist.noFlag} />
+      {/* S5.3 — requisites entered per request, not from profile */}
+      <div className="vliq-field" style={{ marginTop: 12 }}>
+        <label>Способ выплаты</label>
+        <div className="vliq-field-v">СБП · по номеру телефона</div>
       </div>
+      <Field
+        label="Номер телефона для СБП"
+        inputMode="tel"
+        value={phone}
+        placeholder="+7 900 000-00-00"
+        onChange={(e) => setPhone(e.target.value)}
+        className="mt-3"
+      />
 
       {/* Info banner */}
       <div
         style={{
-          borderRadius: 14,
-          padding: '13px 15px',
-          display: 'flex',
-          gap: 9,
-          alignItems: 'flex-start',
-          marginBottom: 16,
-          background: 'var(--vliq-wn-bg)',
-          color: 'var(--vliq-wn-ink)',
-          fontSize: 13,
-          fontWeight: 600,
+          borderRadius: 14, padding: '13px 15px', display: 'flex', gap: 9,
+          alignItems: 'flex-start', margin: '16px 0',
+          background: 'var(--vliq-wn-bg)', color: 'var(--vliq-wn-ink)',
+          fontSize: 13, fontWeight: 600,
         }}
       >
         <Icon name="clock" size={18} className="flex-none" />
@@ -135,9 +95,20 @@ export function PayoutPage() {
         </span>
       </div>
 
-      <Btn loading={isPending} disabled={!allOk} onClick={() => void handleRequest()}>
-        {allOk ? `Запросить ${fmtMoney(available)}` : 'Требуется заполнить профиль'}
+      <Btn loading={isPending} disabled={!canSubmit || !notBlocked} onClick={() => void handleRequest()}>
+        {available <= 0 ? 'Нет доступного баланса' : `Запросить ${fmtMoney(amount)}`}
       </Btn>
+
+      <button
+        type="button"
+        onClick={() => navigate('/seller/payouts')}
+        style={{
+          display: 'block', width: '100%', marginTop: 12, background: 'transparent',
+          border: 0, color: 'var(--vliq-brand)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+        }}
+      >
+        Мои заявки на выплату →
+      </button>
     </div>
   )
 }

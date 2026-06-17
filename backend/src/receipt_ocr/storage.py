@@ -544,3 +544,26 @@ def get_receipt_storage() -> LocalFileStorage | S3FileStorage:
         )
     logger.debug("receipt_storage.backend", backend="local")
     return LocalFileStorage()
+
+
+def to_viewable_url(file_url: str | None) -> str | None:
+    """Rewrite a stored receipt URI into a browser-viewable URL.
+
+    - ``s3://<bucket>/<key>`` → ``<S3_PUBLIC_ENDPOINT or S3_ENDPOINT_URL>/<bucket>/<key>``
+      (the dev MinIO bucket is public-read; for a private prod bucket swap this
+      to a presigned GET URL via ``S3FileStorage.generate_presigned_get_url``).
+    - ``http(s)://…`` → returned unchanged.
+    - ``local://…`` / ``qr://inline`` / ``seed://…`` → ``None`` (not a viewable photo).
+    """
+    if not file_url:
+        return None
+    if file_url.startswith(("http://", "https://")):
+        return file_url
+    if file_url.startswith("s3://"):
+        base = (
+            os.environ.get("S3_PUBLIC_ENDPOINT")
+            or os.environ.get("S3_ENDPOINT_URL")
+            or "http://localhost:9000"
+        ).rstrip("/")
+        return f"{base}/{file_url[len('s3://') :]}"
+    return None

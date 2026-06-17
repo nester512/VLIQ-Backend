@@ -1,8 +1,4 @@
 import type { ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { useUiStore } from '@/store/uiStore'
-import { listNotifications } from '@/api/notifications'
-import { useAuthStore } from '@/store/authStore'
 
 interface TgHeaderProps {
   title: string
@@ -11,7 +7,8 @@ interface TgHeaderProps {
   rightAction?: ReactNode
   /** When true, show a placeholder instead of back button (home screen) */
   isHome?: boolean
-  /** When true, show bell icon in the right action area */
+  /** @deprecated In-app notifications are out of scope (spec S7: Telegram-only).
+   *  Kept for call-site compatibility; no bell is rendered. */
   showBell?: boolean
 }
 
@@ -25,22 +22,13 @@ function BackIcon() {
   )
 }
 
-function BellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-      aria-hidden>
-      <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
-    </svg>
-  )
-}
-
 /**
  * TgHeader — matches the Telegram Web App header style from the prototype.
  *
  * Layout: [back/placeholder] [title+subtitle centered] [right-action/placeholder]
- * Uses stable CSS classes from index.css instead of Tailwind arbitrary values.
+ *
+ * Notifications are delivered only via Telegram DM (spec S7 / Out-of-scope:
+ * «центр уведомлений внутри приложения не нужен»), so there is no in-app bell.
  */
 export function TgHeader({
   title,
@@ -48,24 +36,7 @@ export function TgHeader({
   onBack,
   rightAction,
   isHome = false,
-  showBell = false,
 }: TgHeaderProps) {
-  const openSheet = useUiStore((s) => s.openSheet)
-  const token = useAuthStore((s) => s.token)
-
-  // Lightweight poll for the unread badge — `select` keeps only the count in
-  // memory so component re-renders are stable across notification list changes.
-  const { data: unreadCount = 0 } = useQuery({
-    queryKey: ['notifications'],
-    queryFn: () => listNotifications(),
-    enabled: showBell && Boolean(token),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-    refetchOnWindowFocus: true,
-    select: (items) => items.filter((n) => !n.read).length,
-  })
-  const hasUnread = unreadCount > 0
-
   return (
     <header
       className="vliq-tg-header"
@@ -102,35 +73,9 @@ export function TgHeader({
         )}
       </div>
 
-      {/* Right: action or bell or spacer */}
+      {/* Right: optional action or spacer (no in-app notifications bell) */}
       {rightAction ? (
         <div className="vliq-hbtn">{rightAction}</div>
-      ) : showBell ? (
-        <button
-          type="button"
-          onClick={() => openSheet('notif')}
-          aria-label={hasUnread ? `Уведомления, ${unreadCount} новых` : 'Уведомления'}
-          className="vliq-hbtn"
-          style={{ position: 'relative' }}
-        >
-          <BellIcon />
-          {hasUnread && (
-            <span
-              aria-hidden
-              style={{
-                position: 'absolute',
-                top: 6,
-                right: 6,
-                width: 9,
-                height: 9,
-                borderRadius: '50%',
-                background: 'var(--vliq-dg-ink)',
-                border: '2px solid var(--vliq-card)',
-                boxSizing: 'content-box',
-              }}
-            />
-          )}
-        </button>
       ) : (
         <div className="vliq-hbtn" aria-hidden />
       )}

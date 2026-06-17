@@ -43,7 +43,8 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
 
   const okOpacity = useTransform(x, [0, THRESHOLD_X, THRESHOLD_X * 2], [0, 0.6, 1])
   const dgOpacity = useTransform(x, [-THRESHOLD_X * 2, -THRESHOLD_X, 0], [1, 0.6, 0])
-  const upOpacity = useTransform(y, [-THRESHOLD_Y * 2, -THRESHOLD_Y, 0], [1, 0.6, 0])
+  // upOpacity (ДОРАБОТКА stamp) — DISABLED with the revise gesture (see onPtrUp).
+  // const upOpacity = useTransform(y, [-THRESHOLD_Y * 2, -THRESHOLD_Y, 0], [1, 0.6, 0])
   const okTint    = useTransform(x, [0, THRESHOLD_X * 2], [0, 0.22])
   const dgTint    = useTransform(x, [-THRESHOLD_X * 2, 0], [0.22, 0])
   const upTint    = useTransform(y, [-THRESHOLD_Y * 2, 0], [0.22, 0])
@@ -71,24 +72,29 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
     const dx = e.clientX - dragRef.current.startX
     const dy = e.clientY - dragRef.current.startY
     if (Math.abs(dx) + Math.abs(dy) > 6) dragRef.current.moved = true
-    const isUpSwipe = dy < 0 && Math.abs(dy) > Math.abs(dx)
-    x.set(isUpSwipe ? 0 : dx)
-    y.set(dy)
+    // Up-swipe «Доработка» (revise) DISABLED — clamp y so the card never lifts
+    // up and the revise tint/stamp stay inert. To restore: `const isUpSwipe =
+    // dy < 0 && Math.abs(dy) > Math.abs(dx)`, `x.set(isUpSwipe ? 0 : dx)`, `y.set(dy)`.
+    x.set(dx)
+    y.set(Math.max(0, dy))
   }
 
   function onPtrUp(e: React.PointerEvent) {
     if (!isTop || !dragRef.current.active) return
     const dx = e.clientX - dragRef.current.startX
-    const dy = e.clientY - dragRef.current.startY
     const wasMoved = dragRef.current.moved
     dragRef.current.active = false
 
     if (!wasMoved) { onTap(); return }
 
-    const isUp = dy < -THRESHOLD_Y && Math.abs(dy) > Math.abs(dx)
-    if (isUp) {
-      doFly('revise')
-    } else if (dx > THRESHOLD_X) {
+    // Up-swipe «Доработка» (revise) DISABLED per spec — revise is out of scope
+    // (a bad receipt is simply rejected). Kept commented so it can be restored:
+    // uncomment + restore `y.set(dy)` in onPtrMove, the upOpacity def, the
+    // ДОРАБОТКА stamp and the legend hint below.
+    //   const dy = e.clientY - dragRef.current.startY
+    //   const isUp = dy < -THRESHOLD_Y && Math.abs(dy) > Math.abs(dx)
+    //   if (isUp) { doFly('revise'); return }
+    if (dx > THRESHOLD_X) {
       doFly('approve')
     } else if (dx < -THRESHOLD_X) {
       doFly('reject')
@@ -166,12 +172,15 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
           >
             ОТКЛОНЁН
           </motion.div>
+          {/* «ДОРАБОТКА» revise stamp — DISABLED (revise out of scope). Restore
+              with the swipe-up gesture (onPtrUp), the upOpacity def and the legend hint:
           <motion.div
             className="vliq-swipe-stamp vliq-swipe-stamp--wn"
             style={{ opacity: upOpacity, left: '50%', translateX: '-50%', bottom: 120 }}
           >
             ДОРАБОТКА
           </motion.div>
+          */}
         </>
       )}
 
@@ -526,7 +535,8 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
         {[
           { label: '→ Одобрить',  bg: 'var(--vliq-ok-bg)', ink: 'var(--vliq-ok-ink)' },
           { label: '← Отклонить', bg: 'var(--vliq-dg-bg)', ink: 'var(--vliq-dg-ink)' },
-          { label: '↑ На доработку', bg: 'var(--vliq-wn-bg)', ink: 'var(--vliq-wn-ink)' },
+          // «↑ На доработку» (revise) hint — DISABLED; restore with the gesture (onPtrUp):
+          // { label: '↑ На доработку', bg: 'var(--vliq-wn-bg)', ink: 'var(--vliq-wn-ink)' },
           { label: 'Тап — фото и данные', bg: 'var(--vliq-field)', ink: 'var(--vliq-hint)' },
         ].map(({ label, bg, ink }) => (
           <span

@@ -1,11 +1,8 @@
 import type { Receipt } from '@/types/models'
+import { fmtMoney } from '@/utils/formatMoney'
 
 interface ReceiptGraphicProps {
   receipt: Receipt
-}
-
-function fmt(n: number) {
-  return new Intl.NumberFormat('ru-RU').format(n)
 }
 
 function formatDate(iso: string) {
@@ -37,13 +34,13 @@ export function ReceiptGraphic({ receipt }: ReceiptGraphicProps) {
       {receipt.items?.map((item, i) => (
         <div key={i} className="flex justify-between text-[9px] my-[3px]">
           <span>{item.name}</span>
-          <span>{fmt(item.price)} ₽</span>
+          <span>{fmtMoney(item.price)}</span>
         </div>
       ))}
       <hr className="border-0 border-t border-dashed border-[#bbb] my-2" />
       <div className="flex justify-between text-[12px] font-extrabold mt-[5px]">
         <span>ИТОГ</span>
-        <span>{receipt.amount != null ? fmt(receipt.amount) : '—'} ₽</span>
+        <span>{fmtMoney(receipt.amount)}</span>
       </div>
       <div className="text-[8.5px] text-center text-[#555] mt-[7px] leading-[1.5]">
         {formatDate(receipt.created_at)}

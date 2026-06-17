@@ -146,6 +146,11 @@ services:
     environment:
       POSTGRES__POSTGRES_URL: postgresql+asyncpg://vliq:vliq_dev@postgres:5432/vliq
       REDIS_URL: redis://redis:6379/0
+      # MUST mirror the backend's storage so the worker can read uploaded photos
+      # (backend writes to S3/MinIO; without these the worker defaults to local
+      # storage and every photo receipt fails QR extraction with file_not_found).
+      S3_ENDPOINT_URL: http://minio:9000
+      RECEIPT_STORAGE: s3
     depends_on:
       backend:
         condition: service_healthy

@@ -63,6 +63,7 @@ const HistoryPage = lazy(() => import('../features/seller/pages/HistoryPage').th
 const PromoPage   = lazy(() => import('../features/seller/pages/PromoPage').then((m) => ({ default: m.PromoPage })))
 const ProfilePage = lazy(() => import('../features/seller/pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 const PayoutPage  = lazy(() => import('../features/seller/pages/PayoutPage').then((m) => ({ default: m.PayoutPage })))
+const PayoutRequestsPage = lazy(() => import('../features/seller/pages/PayoutRequestsPage').then((m) => ({ default: m.PayoutRequestsPage })))
 
 // Admin pages — lazy so sellers (the 95% case) never download the admin
 // bundle (review queue, framer-motion deck, etc.).
@@ -71,6 +72,7 @@ const ReviewPage          = lazy(() => import('../features/admin/pages/ReviewPag
 const PayoutsPage         = lazy(() => import('../features/admin/pages/PayoutsPage').then((m) => ({ default: m.PayoutsPage })))
 const SellersPage         = lazy(() => import('../features/admin/pages/SellersPage').then((m) => ({ default: m.SellersPage })))
 const SellerReceiptsPage  = lazy(() => import('../features/admin/pages/SellerReceiptsPage').then((m) => ({ default: m.SellerReceiptsPage })))
+const ProductsPage        = lazy(() => import('../features/admin/pages/ProductsPage').then((m) => ({ default: m.ProductsPage })))
 
 // Crossfade — used for tab switches where there's no logical push/pop direction.
 const PAGE_VARIANTS = {
@@ -80,10 +82,15 @@ const PAGE_VARIANTS = {
 }
 const PAGE_TRANSITION = { duration: 0.18, ease: 'easeOut' as const }
 
-function AnimatedPage({ children }: { children: ReactNode }) {
+// `fill` (h-full) is only for full-screen no-scroll pages (the review deck),
+// which need a definite-height parent. Scrolling pages use `min-h-full` so the
+// wrapper GROWS with its content instead of overflowing its fixed-height box —
+// otherwise long lists bleed past the scroll container's bottom padding and the
+// last row sits flush against the tab bar.
+function AnimatedPage({ children, fill = false }: { children: ReactNode; fill?: boolean }) {
   return (
     <motion.div
-      className="h-full w-full"
+      className={`${fill ? 'h-full' : 'min-h-full'} w-full`}
       variants={PAGE_VARIANTS}
       initial="initial"
       animate="animate"
@@ -105,6 +112,7 @@ const SELLER_TITLES: Record<string, [string, string?, boolean?, boolean?]> = {
   '/seller/promo':   ['Акции', undefined, false, true],
   '/seller/profile': ['Профиль', undefined, false, true],
   '/seller/payout':  ['Запросить выплату', undefined, false, false],
+  '/seller/payouts': ['Мои заявки', undefined, false, false],
 }
 
 function SellerHeader() {
@@ -130,7 +138,12 @@ function SellerHeader() {
   )
 }
 
-const SELLER_TAB_ROUTES = ['/seller/home', '/seller/history', '/seller/promo', '/seller/profile']
+// The 4 primary seller tabs — these hide the back affordance (top-level). Every
+// OTHER seller page (upload/status/balance/payout/payouts) is a subpage: it
+// shows the back button AND keeps the bottom tabbar so navigation + correct
+// bottom spacing are always present. Only the forced registration screen has no
+// tabbar (the profile gate makes it a mandatory full-screen flow).
+const SELLER_MAIN_TABS = ['/seller/home', '/seller/history', '/seller/promo', '/seller/profile']
 
 /**
  * Seller profile gate — once a seller is auto-created on first TMA login, the
@@ -170,11 +183,14 @@ function SellerProfileGate({ children }: { children: ReactNode }) {
 
 function SellerLayout() {
   const location = useLocation()
-  const showTabBar = SELLER_TAB_ROUTES.includes(location.pathname)
+  const isReg = location.pathname === '/seller/reg'
+  const isMainTab = SELLER_MAIN_TABS.includes(location.pathname)
+  // Tabbar on every page except the forced registration flow.
+  const showTabBar = !isReg
   const viewport = useViewport()
   const isWide = viewport === 'tablet' || viewport === 'desktop'
-  // Telegram native BackButton: shown on subpages, hidden on tab routes.
-  useTelegramBack(showTabBar)
+  // Telegram native BackButton: hidden on main tabs + reg, shown on subpages.
+  useTelegramBack(isMainTab || isReg)
   return (
     <ScreenLayout
       header={<SellerHeader />}
@@ -199,6 +215,7 @@ function SellerLayout() {
               <Route path="promo"       element={<AnimatedPage><PromoPage /></AnimatedPage>} />
               <Route path="profile"     element={<AnimatedPage><ProfilePage /></AnimatedPage>} />
               <Route path="payout"      element={<AnimatedPage><PayoutPage /></AnimatedPage>} />
+              <Route path="payouts"     element={<AnimatedPage><PayoutRequestsPage /></AnimatedPage>} />
               <Route index element={<Navigate to="home" replace />} />
             </Routes>
           </Suspense>
@@ -212,6 +229,7 @@ function AdminLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const isReview = location.pathname === '/admin/review'
+  const isProducts = location.pathname === '/admin/products'
   const isSellerReceipts = /^\/admin\/sellers\/\d+\/receipts$/.test(location.pathname)
   const viewport = useViewport()
   const isWide = viewport === 'tablet' || viewport === 'desktop'
@@ -230,8 +248,8 @@ function AdminLayout() {
           />
         ) : (
           <TgHeader
-            title={isReview ? 'Проверка чеков' : 'Администратор'}
-            subtitle={isReview ? undefined : 'VLIQ · бренд'}
+            title={isReview ? 'Проверка чеков' : isProducts ? 'Товары' : 'Администратор'}
+            subtitle={isReview || isProducts ? undefined : 'VLIQ · бренд'}
             isHome
           />
         )
@@ -249,10 +267,11 @@ function AdminLayout() {
         >
           <Routes location={location} key={location.pathname}>
             <Route path="dash"                              element={<AnimatedPage><DashPage /></AnimatedPage>} />
-            <Route path="review"                            element={<AnimatedPage><ReviewPage /></AnimatedPage>} />
+            <Route path="review"                            element={<AnimatedPage fill><ReviewPage /></AnimatedPage>} />
             <Route path="payouts"                           element={<AnimatedPage><PayoutsPage /></AnimatedPage>} />
             <Route path="sellers"                           element={<AnimatedPage><SellersPage /></AnimatedPage>} />
             <Route path="sellers/:telegramId/receipts"      element={<AnimatedPage><SellerReceiptsPage /></AnimatedPage>} />
+            <Route path="products"                          element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
             <Route index element={<Navigate to="dash" replace />} />
           </Routes>
         </Suspense>

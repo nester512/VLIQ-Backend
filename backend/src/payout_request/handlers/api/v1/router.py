@@ -35,7 +35,6 @@ from src.payout_request.service import (
     create_payout_request,
     reject_payout_request,
 )
-from src.seller.models import Seller
 
 logger = structlog.get_logger(__name__)
 
@@ -63,23 +62,15 @@ async def create_payout_request_endpoint(
         description="Client-generated unique key (UUID recommended). Stored 24 h to prevent duplicate requests.",
     ),
 ) -> PayoutRequestRead:
-    seller_id = token["user_id"]
-
-    # Resolve brand_id from seller profile.
-    seller_row = (await session.execute(select(Seller).where(Seller.telegram_id == seller_id))).scalar_one_or_none()
-    if seller_row is None:
-        raise AppError("SELLER_NOT_FOUND", status_code=404)
-
-    payout_masked = body.payout_masked or seller_row.payout_masked
-    if not payout_masked:
-        raise AppError("PAYOUT_INVALID_AMOUNT", status_code=422)
-
+    # NB: do NOT query the session here before delegating — a read autobegins a
+    # transaction and the service's `session.begin()` would then raise
+    # "A transaction is already begun". The service resolves the seller itself
+    # (locked SELECT ... FOR UPDATE) and derives brand_id + payout account.
     return await create_payout_request(
-        seller_id=seller_id,
+        seller_id=token["user_id"],
         amount=body.amount,
         payout_kind=body.payout_kind.value,
-        payout_masked=payout_masked,
-        brand_id=seller_row.brand_id,
+        payout_masked_override=body.payout_masked,
         session=session,
         redis=redis,
         idempotency_key=idempotency_key,
@@ -180,6 +171,27 @@ async def list_payout_requests(  # noqa: PLR0913
 
     items = [PayoutRequestRead.model_validate(r, from_attributes=True) for r in rows]
     return PagedResponse.build(items=items, total=total, page=page, limit=limit)
+
+
+@router.get(
+    "/me",
+    response_model=list[PayoutRequestRead],
+    summary="Мои заявки на выплату (seller) — S5.5",
+    description="Список заявок текущего продавца со статусами (new → in_progress → paid/rejected), новые сверху.",
+)
+async def list_my_payout_requests(
+    token: Annotated[JwtTokenT, Depends(require_seller)],
+    session: Annotated[AsyncSession, Depends(get_pg_session)],
+) -> list[PayoutRequestRead]:
+    """Seller-scoped payout-requests list (S5.5 «Мои заявки на выплату»)."""
+    seller_id = token["user_id"]
+    stmt = (
+        select(PayoutRequest)
+        .where(PayoutRequest.seller_id == seller_id)
+        .order_by(PayoutRequest.created_at.desc())
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    return [PayoutRequestRead.model_validate(r, from_attributes=True) for r in rows]
 
 
 @router.get("/{payout_request_id}", response_model=PayoutRequestRead)

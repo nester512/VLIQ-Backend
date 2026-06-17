@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Avatar } from '@/components/atoms/Avatar'
 import { Pill } from '@/components/atoms/Pill'
@@ -6,7 +6,6 @@ import { Icon } from '@/components/atoms/Icon'
 import { Btn } from '@/components/atoms/Btn'
 import { Spinner } from '@/components/atoms/Spinner'
 import { ReceiptGraphic } from '@/components/molecules/ReceiptGraphic'
-import { KVRow } from '@/components/molecules/KVRow'
 import { EditBonusSheet } from '@/components/molecules/EditBonusSheet'
 import { AddCommentSheet } from '@/components/molecules/AddCommentSheet'
 import { BlockSellerSheet } from '@/components/molecules/BlockSellerSheet'
@@ -14,7 +13,7 @@ import { initialsFromName } from '@/utils/initials'
 import { fmtMoney, fmtMoneyDelta } from '@/utils/formatMoney'
 import { useUiStore } from '@/store/uiStore'
 import { useSwipeAction } from '@/features/admin/hooks/useReviewQueue'
-import { editReceiptBonus, addReceiptComment, blockSeller } from '@/api/admin'
+import { editReceiptBonus, addReceiptComment, blockSeller, deleteReceipt } from '@/api/admin'
 import { extractApiError } from '@/api/client'
 import type { AdminReceipt } from '@/api/admin'
 import type { Receipt } from '@/types/models'
@@ -22,6 +21,17 @@ import type { Receipt } from '@/types/models'
 interface ReceiptDetailSheetProps {
   receiptId: string | null
   receipt?: AdminReceipt
+}
+
+/** One label/value cell in the 2-column "Распознанные данные" grid.
+ *  `wide` spans both columns for long values (shop, address, ФН/ФД/ФП). */
+function KV({ label, value, wide }: { label: string; value: ReactNode; wide?: boolean }) {
+  return (
+    <div className={wide ? 'col-span-2 min-w-0' : 'min-w-0'}>
+      <div className="text-[11.5px] font-medium text-[var(--vliq-hint)] mb-0.5">{label}</div>
+      <div className="text-[14px] font-semibold text-[var(--vliq-text)] leading-snug break-words">{value}</div>
+    </div>
+  )
 }
 
 export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetProps) {
@@ -85,6 +95,21 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     },
   })
 
+  // ---- Mutation: A6 soft-delete (processed receipts) ----
+  const { mutate: doDelete, isPending: deletePending } = useMutation({
+    mutationFn: (id: string) => deleteReceipt(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'receipts'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
+      pushToast('Чек удалён', 'ok')
+      closeSheet()
+    },
+    onError: (err: unknown) => {
+      const { userMessage } = extractApiError(err)
+      pushToast(userMessage, 'dg')
+    },
+  })
+
   if (!receipt || !receiptId) {
     return (
       <div className="px-4 pb-8 grid place-items-center py-12">
@@ -114,7 +139,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     items: receipt.items,
   }
 
-  function handleAction(dir: 'approve' | 'reject' | 'revise') {
+  function handleAction(dir: 'approve' | 'reject') {
     swipe(
       { id: receiptId!, dir },
       {
@@ -159,58 +184,84 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
           <button
             type="button"
             className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/[0.16] text-white grid place-items-center backdrop-blur-sm"
-            onClick={() => pushToast('Полноэкранный просмотр — скоро', 'info')}
-            aria-label="Zoom"
+            onClick={() => {
+              if (receipt.file_url) window.open(receipt.file_url, '_blank', 'noopener,noreferrer')
+              else pushToast('Фото чека недоступно', 'info')
+            }}
+            aria-label="Открыть фото на весь экран"
           >
             <Icon name="zoom" size={16} />
           </button>
         </div>
 
-        {/* KV data */}
-        <b className="text-[14px] font-bold block mb-0.5">Распознанные данные</b>
-        <div className="bg-[var(--vliq-card)] rounded-[16px] px-4 shadow-[var(--vliq-shadow-sm)] mb-4">
-          <KVRow label="Пользователь" value={sellerName} />
-          <KVRow
+        {/* KV data — compact 2-column grid (less empty space, aligned, no overlap) */}
+        <b className="text-[14px] font-bold block mb-1.5">Распознанные данные</b>
+        <div className="bg-[var(--vliq-field)] rounded-[16px] p-4 sm:p-5 shadow-[var(--vliq-shadow-sm)] mb-3 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-4">
+          <KV label="Пользователь" value={sellerName} />
+          <KV
             label="Дата загрузки"
             value={new Intl.DateTimeFormat('ru-RU', {
               day: '2-digit', month: '2-digit', year: 'numeric',
               hour: '2-digit', minute: '2-digit',
             }).format(new Date(receipt.created_at))}
           />
-          <KVRow label="Магазин" value={receipt.shop_name ?? '—'} />
-          <KVRow label="Адрес" value={receipt.shop_address ?? '—'} />
-          <KVRow label="Сумма покупки" value={fmtMoney(receipt.amount)} />
-          <KVRow
-            label="Найдено товаров"
-            value={receipt.items?.length != null ? String(receipt.items.length) : '—'}
-          />
-          <KVRow
+          <KV label="Сумма покупки" value={fmtMoney(receipt.amount)} />
+          <KV label="Найдено товаров" value={receipt.items?.length != null ? String(receipt.items.length) : '—'} />
+          <KV label="Магазин" value={receipt.shop_name ?? '—'} wide />
+          <KV label="Адрес" value={receipt.shop_address ?? '—'} wide />
+          <KV
             label="ФН / ФД / ФП"
             value={
               receipt.fn && receipt.fd && receipt.fp
                 ? `${receipt.fn.slice(-6)} / ${receipt.fd} / ${receipt.fp.slice(-4)}`
                 : '—'
             }
+            wide
           />
         </div>
+
+        {receipt.fn && receipt.fd && receipt.fp && (
+          <button
+            type="button"
+            onClick={() => {
+              const text = `${receipt.fn} / ${receipt.fd} / ${receipt.fp}`
+              navigator.clipboard?.writeText(text)
+                .then(() => pushToast('Номер скопирован', 'ok'))
+                .catch(() => pushToast('Не удалось скопировать', 'dg'))
+            }}
+            className="flex items-center gap-2 mb-4 -mt-2 text-[var(--vliq-brand)] text-[13px] font-semibold bg-transparent border-0 cursor-pointer"
+          >
+            <Icon name="cmt" size={15} /> Скопировать ФН / ФД / ФП
+          </button>
+        )}
 
         {/* Items */}
         {receipt.items && receipt.items.length > 0 && (
           <>
-            <b className="text-[14px] font-bold block mb-0.5">Товары</b>
-            <div className="bg-[var(--vliq-card)] rounded-[16px] px-4 shadow-[var(--vliq-shadow-sm)] mb-4">
-              {receipt.items.map((item, i) => (
-                <div
-                  key={i}
-                  className="flex justify-between items-start gap-4 py-[10px] border-b border-[var(--vliq-sep)] last:border-b-0"
-                >
-                  <span className="text-[13px] text-[var(--vliq-hint)] font-medium">{item.name}</span>
-                  <span className="text-[13px] font-semibold">{fmtMoney(item.price)}</span>
-                </div>
-              ))}
-              <div className="flex justify-between items-start gap-4 py-[10px]">
+            <b className="text-[14px] font-bold block mb-1.5">Товары</b>
+            <div className="bg-[var(--vliq-field)] rounded-[16px] p-4 sm:p-5 shadow-[var(--vliq-shadow-sm)] mb-3">
+              {/* Items reflow into 2 columns on wide screens instead of one tall list */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8">
+                {receipt.items.map((item, i) => (
+                  <div key={i} className="flex items-start justify-between gap-3 py-2.5">
+                    <span className="flex-1 min-w-0 text-[13px] text-[var(--vliq-text)] font-medium leading-snug break-words">
+                      {item.name}
+                    </span>
+                    <span
+                      className="flex-none text-[13px] font-semibold whitespace-nowrap"
+                      style={{ fontVariantNumeric: 'tabular-nums' }}
+                    >
+                      {fmtMoney(item.price)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center justify-between gap-3 pt-3 mt-2 border-t border-[var(--vliq-sep)]">
                 <span className="text-[13px] font-bold">Сумма бонуса</span>
-                <span className="text-[14px] font-extrabold text-[var(--vliq-ok-ink)]">
+                <span
+                  className="text-[14px] font-extrabold text-[var(--vliq-ok-ink)] whitespace-nowrap"
+                  style={{ fontVariantNumeric: 'tabular-nums' }}
+                >
                   {receipt.bonus_amount != null ? fmtMoneyDelta(receipt.bonus_amount) : '—'}
                 </span>
               </div>
@@ -238,7 +289,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
+              gridTemplateColumns: 'repeat(2, 1fr)',
               gap: 12,
               padding: '16px 0 0',
             }}
@@ -255,15 +306,6 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
             <button
               type="button"
               disabled={isPending}
-              onClick={() => handleAction('revise')}
-              className="flex flex-col items-center gap-[7px] py-[13px] px-[6px] rounded-[14px] text-[12.5px] font-bold leading-[1.2] bg-[var(--vliq-wn)] text-white border-0 cursor-pointer active:opacity-80 transition-opacity disabled:opacity-50"
-            >
-              <Icon name="arrUp" size={20} />
-              Доработка
-            </button>
-            <button
-              type="button"
-              disabled={isPending}
               onClick={() => handleAction('reject')}
               className="flex flex-col items-center gap-[7px] py-[13px] px-[6px] rounded-[14px] text-[12.5px] font-bold leading-[1.2] bg-[var(--vliq-dg)] text-white border-0 cursor-pointer active:opacity-80 transition-opacity disabled:opacity-50"
             >
@@ -272,23 +314,36 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
             </button>
           </div>
         ) : (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '14px 16px',
-              margin: '16px 0 4px',
-              borderRadius: 14,
-              background: 'var(--vliq-field)',
-              color: 'var(--vliq-hint)',
-              fontSize: 13,
-              fontWeight: 500,
-            }}
-          >
-            <Icon name="shield" size={16} />
-            <span>Чек уже обработан — действия недоступны</span>
-          </div>
+          <>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '14px 16px',
+                margin: '16px 0 4px',
+                borderRadius: 14,
+                background: 'var(--vliq-field)',
+                color: 'var(--vliq-hint)',
+                fontSize: 13,
+                fontWeight: 500,
+              }}
+            >
+              <Icon name="shield" size={16} />
+              <span>Чек уже обработан — действия недоступны</span>
+            </div>
+            {/* A6 soft-delete — only for processed (Отклонён / Выплачен) receipts. */}
+            {(receipt.status === 'rejected' || receipt.status === 'paid_out') && (
+              <button
+                type="button"
+                disabled={deletePending}
+                onClick={() => doDelete(receiptId)}
+                className="flex items-center justify-center gap-2 w-full mt-2 py-[11px] rounded-[12px] text-[13px] font-semibold bg-[var(--vliq-dg-bg)] text-[var(--vliq-dg-ink)] border-0 cursor-pointer disabled:opacity-50"
+              >
+                <Icon name="x" size={16} /> Удалить чек
+              </button>
+            )}
+          </>
         )}
 
         {/* Secondary actions: «Изменить бонус» only when there IS a bonus to edit

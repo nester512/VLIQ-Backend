@@ -44,8 +44,9 @@ from src.receipt.schemas.api import (
 )
 from src.receipt_ocr.hasher import sha256_hash
 from src.receipt_ocr.qr_parser import QRParseError, parse_qr_string
-from src.receipt_ocr.storage import get_receipt_storage
+from src.receipt_ocr.storage import get_receipt_storage, to_viewable_url
 from src.receipt_pipeline.state_machine import ReceiptStateMachine
+from src.seller.models import Seller
 
 logger = logging.getLogger(__name__)
 
@@ -201,11 +202,10 @@ async def submit_qr_payload(
     try:
         parsed = parse_qr_string(body.qr_raw)
     except QRParseError as exc:
-        # TODO migrate to AppError (QR_PARSE_FAILED) once errors.py is published by parallel agent.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "QR_PARSE_FAILED", "message": str(exc)},
-        ) from exc
+        # AppError → structured envelope with a user-facing Russian message so the
+        # TMA shows "Не удалось прочитать QR-код. Попробуй ещё раз." instead of a
+        # generic toast (the old dict-detail HTTPException had no user_message).
+        raise AppError("QR_PARSE_FAILED", status_code=400, extra={"reason": str(exc)}) from exc
 
     # Duplicate check on fn/fd/fp triple (same as pipeline fraud check, but early).
     existing = await _fraud_checker.check_fn_fd_fp(session, parsed.fn, parsed.fd, parsed.fp)
@@ -369,12 +369,12 @@ async def finalize_upload(
     file_hash = sha256_hash(file_bytes)
     existing = await _fraud_checker.check_file_hash(session, file_hash)
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "detail": "duplicate_receipt",
-                "existing_receipt_id": existing.id,
-            },
+        # Same AppError envelope as /upload and /qr-payload so the presigned-S3
+        # path also shows "Этот чек уже был загружен ранее." (not a generic toast).
+        raise AppError(
+            "RECEIPT_DUPLICATE",
+            status_code=409,
+            extra={"existing_receipt_id": existing.id},
         )
 
     # Insert receipt row.
@@ -430,7 +430,9 @@ async def get_receipt_status(
     if token["role"] == "seller" and receipt.seller_id != seller_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your receipt")
 
-    return ReceiptStatusResponse.model_validate(receipt)
+    resp = ReceiptStatusResponse.model_validate(receipt)
+    resp.file_url = to_viewable_url(receipt.file_url)
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -886,7 +888,13 @@ async def list_receipts(  # noqa: PLR0913
     stmt = stmt.order_by(Receipt.created_at.desc()).offset((page - 1) * limit).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
 
-    items = [ReceiptRead.model_validate(r, from_attributes=True) for r in rows]
+    items = []
+    for r in rows:
+        item = ReceiptRead.model_validate(r, from_attributes=True)
+        # Expose a browser-viewable photo URL so the admin review deck can show it.
+        item.file_url = to_viewable_url(r.file_url) or r.file_url
+        items.append(item)
+    await _attach_seller_info(session, items)
     return PagedResponse.build(items=items, total=total, page=page, limit=limit)
 
 
@@ -901,7 +909,27 @@ async def get_receipt(
     session: AsyncSession = Depends(get_pg_session),
 ) -> ReceiptRead:
     receipt = await _get_receipt_or_404(session, receipt_id)
-    return ReceiptRead.model_validate(receipt)
+    read = ReceiptRead.model_validate(receipt)
+    read.file_url = to_viewable_url(receipt.file_url) or receipt.file_url
+    await _attach_seller_info(session, [read])
+    return read
+
+
+async def _attach_seller_info(session: AsyncSession, items: list[ReceiptRead]) -> None:
+    """Batch-fill seller_name + seller_store on admin receipt DTOs so the review
+    card shows the real name/store (joined from the seller table)."""
+    seller_ids = {it.seller_id for it in items}
+    if not seller_ids:
+        return
+    rows = (await session.execute(select(Seller).where(Seller.telegram_id.in_(seller_ids)))).scalars().all()
+    by_id = {s.telegram_id: s for s in rows}
+    for it in items:
+        s = by_id.get(it.seller_id)
+        if s is None:
+            continue
+        name = " ".join(p for p in (s.first_name, s.last_name) if p).strip()
+        it.seller_name = name or None
+        it.seller_store = s.outlet_name or None
 
 
 @router.patch(
@@ -919,7 +947,8 @@ async def update_receipt(
     update_data = payload.model_dump(exclude_none=True)
     if update_data:
         update_data["updated_by"] = token["user_id"]
-        await session.execute(update(Receipt).where(Receipt.id == receipt_id).values(**update_data))
+        # dict positionally — `.values(**update_data)` breaks on the `fn` column.
+        await session.execute(update(Receipt).where(Receipt.id == receipt_id).values(update_data))
         await session.commit()
         await session.refresh(receipt)
     return ReceiptRead.model_validate(receipt)

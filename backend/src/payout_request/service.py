@@ -57,8 +57,7 @@ async def create_payout_request(  # noqa: PLR0913
     seller_id: int,
     amount: int,
     payout_kind: str,
-    payout_masked: str,
-    brand_id: int,
+    payout_masked_override: str | None,
     session: AsyncSession,
     redis: Redis,
     idempotency_key: str,
@@ -66,10 +65,14 @@ async def create_payout_request(  # noqa: PLR0913
     """Atomically create a payout request and hold the balance.
 
     Steps (all in one transaction):
-      1. SELECT seller FOR UPDATE
-      2. Compute available balance; raise 409 if insufficient.
+      1. SELECT seller FOR UPDATE; derive brand_id + payout account from it.
+      2. Compute available balance; raise 422 if insufficient.
       3. INSERT payout_request(status=new)
       4. INSERT bonus_transaction(kind=payout_hold, amount=-amount)
+
+    The seller is resolved HERE (not in the endpoint): a pre-query in the
+    endpoint autobegins a transaction on the session, so the `session.begin()`
+    below would raise "A transaction is already begun on this Session".
     """
     # Check idempotency cache first — before acquiring any DB lock.
     cached = await _get_idempotency_key(redis, idempotency_key)
@@ -85,6 +88,13 @@ async def create_payout_request(  # noqa: PLR0913
 
         if seller_row is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Seller not found")
+
+        # Derive brand + payout account from the locked row (request body may
+        # override the masked account for this single payout).
+        brand_id = seller_row.brand_id
+        payout_masked = payout_masked_override or seller_row.payout_masked
+        if not payout_masked:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Payout account not set")
 
         # Compute available balance within the same transaction.
         balance = await get_seller_balance(seller_id=seller_id, session=session)

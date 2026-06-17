@@ -1,11 +1,10 @@
-import { useRef, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Field } from '@/components/atoms/Field'
 import { Btn } from '@/components/atoms/Btn'
 import { useUiStore } from '@/store/uiStore'
 import { updateMe } from '@/api/sellers'
-import type { PayoutMethod } from '@/types/models'
 import { getTgWebApp, isTmaEnvironment } from '@/utils/tma'
 import { extractApiError } from '@/api/client'
 import { CitySelect } from '@/components/molecules/CitySelect'
@@ -13,6 +12,8 @@ import { useCities } from '@/features/seller/hooks/useCities'
 
 type Step = 1 | 2
 
+// S2.2: the анкета has NO payout requisites — they are entered per-request in
+// the payout form (S5) and never stored on the profile.
 interface FormState {
   first_name: string
   last_name: string
@@ -21,8 +22,6 @@ interface FormState {
   store_name: string
   store_address: string
   position: string
-  payout_method: PayoutMethod | ''
-  payout_details: string
 }
 
 const INITIAL: FormState = {
@@ -33,33 +32,10 @@ const INITIAL: FormState = {
   store_name: '',
   store_address: '',
   position: '',
-  payout_method: '',
-  payout_details: '',
 }
 
 // Phone format: E.164 ("+71234567890"). Loosely validated to surface obvious typos.
 const PHONE_RE = /^\+[1-9]\d{7,14}$/
-// Card: 16–19 digits (spaces allowed, stripped before testing). Luhn intentionally
-// not enforced — the backend stores the raw value + masks last-4, and a naive Luhn
-// check rejects some valid cards.
-const CARD_RE = /^\d{16,19}$/
-
-// Validate the payout details against the selected method. Returns an error
-// string or undefined when valid.
-function validatePayoutDetails(method: PayoutMethod | '', raw: string): string | undefined {
-  const v = raw.trim()
-  if (!v) return 'Заполните реквизиты'
-  switch (method) {
-    case 'card':
-      return CARD_RE.test(v.replace(/\s/g, '')) ? undefined : 'Введите номер карты (16–19 цифр)'
-    case 'sbp_phone':
-      return PHONE_RE.test(v) ? undefined : 'Формат телефона: +7XXXXXXXXXX'
-    case 'sbp_bank':
-      return v.length >= 2 ? undefined : 'Укажите название банка / счёт'
-    default:
-      return undefined
-  }
-}
 
 function digitsOnlyToE164(s: string): string {
   const digits = s.replace(/\D/g, '')
@@ -89,9 +65,6 @@ export function RegPage() {
   const pushToast = useUiStore((s) => s.pushToast)
 
   const [step, setStep] = useState<Step>(1)
-  // Lazy initializer: compute the Telegram-prefilled initial form once at mount
-  // time instead of calling setForm inside a useEffect, which would trigger an
-  // extra render and violate react-hooks/set-state-in-effect.
   const [form, setForm] = useState<FormState>(() => {
     const tg = prefillFromTelegram()
     return {
@@ -103,36 +76,11 @@ export function RegPage() {
   })
   const [agreed, setAgreed] = useState(false)
   const [touched, setTouched] = useState<Record<string, boolean>>({})
-  // Track whether payout_details was auto-filled from the phone field so we
-  // don't overwrite a value the seller typed manually.
-  const sbpAutoFilled = useRef(false)
   const inTma = isTmaEnvironment()
   const { data: cities = [], isLoading: citiesLoading } = useCities()
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((prev) => {
-      const next = { ...prev, [key]: value }
-
-      // Switching payout method invalidates whatever was typed for the old one
-      // (e.g. a phone left over from СБП is not a valid card number). Clear it,
-      // then re-apply the SBP autofill for the newly selected method.
-      if (key === 'payout_method' && value !== prev.payout_method) {
-        next.payout_details = ''
-        sbpAutoFilled.current = false
-        if (value === 'sbp_phone' && PHONE_RE.test(prev.phone)) {
-          next.payout_details = prev.phone
-          sbpAutoFilled.current = true
-        }
-      }
-
-      // If the seller edits payout_details directly, clear the auto-fill flag
-      // so future phone changes don't clobber their typed value.
-      if (key === 'payout_details') {
-        sbpAutoFilled.current = false
-      }
-
-      return next
-    })
+    setForm((prev) => ({ ...prev, [key]: value }))
   }
 
   const errors = useMemo(() => {
@@ -143,20 +91,14 @@ export function RegPage() {
     if (!form.city.trim())              e.city       = 'Укажите город'
     else if (!cities.some((c) => c.name === form.city)) e.city = 'Выберите город из списка'
     if (step === 2) {
-      if (!form.store_name.trim())      e.store_name    = 'Название точки'
-      if (!form.payout_method) {
-        e.payout_method = 'Выберите способ'
-      } else {
-        const pd = validatePayoutDetails(form.payout_method, form.payout_details)
-        if (pd) e.payout_details = pd
-      }
-      if (!agreed)                      e.agreed         = 'Нужно согласие'
+      if (!form.store_name.trim())      e.store_name = 'Название точки'
+      if (!agreed)                      e.agreed     = 'Нужно согласие'
     }
     return e
   }, [form, step, agreed, cities])
 
   const step1Valid = !errors.first_name && !errors.last_name && !errors.phone && !errors.city
-  const step2Valid = step1Valid && !errors.store_name && !errors.payout_method && !errors.payout_details && !errors.agreed
+  const step2Valid = step1Valid && !errors.store_name && !errors.agreed
 
   const { mutate, isPending } = useMutation({
     mutationFn: () =>
@@ -168,17 +110,10 @@ export function RegPage() {
         store_name: form.store_name.trim(),
         store_address: form.store_address.trim() || undefined,
         position: form.position.trim() || undefined,
-        payout_method: form.payout_method as PayoutMethod,
-        payout_account_raw: form.payout_details.trim(),
         consent_pdn_at: new Date().toISOString(),
       }),
-    // Prime the cache with the fresh profile right away so SellerProfileGate
-    // doesn't see `status === 'pending'` between mutation success and the next
-    // GET — otherwise it bounces us straight back to /seller/reg.
     onSuccess: async (profile) => {
       queryClient.setQueryData(['sellers', 'me'], profile)
-      // Belt-and-braces refetch in case the backend mutated more fields than
-      // the response contains.
       await queryClient.invalidateQueries({ queryKey: ['sellers', 'me'] })
       pushToast('Регистрация завершена', 'ok')
       navigate('/seller/home', { replace: true })
@@ -209,8 +144,7 @@ export function RegPage() {
   function submit() {
     setTouched({
       first_name: true, last_name: true, phone: true, city: true,
-      store_name: true, payout_method: true, payout_details: true,
-      agreed: true,
+      store_name: true, agreed: true,
     })
     if (!step2Valid) {
       if (errors.agreed) {
@@ -233,7 +167,7 @@ export function RegPage() {
         Расскажите о себе
       </h1>
       <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--vliq-hint)', marginTop: 6, marginBottom: 16 }}>
-        Данные нужны бренду для начисления и выплаты бонусов
+        Данные нужны бренду для начисления бонусов. Реквизиты выплаты укажете при заявке.
       </p>
 
       {/* Step indicator */}
@@ -256,14 +190,8 @@ export function RegPage() {
                   type="button"
                   onClick={handleRequestContact}
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    padding: '2px 0',
-                    cursor: 'pointer',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: 'var(--vliq-brand)',
-                    lineHeight: 1.2,
+                    background: 'none', border: 'none', padding: '2px 0', cursor: 'pointer',
+                    fontSize: 12, fontWeight: 600, color: 'var(--vliq-brand)', lineHeight: 1.2,
                   }}
                 >
                   Использовать телефон из Telegram
@@ -312,59 +240,6 @@ export function RegPage() {
           <Field label="Адрес"           value={form.store_address} onChange={(e) => update('store_address', e.target.value)} placeholder="Адрес точки (необязательно)" />
           <Field label="Должность"       value={form.position}      onChange={(e) => update('position',      e.target.value)} placeholder="Продавец-консультант" />
 
-          {/* Payout method selector */}
-          <div className="vliq-field">
-            <label>Способ выплаты</label>
-            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-              {([
-                ['sbp_phone', 'СБП'] as const,
-                ['card',      'Карта'] as const,
-                ['sbp_bank',  'СБП·банк'] as const,
-              ]).map(([m, label]) => {
-                const active = form.payout_method === m
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => {
-                      const changed = m !== form.payout_method
-                      update('payout_method', m)
-                      setTouched((t) => ({ ...t, payout_method: true, ...(changed ? { payout_details: false } : {}) }))
-                    }}
-                    className="vliq-press"
-                    style={{
-                      flex: 1,
-                      padding: '8px 12px',
-                      borderRadius: 10,
-                      border: 0,
-                      cursor: 'pointer',
-                      fontSize: 13,
-                      fontWeight: 700,
-                      background: active ? 'var(--vliq-brand)' : 'var(--vliq-card)',
-                      color: active ? '#fff' : 'var(--vliq-hint)',
-                      boxShadow: active ? '0 6px 14px -8px var(--vliq-brand)' : 'var(--vliq-shadow-sm)',
-                      transition: 'background-color .15s',
-                    }}
-                  >
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
-            {touched.payout_method && errors.payout_method && (
-              <p style={{ marginTop: 8, fontSize: 12, fontWeight: 600, color: 'var(--color-dg)' }}>{errors.payout_method}</p>
-            )}
-          </div>
-
-          <Field
-            label={form.payout_method === 'card' ? 'Номер карты' : form.payout_method === 'sbp_bank' ? 'СБП · название банка' : 'Номер телефона для СБП'}
-            value={form.payout_details}
-            onChange={(e) => update('payout_details', e.target.value)}
-            onBlur={() => setTouched((t) => ({ ...t, payout_details: true }))}
-            error={showErr('payout_details')}
-            placeholder={form.payout_method === 'card' ? '•••• •••• •••• 0000' : '+7 ••• ••• •• ••'}
-          />
-
           {/* Consent checkbox — proper role + aria-checked, clickable label row */}
           <div
             role="checkbox"
@@ -380,29 +255,17 @@ export function RegPage() {
               }
             }}
             style={{
-              display: 'flex',
-              gap: 12,
-              alignItems: 'flex-start',
-              marginTop: 6,
-              marginBottom: 16,
-              cursor: 'pointer',
-              width: '100%',
+              display: 'flex', gap: 12, alignItems: 'flex-start',
+              marginTop: 6, marginBottom: 16, cursor: 'pointer', width: '100%',
             }}
           >
             <span
               aria-hidden
               style={{
-                width: 22,
-                height: 22,
-                borderRadius: 7,
-                flex: 'none',
-                display: 'grid',
-                placeItems: 'center',
-                marginTop: 1,
+                width: 22, height: 22, borderRadius: 7, flex: 'none',
+                display: 'grid', placeItems: 'center', marginTop: 1,
                 background: agreed ? 'var(--vliq-brand)' : 'transparent',
                 color: '#fff',
-                // Border is visible in both themes — solves the "I don't see
-                // the checkbox" complaint on dark theme.
                 boxShadow: agreed
                   ? 'inset 0 0 0 1.5px var(--vliq-brand)'
                   : `inset 0 0 0 1.5px ${touched.agreed && errors.agreed ? 'var(--color-dg)' : 'var(--vliq-hint)'}`,

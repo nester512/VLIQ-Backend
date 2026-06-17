@@ -28,7 +28,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.prometheus_metrics import receipt_pipeline_duration_seconds
 from src.bonus_engine.engine import calculate_bonus
 from src.bonus_engine.schemas import ReceiptItemContext, RuleContext
-from src.bonus_transaction.models import BonusTransaction, BonusTransactionKind
 from src.fraud.checks import FraudChecker
 from src.fraud.signals import FraudSignal
 from src.ofd_client.base import OFDClientProtocol
@@ -43,9 +42,6 @@ from src.receipt_pipeline.state_machine import ReceiptStateMachine
 from src.receipt_pipeline.steps import PipelineResult, StepError
 from src.sku.models import Sku
 from src.sku_matcher.matcher import SkuMatcher
-
-# Fixed demo bonus amount (kopecks-equivalent units) when OCR_MODE=demo.
-_DEMO_BONUS_AMOUNT = 250
 
 logger = logging.getLogger(__name__)
 
@@ -180,16 +176,16 @@ class ReceiptPipelineOrchestrator:
             seller_count = await self._count_seller_receipts(session, receipt)
             await self._step_bonus_calc(receipt, result, skus, promotions, seller_count)
 
-            # Step 8: Atomic commit.
-            await self._step_atomic_commit(session, receipt, result)
+            # Step 8: Persist enrichment + suggested bonus, route to on_review (admin decides).
+            await self._step_finalize_review(session, receipt, result)
 
             _duration = time.monotonic() - t_start
-            receipt_pipeline_duration_seconds.labels(status=ReceiptStatus.approved.value).observe(_duration)
+            receipt_pipeline_duration_seconds.labels(status=ReceiptStatus.on_review.value).observe(_duration)
             logger.info(
                 "pipeline.complete",
                 extra={
                     "receipt_id": receipt_id,
-                    "final_status": ReceiptStatus.approved.value,
+                    "final_status": ReceiptStatus.on_review.value,
                     "total_duration_ms": int(_duration * 1000),
                 },
             )
@@ -209,7 +205,13 @@ class ReceiptPipelineOrchestrator:
 
         except Exception as exc:
             logger.exception("pipeline.unexpected_error", extra={"receipt_id": receipt_id, "error": str(exc)})
-            await self._set_status_with_signals(session, receipt, ReceiptStatus.on_review.value, result.fraud_signals)
+            await self._set_status_with_signals(
+                session,
+                receipt,
+                ReceiptStatus.on_review.value,
+                result.fraud_signals,
+                extra_vals=self._recognized_vals(result),
+            )
             _duration = time.monotonic() - t_start
             receipt_pipeline_duration_seconds.labels(status="error").observe(_duration)
             logger.info(
@@ -226,10 +228,11 @@ class ReceiptPipelineOrchestrator:
     # -------------------------------------------------------------------------
 
     async def _process_demo(self, session: AsyncSession, receipt: Receipt) -> None:
-        """Demo pipeline: skip OCR/OFD, immediately set on_review with fixed bonus.
+        """Demo pipeline: skip OCR/OFD, immediately set on_review for manual review.
 
-        Adds a demo fraud signal so reviewers know OCR was skipped.
-        Admin must manually approve or reject via the UI.
+        Adds a demo fraud signal so reviewers know OCR was skipped. Per spec S8
+        there is NO automatic bonus — the admin assigns the bonus on approve, so
+        the suggested bonus_amount stays 0 here.
         """
         demo_signal = {
             "signal": "demo_mode",
@@ -239,16 +242,16 @@ class ReceiptPipelineOrchestrator:
         vals = {
             "status": ReceiptStatus.on_review.value,
             "fraud_signals": [demo_signal],
-            "bonus_amount": _DEMO_BONUS_AMOUNT,
+            # S8: no auto/fixed bonus — admin assigns it on approve.
+            "bonus_amount": 0,
             "rejection_reason": None,
         }
         try:
             await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(**vals))
             await session.commit()
             logger.info(
-                "pipeline.demo_on_review, receipt_id=%d, bonus=%d",
+                "pipeline.demo_on_review, receipt_id=%d (no auto bonus — admin assigns)",
                 receipt.id,
-                _DEMO_BONUS_AMOUNT,
             )
         except Exception as exc:
             logger.exception("pipeline.demo_commit_failed, receipt_id=%d: %s", receipt.id, exc)
@@ -259,6 +262,11 @@ class ReceiptPipelineOrchestrator:
 
     async def _step_set_status(self, session: AsyncSession, receipt: Receipt, new_status: str) -> None:
         t0 = time.monotonic()
+        # Idempotent: the admin retry endpoint already flips on_review → ocr_in_progress
+        # before re-enqueuing, so the worker may be invoked with the target status
+        # already set. Treat that as a no-op instead of failing the transition.
+        if receipt.status == new_status:
+            return
         if not _SM.can_transition(from_status=receipt.status, to_status=new_status, actor="system"):
             raise StepError(
                 step="set_status",
@@ -289,7 +297,7 @@ class ReceiptPipelineOrchestrator:
                 raise StepError(
                     step="qr_parse",
                     reason=f"QR string parse failed: {exc}",
-                    new_status=ReceiptStatus.needs_revision.value,
+                    new_status=ReceiptStatus.on_review.value,
                 ) from exc
             duration_ms = int((time.monotonic() - t0) * 1000)
             logger.info(
@@ -318,7 +326,7 @@ class ReceiptPipelineOrchestrator:
             raise StepError(
                 step="qr_extract",
                 reason="QR code not readable from image",
-                new_status=ReceiptStatus.needs_revision.value,
+                new_status=ReceiptStatus.on_review.value,
             )
 
         logger.info(
@@ -336,7 +344,7 @@ class ReceiptPipelineOrchestrator:
             raise StepError(
                 step="qr_parse",
                 reason=f"QR string parse failed: {exc}",
-                new_status=ReceiptStatus.needs_revision.value,
+                new_status=ReceiptStatus.on_review.value,
             ) from exc
 
         result.qr_raw = qr_raw
@@ -355,7 +363,7 @@ class ReceiptPipelineOrchestrator:
             raise StepError(
                 step="fraud_qr_raw",
                 reason=f"QR already used in receipt #{dup.id}",
-                new_status=ReceiptStatus.rejected.value,
+                new_status=ReceiptStatus.on_review.value,
             )
 
         # Check fn/fd/fp duplicate.
@@ -365,7 +373,7 @@ class ReceiptPipelineOrchestrator:
             raise StepError(
                 step="fraud_fn_fd_fp",
                 reason=f"Fiscal triple already used in receipt #{dup2.id}",
-                new_status=ReceiptStatus.rejected.value,
+                new_status=ReceiptStatus.on_review.value,
             )
 
         # Date window check.
@@ -375,7 +383,7 @@ class ReceiptPipelineOrchestrator:
             raise StepError(
                 step="fraud_date_window",
                 reason="Purchase date is too old",
-                new_status=ReceiptStatus.rejected.value,
+                new_status=ReceiptStatus.on_review.value,
             )
 
         # Cross-seller duplicate check (non-fatal — becomes on_review signal).
@@ -459,7 +467,7 @@ class ReceiptPipelineOrchestrator:
                 raise StepError(
                     step="ofd_fetch",
                     reason=f"Receipt not found in OFD: {exc}",
-                    new_status=ReceiptStatus.rejected.value,
+                    new_status=ReceiptStatus.on_review.value,
                 ) from exc
 
             except (OFDRateLimitError, OFDBlockedError) as exc:
@@ -491,7 +499,7 @@ class ReceiptPipelineOrchestrator:
                     raise StepError(
                         step="ofd_fetch",
                         reason=_OFD_UPSTREAM_UNAVAILABLE,
-                        new_status=ReceiptStatus.needs_revision.value,
+                        new_status=ReceiptStatus.on_review.value,
                     ) from exc
 
             except Exception as exc:  # noqa: BLE001
@@ -522,7 +530,7 @@ class ReceiptPipelineOrchestrator:
                     raise StepError(
                         step="ofd_fetch",
                         reason=_OFD_UPSTREAM_UNAVAILABLE,
-                        new_status=ReceiptStatus.needs_revision.value,
+                        new_status=ReceiptStatus.on_review.value,
                     ) from exc
 
         if ofd_receipt is None:
@@ -530,7 +538,7 @@ class ReceiptPipelineOrchestrator:
             raise StepError(
                 step="ofd_fetch",
                 reason=_OFD_UPSTREAM_UNAVAILABLE,
-                new_status=ReceiptStatus.needs_revision.value,
+                new_status=ReceiptStatus.on_review.value,
             )
 
         # Store in cache (non-fatal if Redis is unavailable).
@@ -665,28 +673,37 @@ class ReceiptPipelineOrchestrator:
             int((time.monotonic() - t0) * 1000),
         )
 
-    async def _step_atomic_commit(self, session: AsyncSession, receipt: Receipt, result: PipelineResult) -> None:
-        """UPDATE receipt + INSERT bonus_transaction in a single transaction (H12)."""
+    async def _step_finalize_review(self, session: AsyncSession, receipt: Receipt, result: PipelineResult) -> None:
+        """Persist enrichment + a SUGGESTED bonus, then route the receipt to on_review.
+
+        Per spec (S8 / A2 / UC-03) the system never auto-approves and never
+        auto-creates a bonus_transaction. The pipeline runs all checks, stores the
+        parsed QR / OFD data, matched items and a *suggested* bonus, then hands the
+        receipt to the admin queue (on_review). The admin makes the final
+        approve/reject decision and confirms the bonus amount — the
+        bonus_transaction is inserted by the admin approve endpoint, not here.
+        """
         t0 = time.monotonic()
         pqr = result.parsed_qr
         ofd = result.ofd_receipt
 
         async with session.begin():
-            # SELECT … FOR UPDATE to prevent concurrent approval.
+            # SELECT … FOR UPDATE to prevent concurrent state changes.
             locked = await session.execute(select(Receipt).where(Receipt.id == receipt.id).with_for_update())
             locked_receipt = locked.scalar_one_or_none()
             if locked_receipt is None:
                 raise StepError(
-                    step="atomic_commit",
+                    step="finalize_review",
                     reason=f"Receipt {receipt.id} disappeared during processing",
                     new_status=ReceiptStatus.on_review.value,
                 )
 
-            # Build update values.
+            # Build update values — terminal pipeline status is on_review (admin decides).
             update_vals: dict = {
-                "status": ReceiptStatus.approved.value,
+                "status": ReceiptStatus.on_review.value,
                 "fraud_signals": [s.to_dict() for s in result.fraud_signals],
                 "items": result.matched_items,
+                # Suggested bonus only — the admin confirms/edits it on approve.
                 "bonus_amount": result.bonus_amount,
             }
             if pqr:
@@ -708,24 +725,13 @@ class ReceiptPipelineOrchestrator:
                     }
                 )
 
-            await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(**update_vals))
-
-            # Insert bonus_transaction only if bonus > 0.
-            if result.bonus_amount > 0:
-                bt = BonusTransaction(
-                    seller_id=receipt.seller_id,
-                    brand_id=receipt.brand_id,
-                    amount=result.bonus_amount,
-                    kind=BonusTransactionKind.accrual_receipt.value,
-                    source_type="receipt",
-                    source_id=receipt.id,
-                    reason=f"Receipt #{receipt.id} approved",
-                )
-                session.add(bt)
+            # NB: dict positionally — `.values(**update_vals)` breaks on the `fn`
+            # column (collides with SQLAlchemy's @_generative `fn` param).
+            await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(update_vals))
 
         duration_ms = int((time.monotonic() - t0) * 1000)
         logger.info(
-            "pipeline.approved, receipt_id=%d, bonus=%d, duration_ms=%d",
+            "pipeline.review_ready, receipt_id=%d, suggested_bonus=%d, duration_ms=%d",
             receipt.id,
             result.bonus_amount,
             duration_ms,
@@ -751,34 +757,66 @@ class ReceiptPipelineOrchestrator:
                 "reason": exc.reason,
             },
         )
-        # For needs_revision, store the machine-readable reason for alerting.
-        rejection_reason: str | None = None
-        if exc.new_status in (ReceiptStatus.rejected.value, ReceiptStatus.needs_revision.value):
-            rejection_reason = exc.reason
+        # Store the machine-readable reason so the admin (on_review = manual
+        # fallback) and alerting can see why the pipeline could not finish
+        # automatically. Applies to on_review and rejected alike.
+        rejection_reason: str | None = exc.reason or None
         await self._set_status_with_signals(
             session,
             receipt,
             exc.new_status,
             result.fraud_signals,
             rejection_reason=rejection_reason,
+            # Persist whatever was recognized so far (QR/OFD/items) so the admin
+            # has real data to review even on the on_review fallback path.
+            extra_vals=self._recognized_vals(result),
         )
 
-    async def _set_status_with_signals(
+    @staticmethod
+    def _recognized_vals(result: PipelineResult) -> dict:
+        """Fields recognized so far, persisted even when the pipeline falls back
+        to on_review — otherwise the admin sees an empty card despite the QR
+        having been parsed. OFD data (when present) is authoritative over the QR.
+        """
+        vals: dict = {}
+        pqr = result.parsed_qr
+        ofd = result.ofd_receipt
+        if result.qr_raw:
+            vals["qr_raw"] = result.qr_raw
+        if pqr is not None:
+            vals["fn"] = pqr.fn
+            vals["fd"] = pqr.fd
+            vals["fp"] = pqr.fp
+            vals["purchase_date"] = pqr.purchase_date.date()
+            vals["total_sum"] = pqr.total_sum_kop
+        if ofd is not None:
+            vals["total_sum"] = ofd.total_sum
+            vals["shop_name"] = ofd.shop_name
+            vals["shop_inn"] = ofd.shop_inn
+        if result.matched_items:
+            vals["items"] = result.matched_items
+        return vals
+
+    async def _set_status_with_signals(  # noqa: PLR0913
         self,
         session: AsyncSession,
         receipt: Receipt,
         new_status: str,
         fraud_signals: list,
         rejection_reason: str | None = None,
+        extra_vals: dict | None = None,
     ) -> None:
         vals: dict = {
+            **(extra_vals or {}),
             "status": new_status,
             "fraud_signals": [s.to_dict() if isinstance(s, FraudSignal) else s for s in fraud_signals],
         }
         if rejection_reason:
             vals["rejection_reason"] = rejection_reason
         try:
-            await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(**vals))
+            # NB: pass a dict positionally — `.values(**vals)` breaks when a column
+            # is named `fn` (collides with SQLAlchemy's @_generative `fn` param).
+            await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(vals))
             await session.commit()
         except Exception as upd_exc:
             logger.exception("pipeline.status_update_failed, receipt_id=%d: %s", receipt.id, upd_exc)

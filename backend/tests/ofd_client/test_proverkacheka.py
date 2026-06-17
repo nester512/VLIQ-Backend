@@ -216,13 +216,15 @@ async def test_code_3__raises_ofd_blocked():
 
 
 @pytest.mark.asyncio
-async def test_unexpected_code__raises_ofd_blocked():
-    """Unknown code → OFDBlockedError."""
+async def test_unexpected_code__raises_ofd_not_found():
+    """Unknown response code → OFDNotFoundError (treated as not-found, never
+    retried forever — see proverkacheka.py: "safer than infinite retry").
+    A not-found in turn routes the receipt to on_review for manual review."""
     payload = {"code": 99, "data": {}}
     with respx.mock:
         respx.post(_ENDPOINT).mock(return_value=httpx.Response(200, json=payload))
         async with httpx.AsyncClient() as http:
-            with pytest.raises(OFDBlockedError):
+            with pytest.raises(OFDNotFoundError):
                 await _get(_make_client(http))
 
 
