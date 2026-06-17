@@ -133,14 +133,12 @@ function SellerHeader() {
   )
 }
 
-// Tabbar-visible seller pages: the 4 tabs + the destination pages reached from
-// them (balance, my payout requests) so the bottom nav stays present and content
-// gets the correct bottom spacing. Transient flows (reg/upload/status/payout
-// form) keep the back-button instead.
-const SELLER_TAB_ROUTES = [
-  '/seller/home', '/seller/history', '/seller/promo', '/seller/profile',
-  '/seller/balance', '/seller/payouts',
-]
+// The 4 primary seller tabs — these hide the back affordance (top-level). Every
+// OTHER seller page (upload/status/balance/payout/payouts) is a subpage: it
+// shows the back button AND keeps the bottom tabbar so navigation + correct
+// bottom spacing are always present. Only the forced registration screen has no
+// tabbar (the profile gate makes it a mandatory full-screen flow).
+const SELLER_MAIN_TABS = ['/seller/home', '/seller/history', '/seller/promo', '/seller/profile']
 
 /**
  * Seller profile gate — once a seller is auto-created on first TMA login, the
@@ -180,11 +178,14 @@ function SellerProfileGate({ children }: { children: ReactNode }) {
 
 function SellerLayout() {
   const location = useLocation()
-  const showTabBar = SELLER_TAB_ROUTES.includes(location.pathname)
+  const isReg = location.pathname === '/seller/reg'
+  const isMainTab = SELLER_MAIN_TABS.includes(location.pathname)
+  // Tabbar on every page except the forced registration flow.
+  const showTabBar = !isReg
   const viewport = useViewport()
   const isWide = viewport === 'tablet' || viewport === 'desktop'
-  // Telegram native BackButton: shown on subpages, hidden on tab routes.
-  useTelegramBack(showTabBar)
+  // Telegram native BackButton: hidden on main tabs + reg, shown on subpages.
+  useTelegramBack(isMainTab || isReg)
   return (
     <ScreenLayout
       header={<SellerHeader />}
