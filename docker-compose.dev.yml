@@ -2,25 +2,21 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 #
-# Goal: exercise the QR flow end-to-end for manual testing WITHOUT a live
-# ФНС / proverkacheka lookup. The pipeline still runs real QR extraction +
-# parsing; only the OFD step is served by the deterministic FakeOFDClient
-# (fixtures in backend/tests/fixtures/ofd_responses/).
+# OFD: real ФНС via proverkacheka (OFD_PROVIDER=proverkacheka). The pipeline
+# fetches shop name + line items for real receipts; PROVERKACHEKA_TOKEN comes
+# from .env. Every receipt lands in `on_review` (admin assigns the bonus, S8).
 #
-# Result: any scanned/uploaded receipt lands in `on_review` (the admin queue):
-#   - the sample QR  (fn=1234567890,i=12345,fp=67890)  → enriched from a fixture;
-#   - the 2nd sample (fn=9876543210,i=54321,fp=22222)  → enriched from a fixture;
-#   - any other QR/photo                               → on_review for manual review.
-#
-# For the REAL ФНС instead, just run the base file alone (`docker compose up`)
-# with OFD_PROVIDER=proverkacheka + PROVERKACHEKA_TOKEN set in .env.
+# To test WITHOUT a live ФНС instead, set `OFD_PROVIDER: fake` below — the
+# FakeOFDClient serves fixtures from backend/tests/fixtures/ofd_responses/
+# (sample QRs fn=1234567890,i=12345,fp=67890 and fn=9876543210,i=54321,fp=22222);
+# any other QR/photo still reaches on_review with its parsed QR data.
 services:
   backend:
     # Publish the API to the host for local testing / curl (dev only).
     ports:
       - "8000:8000"
     environment:
-      OFD_PROVIDER: fake
+      OFD_PROVIDER: proverkacheka
       OCR_MODE: full
       # Browser-reachable MinIO base for viewable receipt photo URLs (the
       # in-container S3_ENDPOINT_URL=minio:9000 is not reachable from the browser).
@@ -28,5 +24,11 @@ services:
 
   receipt-pipeline-worker:
     environment:
-      OFD_PROVIDER: fake
+      OFD_PROVIDER: proverkacheka
       OCR_MODE: full
+
+  # Publish the frontend nginx (serves SPA + proxies /api → backend, accepts any
+  # Host) on the host so ngrok can tunnel it for the Telegram Mini App.
+  frontend:
+    ports:
+      - "8080:80"
