@@ -35,7 +35,6 @@ from src.payout_request.service import (
     create_payout_request,
     reject_payout_request,
 )
-from src.seller.models import Seller
 
 logger = structlog.get_logger(__name__)
 
@@ -63,23 +62,15 @@ async def create_payout_request_endpoint(
         description="Client-generated unique key (UUID recommended). Stored 24 h to prevent duplicate requests.",
     ),
 ) -> PayoutRequestRead:
-    seller_id = token["user_id"]
-
-    # Resolve brand_id from seller profile.
-    seller_row = (await session.execute(select(Seller).where(Seller.telegram_id == seller_id))).scalar_one_or_none()
-    if seller_row is None:
-        raise AppError("SELLER_NOT_FOUND", status_code=404)
-
-    payout_masked = body.payout_masked or seller_row.payout_masked
-    if not payout_masked:
-        raise AppError("PAYOUT_INVALID_AMOUNT", status_code=422)
-
+    # NB: do NOT query the session here before delegating — a read autobegins a
+    # transaction and the service's `session.begin()` would then raise
+    # "A transaction is already begun". The service resolves the seller itself
+    # (locked SELECT ... FOR UPDATE) and derives brand_id + payout account.
     return await create_payout_request(
-        seller_id=seller_id,
+        seller_id=token["user_id"],
         amount=body.amount,
         payout_kind=body.payout_kind.value,
-        payout_masked=payout_masked,
-        brand_id=seller_row.brand_id,
+        payout_masked_override=body.payout_masked,
         session=session,
         redis=redis,
         idempotency_key=idempotency_key,
