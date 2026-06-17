@@ -14,7 +14,7 @@ import { initialsFromName } from '@/utils/initials'
 import { fmtMoney, fmtMoneyDelta } from '@/utils/formatMoney'
 import { useUiStore } from '@/store/uiStore'
 import { useSwipeAction } from '@/features/admin/hooks/useReviewQueue'
-import { editReceiptBonus, addReceiptComment, blockSeller } from '@/api/admin'
+import { editReceiptBonus, addReceiptComment, blockSeller, deleteReceipt } from '@/api/admin'
 import { extractApiError } from '@/api/client'
 import type { AdminReceipt } from '@/api/admin'
 import type { Receipt } from '@/types/models'
@@ -85,6 +85,21 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     },
   })
 
+  // ---- Mutation: A6 soft-delete (processed receipts) ----
+  const { mutate: doDelete, isPending: deletePending } = useMutation({
+    mutationFn: (id: string) => deleteReceipt(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'receipts'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
+      pushToast('Чек удалён', 'ok')
+      closeSheet()
+    },
+    onError: (err: unknown) => {
+      const { userMessage } = extractApiError(err)
+      pushToast(userMessage, 'dg')
+    },
+  })
+
   if (!receipt || !receiptId) {
     return (
       <div className="px-4 pb-8 grid place-items-center py-12">
@@ -114,7 +129,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     items: receipt.items,
   }
 
-  function handleAction(dir: 'approve' | 'reject' | 'revise') {
+  function handleAction(dir: 'approve' | 'reject') {
     swipe(
       { id: receiptId!, dir },
       {
@@ -159,8 +174,11 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
           <button
             type="button"
             className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/[0.16] text-white grid place-items-center backdrop-blur-sm"
-            onClick={() => pushToast('Полноэкранный просмотр — скоро', 'info')}
-            aria-label="Zoom"
+            onClick={() => {
+              if (receipt.file_url) window.open(receipt.file_url, '_blank', 'noopener,noreferrer')
+              else pushToast('Фото чека недоступно', 'info')
+            }}
+            aria-label="Открыть фото на весь экран"
           >
             <Icon name="zoom" size={16} />
           </button>
@@ -193,6 +211,21 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
             }
           />
         </div>
+
+        {receipt.fn && receipt.fd && receipt.fp && (
+          <button
+            type="button"
+            onClick={() => {
+              const text = `${receipt.fn} / ${receipt.fd} / ${receipt.fp}`
+              navigator.clipboard?.writeText(text)
+                .then(() => pushToast('Номер скопирован', 'ok'))
+                .catch(() => pushToast('Не удалось скопировать', 'dg'))
+            }}
+            className="flex items-center gap-2 mb-4 -mt-2 text-[var(--vliq-brand)] text-[13px] font-semibold bg-transparent border-0 cursor-pointer"
+          >
+            <Icon name="cmt" size={15} /> Скопировать ФН / ФД / ФП
+          </button>
+        )}
 
         {/* Items */}
         {receipt.items && receipt.items.length > 0 && (
@@ -238,7 +271,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
+              gridTemplateColumns: 'repeat(2, 1fr)',
               gap: 12,
               padding: '16px 0 0',
             }}
@@ -255,15 +288,6 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
             <button
               type="button"
               disabled={isPending}
-              onClick={() => handleAction('revise')}
-              className="flex flex-col items-center gap-[7px] py-[13px] px-[6px] rounded-[14px] text-[12.5px] font-bold leading-[1.2] bg-[var(--vliq-wn)] text-white border-0 cursor-pointer active:opacity-80 transition-opacity disabled:opacity-50"
-            >
-              <Icon name="arrUp" size={20} />
-              Доработка
-            </button>
-            <button
-              type="button"
-              disabled={isPending}
               onClick={() => handleAction('reject')}
               className="flex flex-col items-center gap-[7px] py-[13px] px-[6px] rounded-[14px] text-[12.5px] font-bold leading-[1.2] bg-[var(--vliq-dg)] text-white border-0 cursor-pointer active:opacity-80 transition-opacity disabled:opacity-50"
             >
@@ -272,23 +296,36 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
             </button>
           </div>
         ) : (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              padding: '14px 16px',
-              margin: '16px 0 4px',
-              borderRadius: 14,
-              background: 'var(--vliq-field)',
-              color: 'var(--vliq-hint)',
-              fontSize: 13,
-              fontWeight: 500,
-            }}
-          >
-            <Icon name="shield" size={16} />
-            <span>Чек уже обработан — действия недоступны</span>
-          </div>
+          <>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '14px 16px',
+                margin: '16px 0 4px',
+                borderRadius: 14,
+                background: 'var(--vliq-field)',
+                color: 'var(--vliq-hint)',
+                fontSize: 13,
+                fontWeight: 500,
+              }}
+            >
+              <Icon name="shield" size={16} />
+              <span>Чек уже обработан — действия недоступны</span>
+            </div>
+            {/* A6 soft-delete — only for processed (Отклонён / Выплачен) receipts. */}
+            {(receipt.status === 'rejected' || receipt.status === 'paid_out') && (
+              <button
+                type="button"
+                disabled={deletePending}
+                onClick={() => doDelete(receiptId)}
+                className="flex items-center justify-center gap-2 w-full mt-2 py-[11px] rounded-[12px] text-[13px] font-semibold bg-[var(--vliq-dg-bg)] text-[var(--vliq-dg-ink)] border-0 cursor-pointer disabled:opacity-50"
+              >
+                <Icon name="x" size={16} /> Удалить чек
+              </button>
+            )}
+          </>
         )}
 
         {/* Secondary actions: «Изменить бонус» only when there IS a bonus to edit

@@ -213,19 +213,18 @@ async def update_me(
             logger.warning("update_me.no_encryption_key telegram_id=%s — payout_account_raw ignored", telegram_id)
 
     # Project the merged seller to decide if we should auto-activate.
+    # S2.2 / S5.3: payout requisites are NOT part of registration (they are
+    # entered per payout request), so activation requires only phone + outlet —
+    # NOT payout_kind/payout_masked.
     merged = {
         "phone_e164": update_data.get("phone_e164", row.phone_e164),
         "outlet_name": update_data.get("outlet_name", row.outlet_name),
-        "payout_kind": update_data.get("payout_kind", row.payout_kind),
-        "payout_masked": update_data.get("payout_masked", row.payout_masked),
     }
     if (
         row.status == SellerStatus.pending.value
         and merged["phone_e164"]
         and not merged["phone_e164"].startswith("+99")  # synthetic stub
         and merged["outlet_name"]
-        and merged["payout_kind"]
-        and merged["payout_masked"]
     ):
         update_data["status"] = SellerStatus.active.value
 

@@ -40,6 +40,10 @@ function map(r: BackendPayoutRequestRead): PayoutRequest {
   }
 }
 
+/** S5.5 — the seller's own payout requests with statuses, newest first. */
+export const getMyPayoutRequests = (): Promise<PayoutRequest[]> =>
+  api.get<BackendPayoutRequestRead[]>('/payout-requests/me').then((r) => r.data.map(map))
+
 export const createPayoutRequest = (payload: CreatePayoutPayload, idempotencyKey: string) => {
   const body: BackendCreatePayout = {
     amount: payload.amount,

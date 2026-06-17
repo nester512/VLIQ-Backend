@@ -54,6 +54,8 @@ interface BackendReceiptStatus {
   status: ReceiptStatus
   bonus_amount?: number
   rejection_reason?: string | null
+  /** Browser-viewable URL of the uploaded photo/file (null for inline-QR). */
+  file_url?: string | null
 }
 
 export interface PresignedUploadResponse {
@@ -118,6 +120,7 @@ export const getReceiptStatus = (id: string): Promise<Receipt> =>
       status: r.data.status,
       bonus_amount: r.data.bonus_amount,
       rejection_reason: r.data.rejection_reason ?? undefined,
+      file_url: r.data.file_url ?? undefined,
       // /status doesn't carry the created_at — the page falls back gracefully.
       created_at: new Date().toISOString(),
     }))

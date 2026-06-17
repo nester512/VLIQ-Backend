@@ -8,7 +8,8 @@ import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
 import { HeroSkeleton, ReceiptRowSkeleton } from '@/components/atoms/Skeleton'
 import { useBalance } from '../hooks/useBalance'
 import { useReceipts } from '../hooks/useReceipts'
-import { fmtInt, fmtMoney, plural } from '@/utils/formatMoney'
+import { fmtMoney } from '@/utils/formatMoney'
+import { isApprovedStatus, isPendingStatus } from '@/utils/receiptStatus'
 
 function HomeContent() {
   const navigate = useNavigate()
@@ -16,10 +17,12 @@ function HomeContent() {
   const { data: receipts, isLoading: receiptsLoading } = useReceipts({ limit: 50 })
 
   const recentReceipts = receipts?.slice(0, 3) ?? []
-  const totalReceipts  = receipts?.length ?? 0
-  const totalLabel     = receipts === undefined
+  // S4: the home screen shows the approved vs not-yet-approved receipt counts.
+  const approvedCount = receipts?.filter((r) => isApprovedStatus(r.status)).length ?? 0
+  const pendingCount  = receipts?.filter((r) => isPendingStatus(r.status)).length ?? 0
+  const totalLabel    = receipts === undefined
     ? '—'
-    : `${fmtInt(totalReceipts)} ${plural(totalReceipts, ['чек', 'чека', 'чеков'])}`
+    : `${approvedCount} одобрено · ${pendingCount} на проверке`
 
   const balanceSubtitle = balance ? `${fmtMoney(balance.total_earned)} всего` : '—'
 

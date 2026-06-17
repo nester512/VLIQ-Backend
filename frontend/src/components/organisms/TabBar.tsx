@@ -51,6 +51,11 @@ const ADMIN_TABS: TabItem[] = [
     label: 'Продавцы',
     icon: '<circle cx="9" cy="8" r="3.5"/><path d="M3 21a6 6 0 0 1 12 0"/><path d="M16 5.6a3.5 3.5 0 0 1 0 6.8M21 21a6 6 0 0 0-5-5.9"/>',
   },
+  {
+    path: '/admin/products',
+    label: 'Товары',
+    icon: '<path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/>',
+  },
 ]
 
 interface TabBarProps {

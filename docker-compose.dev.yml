@@ -22,6 +22,9 @@ services:
     environment:
       OFD_PROVIDER: fake
       OCR_MODE: full
+      # Browser-reachable MinIO base for viewable receipt photo URLs (the
+      # in-container S3_ENDPOINT_URL=minio:9000 is not reachable from the browser).
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
 
   receipt-pipeline-worker:
     environment:

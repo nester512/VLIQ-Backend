@@ -44,7 +44,7 @@ from src.receipt.schemas.api import (
 )
 from src.receipt_ocr.hasher import sha256_hash
 from src.receipt_ocr.qr_parser import QRParseError, parse_qr_string
-from src.receipt_ocr.storage import get_receipt_storage
+from src.receipt_ocr.storage import get_receipt_storage, to_viewable_url
 from src.receipt_pipeline.state_machine import ReceiptStateMachine
 
 logger = logging.getLogger(__name__)
@@ -429,7 +429,9 @@ async def get_receipt_status(
     if token["role"] == "seller" and receipt.seller_id != seller_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your receipt")
 
-    return ReceiptStatusResponse.model_validate(receipt)
+    resp = ReceiptStatusResponse.model_validate(receipt)
+    resp.file_url = to_viewable_url(receipt.file_url)
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -885,7 +887,12 @@ async def list_receipts(  # noqa: PLR0913
     stmt = stmt.order_by(Receipt.created_at.desc()).offset((page - 1) * limit).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
 
-    items = [ReceiptRead.model_validate(r, from_attributes=True) for r in rows]
+    items = []
+    for r in rows:
+        item = ReceiptRead.model_validate(r, from_attributes=True)
+        # Expose a browser-viewable photo URL so the admin review deck can show it.
+        item.file_url = to_viewable_url(r.file_url) or r.file_url
+        items.append(item)
     return PagedResponse.build(items=items, total=total, page=page, limit=limit)
 
 
@@ -900,7 +907,9 @@ async def get_receipt(
     session: AsyncSession = Depends(get_pg_session),
 ) -> ReceiptRead:
     receipt = await _get_receipt_or_404(session, receipt_id)
-    return ReceiptRead.model_validate(receipt)
+    read = ReceiptRead.model_validate(receipt)
+    read.file_url = to_viewable_url(receipt.file_url) or receipt.file_url
+    return read
 
 
 @router.patch(

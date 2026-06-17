@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
+import { fmtMoney } from '@/utils/formatMoney'
 
 interface TopSeller {
   telegram_id?: number
   name: string
   city: string
   receipts: string
+  /** UC-01 — сумма продаж (наших товаров) и сумма выплат по продавцу. */
+  sales?: number
+  paid?: number
 }
 
 interface TopSellersBoardProps {
@@ -38,24 +42,20 @@ function Row({ rank, seller, onClick }: { rank: number; seller: TopSeller; onCli
       </div>
       <div className="vliq-row-tx">
         <b>{seller.name}</b>
-        <span>{seller.city}</span>
+        <span>{[seller.city, seller.receipts].filter(Boolean).join(' · ')}</span>
       </div>
-      <span
-        style={{
-          flex: 'none',
-          maxWidth: 110,
-          marginRight: 4,
-          fontSize: 13,
-          fontWeight: 700,
-          color: 'var(--vliq-hint)',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-        title={seller.receipts}
-      >
-        {seller.receipts}
-      </span>
+      <div style={{ flex: 'none', textAlign: 'right', marginRight: 4, minWidth: 96 }}>
+        {seller.sales != null && (
+          <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--vliq-text)', fontVariantNumeric: 'tabular-nums' }}>
+            {fmtMoney(seller.sales)}
+          </div>
+        )}
+        {seller.paid != null && (
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--vliq-hint)', fontVariantNumeric: 'tabular-nums' }}>
+            выпл. {fmtMoney(seller.paid)}
+          </div>
+        )}
+      </div>
     </button>
   )
 }

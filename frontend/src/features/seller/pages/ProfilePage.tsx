@@ -9,8 +9,8 @@ import { useAuthStore } from '@/store/authStore'
 import { getMe } from '@/api/sellers'
 import { getTgWebApp } from '@/utils/tma'
 
-// TODO: replace with a brand-specific support contact returned by the backend.
-const ADMIN_SUPPORT_USERNAME = 'vliq_support'
+// Single support contact for everyone (spec S9: @nester256).
+const ADMIN_SUPPORT_USERNAME = 'nester256'
 // Telegram-username syntax — used both to validate the constant and as the
 // runtime guard if the value ever becomes server-supplied.
 const TG_USERNAME_RE = /^[A-Za-z0-9_]{5,32}$/
@@ -31,7 +31,6 @@ function openTelegramChat(username: string) {
 
 export function ProfilePage() {
   const navigate = useNavigate()
-  const openSheet = useUiStore((s) => s.openSheet)
   const pushToast = useUiStore((s) => s.pushToast)
   const authUser = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
@@ -123,18 +122,12 @@ export function ProfilePage() {
 
       {/* Nav rows */}
       <div className="vliq-list">
-        <NavRow icon={<Icon name="wallet"  size={21} />} label="Мой баланс"        onClick={() => navigate('/seller/balance')} />
-        <NavRow icon={<Icon name="cashout" size={21} />} label="Реквизиты выплаты" value={profile?.payout_details ? `•••• ${profile.payout_details.slice(-4)}` : 'Не задано'} onClick={() => navigate('/seller/payout')} />
-        <NavRow
-          icon={<Icon name="bell" size={21} />}
-          label="Уведомления"
-          value="Открыть"
-          onClick={() => openSheet('notif')}
-        />
+        <NavRow icon={<Icon name="wallet"  size={21} />} label="Мой баланс"             onClick={() => navigate('/seller/balance')} />
+        <NavRow icon={<Icon name="cashout" size={21} />} label="Мои заявки на выплату"   onClick={() => navigate('/seller/payouts')} />
         <NavRow
           icon={<Icon name="user" size={21} />}
-          label="Помощь администратора"
-          value="Чат"
+          label="Помощь"
+          value="Telegram-чат"
           onClick={() => {
             openTelegramChat(ADMIN_SUPPORT_USERNAME)
             pushToast('Открываем чат…', 'info')

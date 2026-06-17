@@ -242,6 +242,10 @@ export const rejectReceipt = (id: string, comment?: string) =>
 export const reviseReceipt = (id: string, comment: string) =>
   api.post<void>(`/receipts/${id}/revise`, { comment }).then((r) => r.data)
 
+/** A6 soft-delete: hide a processed receipt (Отклонён / Выплачен). */
+export const deleteReceipt = (id: string) =>
+  api.delete<void>(`/receipts/${id}`).then((r) => r.data)
+
 // ---- Payout admin endpoints ----
 
 export const getAdminPayouts = (filters: AdminPayoutsFilters = {}) => {

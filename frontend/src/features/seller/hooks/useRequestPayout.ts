@@ -14,6 +14,7 @@ export function useRequestPayout() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['balance'] })
+      void queryClient.invalidateQueries({ queryKey: ['payouts', 'me'] })
       pushToast('Заявка на выплату создана', 'ok')
     },
     onError: () => {

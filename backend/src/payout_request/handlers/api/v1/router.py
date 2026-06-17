@@ -182,6 +182,27 @@ async def list_payout_requests(  # noqa: PLR0913
     return PagedResponse.build(items=items, total=total, page=page, limit=limit)
 
 
+@router.get(
+    "/me",
+    response_model=list[PayoutRequestRead],
+    summary="Мои заявки на выплату (seller) — S5.5",
+    description="Список заявок текущего продавца со статусами (new → in_progress → paid/rejected), новые сверху.",
+)
+async def list_my_payout_requests(
+    token: Annotated[JwtTokenT, Depends(require_seller)],
+    session: Annotated[AsyncSession, Depends(get_pg_session)],
+) -> list[PayoutRequestRead]:
+    """Seller-scoped payout-requests list (S5.5 «Мои заявки на выплату»)."""
+    seller_id = token["user_id"]
+    stmt = (
+        select(PayoutRequest)
+        .where(PayoutRequest.seller_id == seller_id)
+        .order_by(PayoutRequest.created_at.desc())
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    return [PayoutRequestRead.model_validate(r, from_attributes=True) for r in rows]
+
+
 @router.get("/{payout_request_id}", response_model=PayoutRequestRead)
 async def get_payout_request(
     payout_request_id: int,

@@ -63,6 +63,7 @@ const HistoryPage = lazy(() => import('../features/seller/pages/HistoryPage').th
 const PromoPage   = lazy(() => import('../features/seller/pages/PromoPage').then((m) => ({ default: m.PromoPage })))
 const ProfilePage = lazy(() => import('../features/seller/pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 const PayoutPage  = lazy(() => import('../features/seller/pages/PayoutPage').then((m) => ({ default: m.PayoutPage })))
+const PayoutRequestsPage = lazy(() => import('../features/seller/pages/PayoutRequestsPage').then((m) => ({ default: m.PayoutRequestsPage })))
 
 // Admin pages — lazy so sellers (the 95% case) never download the admin
 // bundle (review queue, framer-motion deck, etc.).
@@ -71,6 +72,7 @@ const ReviewPage          = lazy(() => import('../features/admin/pages/ReviewPag
 const PayoutsPage         = lazy(() => import('../features/admin/pages/PayoutsPage').then((m) => ({ default: m.PayoutsPage })))
 const SellersPage         = lazy(() => import('../features/admin/pages/SellersPage').then((m) => ({ default: m.SellersPage })))
 const SellerReceiptsPage  = lazy(() => import('../features/admin/pages/SellerReceiptsPage').then((m) => ({ default: m.SellerReceiptsPage })))
+const ProductsPage        = lazy(() => import('../features/admin/pages/ProductsPage').then((m) => ({ default: m.ProductsPage })))
 
 // Crossfade — used for tab switches where there's no logical push/pop direction.
 const PAGE_VARIANTS = {
@@ -105,6 +107,7 @@ const SELLER_TITLES: Record<string, [string, string?, boolean?, boolean?]> = {
   '/seller/promo':   ['Акции', undefined, false, true],
   '/seller/profile': ['Профиль', undefined, false, true],
   '/seller/payout':  ['Запросить выплату', undefined, false, false],
+  '/seller/payouts': ['Мои заявки', undefined, false, false],
 }
 
 function SellerHeader() {
@@ -199,6 +202,7 @@ function SellerLayout() {
               <Route path="promo"       element={<AnimatedPage><PromoPage /></AnimatedPage>} />
               <Route path="profile"     element={<AnimatedPage><ProfilePage /></AnimatedPage>} />
               <Route path="payout"      element={<AnimatedPage><PayoutPage /></AnimatedPage>} />
+              <Route path="payouts"     element={<AnimatedPage><PayoutRequestsPage /></AnimatedPage>} />
               <Route index element={<Navigate to="home" replace />} />
             </Routes>
           </Suspense>
@@ -212,6 +216,7 @@ function AdminLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const isReview = location.pathname === '/admin/review'
+  const isProducts = location.pathname === '/admin/products'
   const isSellerReceipts = /^\/admin\/sellers\/\d+\/receipts$/.test(location.pathname)
   const viewport = useViewport()
   const isWide = viewport === 'tablet' || viewport === 'desktop'
@@ -230,8 +235,8 @@ function AdminLayout() {
           />
         ) : (
           <TgHeader
-            title={isReview ? 'Проверка чеков' : 'Администратор'}
-            subtitle={isReview ? undefined : 'VLIQ · бренд'}
+            title={isReview ? 'Проверка чеков' : isProducts ? 'Товары' : 'Администратор'}
+            subtitle={isReview || isProducts ? undefined : 'VLIQ · бренд'}
             isHome
           />
         )
@@ -253,6 +258,7 @@ function AdminLayout() {
             <Route path="payouts"                           element={<AnimatedPage><PayoutsPage /></AnimatedPage>} />
             <Route path="sellers"                           element={<AnimatedPage><SellersPage /></AnimatedPage>} />
             <Route path="sellers/:telegramId/receipts"      element={<AnimatedPage><SellerReceiptsPage /></AnimatedPage>} />
+            <Route path="products"                          element={<AnimatedPage><ProductsPage /></AnimatedPage>} />
             <Route index element={<Navigate to="dash" replace />} />
           </Routes>
         </Suspense>

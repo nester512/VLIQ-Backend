@@ -190,6 +190,29 @@ export function StatusPage() {
         <Timeline steps={steps} />
       </div>
 
+      {/* Uploaded receipt photo / file (S4) */}
+      {receipt.file_url && (
+        <div className="vliq-card" style={{ padding: 14, marginTop: 14 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10, color: 'var(--vliq-text)' }}>
+            Загруженный чек
+          </h3>
+          {receipt.file_url.toLowerCase().endsWith('.pdf') ? (
+            <a href={receipt.file_url} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'block', textAlign: 'center', padding: '14px', borderRadius: 12, background: 'var(--vliq-field)', color: 'var(--vliq-brand)', fontWeight: 600, fontSize: 14 }}>
+              Открыть PDF →
+            </a>
+          ) : (
+            <a href={receipt.file_url} target="_blank" rel="noopener noreferrer" aria-label="Открыть фото на весь экран" style={{ display: 'block' }}>
+              <img
+                src={receipt.file_url}
+                alt="Фото чека"
+                style={{ display: 'block', width: '100%', maxHeight: 360, objectFit: 'contain', borderRadius: 12, background: 'var(--vliq-field)' }}
+              />
+            </a>
+          )}
+        </div>
+      )}
+
       {/* Bonus preview */}
       {receipt.bonus_amount !== undefined && receipt.bonus_amount > 0 && (
         <div className="vliq-card" style={{ padding: 16, marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

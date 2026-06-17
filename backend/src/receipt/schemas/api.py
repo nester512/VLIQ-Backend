@@ -84,6 +84,9 @@ class ReceiptStatusResponse(BaseModel):
     status: ReceiptStatus
     bonus_amount: int
     rejection_reason: str | None = None
+    # Browser-viewable URL of the uploaded receipt photo/file (S4). None for
+    # inline-QR submissions (no photo) or non-viewable storage URIs.
+    file_url: str | None = None
 
 
 class ReceiptReviewAction(BaseModel):
