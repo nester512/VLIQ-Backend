@@ -82,10 +82,15 @@ const PAGE_VARIANTS = {
 }
 const PAGE_TRANSITION = { duration: 0.18, ease: 'easeOut' as const }
 
-function AnimatedPage({ children }: { children: ReactNode }) {
+// `fill` (h-full) is only for full-screen no-scroll pages (the review deck),
+// which need a definite-height parent. Scrolling pages use `min-h-full` so the
+// wrapper GROWS with its content instead of overflowing its fixed-height box —
+// otherwise long lists bleed past the scroll container's bottom padding and the
+// last row sits flush against the tab bar.
+function AnimatedPage({ children, fill = false }: { children: ReactNode; fill?: boolean }) {
   return (
     <motion.div
-      className="h-full w-full"
+      className={`${fill ? 'h-full' : 'min-h-full'} w-full`}
       variants={PAGE_VARIANTS}
       initial="initial"
       animate="animate"
@@ -262,7 +267,7 @@ function AdminLayout() {
         >
           <Routes location={location} key={location.pathname}>
             <Route path="dash"                              element={<AnimatedPage><DashPage /></AnimatedPage>} />
-            <Route path="review"                            element={<AnimatedPage><ReviewPage /></AnimatedPage>} />
+            <Route path="review"                            element={<AnimatedPage fill><ReviewPage /></AnimatedPage>} />
             <Route path="payouts"                           element={<AnimatedPage><PayoutsPage /></AnimatedPage>} />
             <Route path="sellers"                           element={<AnimatedPage><SellersPage /></AnimatedPage>} />
             <Route path="sellers/:telegramId/receipts"      element={<AnimatedPage><SellerReceiptsPage /></AnimatedPage>} />
