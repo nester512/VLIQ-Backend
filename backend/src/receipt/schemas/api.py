@@ -234,6 +234,10 @@ class ReceiptRead(BaseModel):
     items: list[ReceiptItem]
     fraud_signals: list[ReceiptFraudSignal]
     admin_comments: list[AdminComment] = Field(default_factory=list)
+    # Joined from the seller (filled by the admin list/detail endpoints) so the
+    # review card shows the real name + store instead of "Продавец #id".
+    seller_name: str | None = None
+    seller_store: str | None = None
     is_deleted: bool
     created_at: datetime
     updated_at: datetime | None = None

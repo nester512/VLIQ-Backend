@@ -46,6 +46,7 @@ from src.receipt_ocr.hasher import sha256_hash
 from src.receipt_ocr.qr_parser import QRParseError, parse_qr_string
 from src.receipt_ocr.storage import get_receipt_storage, to_viewable_url
 from src.receipt_pipeline.state_machine import ReceiptStateMachine
+from src.seller.models import Seller
 
 logger = logging.getLogger(__name__)
 
@@ -893,6 +894,7 @@ async def list_receipts(  # noqa: PLR0913
         # Expose a browser-viewable photo URL so the admin review deck can show it.
         item.file_url = to_viewable_url(r.file_url) or r.file_url
         items.append(item)
+    await _attach_seller_info(session, items)
     return PagedResponse.build(items=items, total=total, page=page, limit=limit)
 
 
@@ -909,7 +911,25 @@ async def get_receipt(
     receipt = await _get_receipt_or_404(session, receipt_id)
     read = ReceiptRead.model_validate(receipt)
     read.file_url = to_viewable_url(receipt.file_url) or receipt.file_url
+    await _attach_seller_info(session, [read])
     return read
+
+
+async def _attach_seller_info(session: AsyncSession, items: list[ReceiptRead]) -> None:
+    """Batch-fill seller_name + seller_store on admin receipt DTOs so the review
+    card shows the real name/store (joined from the seller table)."""
+    seller_ids = {it.seller_id for it in items}
+    if not seller_ids:
+        return
+    rows = (await session.execute(select(Seller).where(Seller.telegram_id.in_(seller_ids)))).scalars().all()
+    by_id = {s.telegram_id: s for s in rows}
+    for it in items:
+        s = by_id.get(it.seller_id)
+        if s is None:
+            continue
+        name = " ".join(p for p in (s.first_name, s.last_name) if p).strip()
+        it.seller_name = name or None
+        it.seller_store = s.outlet_name or None
 
 
 @router.patch(

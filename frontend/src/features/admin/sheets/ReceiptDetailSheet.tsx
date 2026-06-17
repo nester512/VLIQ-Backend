@@ -196,7 +196,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
 
         {/* KV data — compact 2-column grid (less empty space, aligned, no overlap) */}
         <b className="text-[14px] font-bold block mb-1.5">Распознанные данные</b>
-        <div className="bg-[var(--vliq-card)] rounded-[16px] p-4 shadow-[var(--vliq-shadow-sm)] mb-3 grid grid-cols-2 gap-x-4 gap-y-3.5">
+        <div className="bg-[var(--vliq-field)] rounded-[16px] p-4 shadow-[var(--vliq-shadow-sm)] mb-3 grid grid-cols-2 gap-x-4 gap-y-3.5">
           <KV label="Пользователь" value={sellerName} />
           <KV
             label="Дата загрузки"
@@ -239,7 +239,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
         {receipt.items && receipt.items.length > 0 && (
           <>
             <b className="text-[14px] font-bold block mb-0.5">Товары</b>
-            <div className="bg-[var(--vliq-card)] rounded-[16px] px-4 shadow-[var(--vliq-shadow-sm)] mb-3">
+            <div className="bg-[var(--vliq-field)] rounded-[16px] px-4 shadow-[var(--vliq-shadow-sm)] mb-3">
               {receipt.items.map((item, i) => (
                 <div
                   key={i}

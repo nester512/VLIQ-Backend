@@ -63,6 +63,13 @@
   --vliq-sep:     #E7E9F0;
   --vliq-nav:     #FFFFFFE6;
 
+  /* Solid status colours (static brand palette, same in both themes) — used as
+     button fills (Одобрить/Отклонить, Изменить бонус). Distinct from the
+     *-bg / *-ink pastel pair used for chips/banners. */
+  --vliq-ok: #16B981;
+  --vliq-dg: #F0455A;
+  --vliq-wn: #F39A12;
+
   --vliq-shadow:    0 10px 30px -12px rgba(20, 22, 40, 0.16);
   --vliq-shadow-sm: 0 2px 10px -4px rgba(20, 22, 40, 0.12);
 

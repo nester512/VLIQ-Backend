@@ -100,6 +100,8 @@ interface BackendPayoutRequest {
 interface BackendReceipt {
   id: number
   seller_id: number
+  seller_name?: string | null
+  seller_store?: string | null
   brand_id?: number
   status: ReceiptStatus
   bonus_amount?: number
@@ -159,6 +161,8 @@ function mapAdminReceipt(r: BackendReceipt): AdminReceipt {
   return {
     id: String(r.id),
     seller_id: r.seller_id,
+    seller_name: r.seller_name ?? undefined,
+    seller_store: r.seller_store ?? undefined,
     status: r.status,
     shop_name: r.shop_name ?? undefined,
     amount: r.total_sum ?? undefined,

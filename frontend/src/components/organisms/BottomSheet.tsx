@@ -60,7 +60,7 @@ export function BottomSheet() {
         />
         <Drawer.Content
           aria-describedby={undefined}
-          className="fixed bottom-0 left-0 right-0 z-[61] outline-none"
+          className="fixed bottom-0 left-0 right-0 mx-auto max-w-[520px] z-[61] outline-none"
           style={{
             // Auto-height — the sheet sizes to its content (capped at 93% of
             // the viewport). Without this, vaul stretches the sheet to fill
