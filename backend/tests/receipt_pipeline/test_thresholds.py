@@ -790,3 +790,58 @@ class TestUploadPdfThreshold(TestPipelineOFDThresholds):
         assert call_count == 1  # only one attempt
         assert len(sleep_calls) == 0  # no backoff sleep
         assert session.commit.called
+
+
+# ---------------------------------------------------------------------------
+# Regression: on_review fallback must persist recognized QR data (admin card)
+# ---------------------------------------------------------------------------
+
+
+def test_recognized_vals__persists_parsed_qr_for_on_review():
+    """When the pipeline falls back to on_review (e.g. OFD not found), the parsed
+    QR fields must still be persisted so the admin review card isn't empty —
+    regression for "чек распознан, но у админа всё пусто"."""
+    from src.receipt_ocr.qr_parser import ParsedQR  # noqa: PLC0415
+    from src.receipt_pipeline.orchestrator import ReceiptPipelineOrchestrator  # noqa: PLC0415
+    from src.receipt_pipeline.steps import PipelineResult  # noqa: PLC0415
+
+    result = PipelineResult()
+    result.qr_raw = _VALID_QR
+    result.parsed_qr = ParsedQR(
+        fn="1234567890", fd="12345", fp="67890",
+        total_sum_kop=59900,
+        purchase_date=datetime(2026, 6, 10, 14, 30, tzinfo=UTC),
+        operation_type=1,
+    )
+
+    vals = ReceiptPipelineOrchestrator._recognized_vals(result)
+    assert vals["fn"] == "1234567890"
+    assert vals["fd"] == "12345"
+    assert vals["fp"] == "67890"
+    assert vals["total_sum"] == 59900
+    assert vals["qr_raw"] == _VALID_QR
+    assert "purchase_date" in vals
+
+
+def test_recognized_vals__ofd_overrides_qr_sum():
+    """OFD data is authoritative over the QR when both are present."""
+    from src.ofd_client.schemas import OFDItem, OFDReceipt  # noqa: PLC0415
+    from src.receipt_ocr.qr_parser import ParsedQR  # noqa: PLC0415
+    from src.receipt_pipeline.orchestrator import ReceiptPipelineOrchestrator  # noqa: PLC0415
+    from src.receipt_pipeline.steps import PipelineResult  # noqa: PLC0415
+
+    result = PipelineResult()
+    result.parsed_qr = ParsedQR(
+        fn="1", fd="2", fp="3", total_sum_kop=59900,
+        purchase_date=datetime(2026, 6, 10, tzinfo=UTC), operation_type=1,
+    )
+    result.ofd_receipt = OFDReceipt(
+        fn="1", fd="2", fp="3", total_sum=50000,
+        purchase_date=datetime(2026, 6, 10, tzinfo=UTC),
+        shop_name="ООО Тест", shop_inn="7700000000",
+        items=[OFDItem(name="Товар", quantity=1.0, price=50000, total=50000)],
+    )
+    vals = ReceiptPipelineOrchestrator._recognized_vals(result)
+    assert vals["total_sum"] == 50000  # OFD wins
+    assert vals["shop_name"] == "ООО Тест"
+    assert vals["shop_inn"] == "7700000000"

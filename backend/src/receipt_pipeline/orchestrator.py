@@ -205,7 +205,13 @@ class ReceiptPipelineOrchestrator:
 
         except Exception as exc:
             logger.exception("pipeline.unexpected_error", extra={"receipt_id": receipt_id, "error": str(exc)})
-            await self._set_status_with_signals(session, receipt, ReceiptStatus.on_review.value, result.fraud_signals)
+            await self._set_status_with_signals(
+                session,
+                receipt,
+                ReceiptStatus.on_review.value,
+                result.fraud_signals,
+                extra_vals=self._recognized_vals(result),
+            )
             _duration = time.monotonic() - t_start
             receipt_pipeline_duration_seconds.labels(status="error").observe(_duration)
             logger.info(
@@ -256,6 +262,11 @@ class ReceiptPipelineOrchestrator:
 
     async def _step_set_status(self, session: AsyncSession, receipt: Receipt, new_status: str) -> None:
         t0 = time.monotonic()
+        # Idempotent: the admin retry endpoint already flips on_review → ocr_in_progress
+        # before re-enqueuing, so the worker may be invoked with the target status
+        # already set. Treat that as a no-op instead of failing the transition.
+        if receipt.status == new_status:
+            return
         if not _SM.can_transition(from_status=receipt.status, to_status=new_status, actor="system"):
             raise StepError(
                 step="set_status",
@@ -714,7 +725,9 @@ class ReceiptPipelineOrchestrator:
                     }
                 )
 
-            await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(**update_vals))
+            # NB: dict positionally — `.values(**update_vals)` breaks on the `fn`
+            # column (collides with SQLAlchemy's @_generative `fn` param).
+            await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(update_vals))
 
         duration_ms = int((time.monotonic() - t0) * 1000)
         logger.info(
@@ -754,24 +767,56 @@ class ReceiptPipelineOrchestrator:
             exc.new_status,
             result.fraud_signals,
             rejection_reason=rejection_reason,
+            # Persist whatever was recognized so far (QR/OFD/items) so the admin
+            # has real data to review even on the on_review fallback path.
+            extra_vals=self._recognized_vals(result),
         )
 
-    async def _set_status_with_signals(
+    @staticmethod
+    def _recognized_vals(result: PipelineResult) -> dict:
+        """Fields recognized so far, persisted even when the pipeline falls back
+        to on_review — otherwise the admin sees an empty card despite the QR
+        having been parsed. OFD data (when present) is authoritative over the QR.
+        """
+        vals: dict = {}
+        pqr = result.parsed_qr
+        ofd = result.ofd_receipt
+        if result.qr_raw:
+            vals["qr_raw"] = result.qr_raw
+        if pqr is not None:
+            vals["fn"] = pqr.fn
+            vals["fd"] = pqr.fd
+            vals["fp"] = pqr.fp
+            vals["purchase_date"] = pqr.purchase_date.date()
+            vals["total_sum"] = pqr.total_sum_kop
+        if ofd is not None:
+            vals["total_sum"] = ofd.total_sum
+            vals["shop_name"] = ofd.shop_name
+            vals["shop_inn"] = ofd.shop_inn
+        if result.matched_items:
+            vals["items"] = result.matched_items
+        return vals
+
+    async def _set_status_with_signals(  # noqa: PLR0913
         self,
         session: AsyncSession,
         receipt: Receipt,
         new_status: str,
         fraud_signals: list,
         rejection_reason: str | None = None,
+        extra_vals: dict | None = None,
     ) -> None:
         vals: dict = {
+            **(extra_vals or {}),
             "status": new_status,
             "fraud_signals": [s.to_dict() if isinstance(s, FraudSignal) else s for s in fraud_signals],
         }
         if rejection_reason:
             vals["rejection_reason"] = rejection_reason
         try:
-            await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(**vals))
+            # NB: pass a dict positionally — `.values(**vals)` breaks when a column
+            # is named `fn` (collides with SQLAlchemy's @_generative `fn` param).
+            await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(vals))
             await session.commit()
         except Exception as upd_exc:
             logger.exception("pipeline.status_update_failed, receipt_id=%d: %s", receipt.id, upd_exc)

@@ -927,7 +927,8 @@ async def update_receipt(
     update_data = payload.model_dump(exclude_none=True)
     if update_data:
         update_data["updated_by"] = token["user_id"]
-        await session.execute(update(Receipt).where(Receipt.id == receipt_id).values(**update_data))
+        # dict positionally — `.values(**update_data)` breaks on the `fn` column.
+        await session.execute(update(Receipt).where(Receipt.id == receipt_id).values(update_data))
         await session.commit()
         await session.refresh(receipt)
     return ReceiptRead.model_validate(receipt)
