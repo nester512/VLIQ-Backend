@@ -30,7 +30,8 @@ export function PayoutPage() {
   const [amountStr, setAmountStr] = useState('')
   const [phone, setPhone] = useState('')
 
-  const amount = amountStr === '' ? available : Math.round(Number(amountStr) || 0)
+  // The seller types rubles; balance/amount are stored in kopecks → ×100.
+  const amount = amountStr === '' ? available : Math.round((Number(amountStr) || 0) * 100)
   const amountValid = amount > 0 && amount <= available
   const phoneValid = isValidPhone(phone)
   const notBlocked = true // status gate is enforced server-side

@@ -7,22 +7,25 @@
  */
 
 const RU = new Intl.NumberFormat('ru-RU')
+// Money is stored in KOPECKS across the whole system (total_sum, bonus_amount,
+// balance, payouts), so display divides by 100 and shows up to 2 decimals.
+const RU_MONEY = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 
 function isMoney(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v)
 }
 
-/** "2 350 ₽" — fallback "—" when value is undefined/null/NaN. */
+/** Kopecks → "1 646,48 ₽" (whole sums as "250 ₽"). Input is an integer in KOPECKS. */
 export function fmtMoney(value: number | null | undefined, fallback = '—'): string {
   if (!isMoney(value)) return fallback
-  return `${RU.format(value)} ₽`
+  return `${RU_MONEY.format(value / 100)} ₽`
 }
 
-/** "+250 ₽" / "−250 ₽" — fallback "—" when undefined/null/NaN. */
+/** Kopecks → "+250 ₽" / "−1 646,48 ₽". Input is an integer in KOPECKS. */
 export function fmtMoneyDelta(value: number | null | undefined, fallback = '—'): string {
   if (!isMoney(value)) return fallback
   const sign = value >= 0 ? '+' : '−'
-  return `${sign}${RU.format(Math.abs(value))} ₽`
+  return `${sign}${RU_MONEY.format(Math.abs(value) / 100)} ₽`
 }
 
 /** Plain integer formatting with thousands separator. */

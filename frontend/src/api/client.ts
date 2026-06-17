@@ -66,6 +66,9 @@ export const api = axios.create({
   timeout: 15_000,
   headers: {
     'Content-Type': 'application/json',
+    // Bypass the ngrok-free browser interstitial on XHR/fetch so API calls
+    // return JSON (not the warning HTML) when the app is tunnelled via ngrok.
+    'ngrok-skip-browser-warning': 'true',
   },
 })
 

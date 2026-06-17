@@ -67,7 +67,8 @@ function ProductsContent() {
         code: form.code.trim(),
         name: form.name.trim(),
         category: form.category.trim() || undefined,
-        default_bonus: Math.max(0, Math.round(Number(form.bonus) || 0)),
+        // Admin types rubles; default_bonus is stored in kopecks → ×100.
+        default_bonus: Math.max(0, Math.round((Number(form.bonus) || 0) * 100)),
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['admin', 'skus', BRAND_ID] })
