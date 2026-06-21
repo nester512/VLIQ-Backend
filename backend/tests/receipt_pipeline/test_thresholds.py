@@ -87,8 +87,8 @@ class TestUploadThresholds:
         """
         token = _make_jwt()
 
-        from src.app.depends import get_pg_session  # noqa: PLC0415
         from sqlalchemy.ext.asyncio import AsyncSession  # noqa: PLC0415
+        from src.app.depends import get_pg_session  # noqa: PLC0415
 
         async def _patched_session():
             session = MagicMock(spec=AsyncSession)
@@ -198,6 +198,9 @@ class TestPipelineOFDThresholds:
         r.file_url = file_url
         r.qr_raw = qr_raw
         r.bonus_amount = 0
+        # Package model: these single-QR / single-file tests carry the QR via the
+        # scanned-QR field (or the legacy file_url); no child attachments.
+        r.attachments = []
         for k, v in kwargs.items():
             setattr(r, k, v)
         return r
