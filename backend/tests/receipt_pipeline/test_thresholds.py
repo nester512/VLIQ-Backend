@@ -58,7 +58,7 @@ class TestUploadThresholds:
         empty = io.BytesIO(b"")
         response = await client.post(
             "/api/v1/receipts/upload",
-            files={"file": ("empty.jpg", empty, "image/jpeg")},
+            files=[("files", ("empty.jpg", empty, "image/jpeg"))],
             data={"brand_id": "1"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -70,7 +70,7 @@ class TestUploadThresholds:
         token = _make_jwt()
         response = await client.post(
             "/api/v1/receipts/upload",
-            files={"file": ("qr.txt", io.BytesIO(b"hello"), "text/plain")},
+            files=[("files", ("qr.txt", io.BytesIO(b"hello"), "text/plain"))],
             data={"brand_id": "1"},
             headers={"Authorization": f"Bearer {token}"},
         )
@@ -80,69 +80,50 @@ class TestUploadThresholds:
     async def test_upload__valid_image_no_qr__creates_receipt_with_status_pending(
         self, app, client: AsyncClient
     ):
-        """A valid image upload stores a receipt and returns 202.
+        """A valid image upload (batch of one) creates one receipt and returns 202.
 
-        The pipeline is async (arq) so status at upload time is 'pending',
-        not 'needs_revision' — needs_revision is set later by the worker.
-        We verify the receipt row is created (mock DB flush succeeds).
+        No ingest-time duplicate check anymore — a repeated file is a fraud signal
+        later (spec S3/В-3). Pipeline runs asynchronously, so status is 'pending'.
         """
         token = _make_jwt()
 
         from src.app.depends import get_pg_session  # noqa: PLC0415
-        from src.receipt.models import Receipt as ReceiptModel  # noqa: PLC0415
-
-        _added_receipts: list = []
-
-        def _capture_add(obj):
-            if isinstance(obj, ReceiptModel):
-                object.__setattr__(obj, "id", 1) if hasattr(type(obj), "__setattr__") else None
-                obj.id = 1
-            _added_receipts.append(obj)
+        from sqlalchemy.ext.asyncio import AsyncSession  # noqa: PLC0415
 
         async def _patched_session():
-            from sqlalchemy.ext.asyncio import AsyncSession  # noqa: PLC0415
-
             session = MagicMock(spec=AsyncSession)
-            session.__aenter__ = AsyncMock(return_value=session)
-            session.__aexit__ = AsyncMock(return_value=False)
-            session.close = AsyncMock()
-            session.add = _capture_add
+            result = MagicMock()
+            result.scalar_one_or_none = MagicMock(return_value=None)
+            session.execute = AsyncMock(return_value=result)
+            begin_cm = MagicMock()
+            begin_cm.__aenter__ = AsyncMock(return_value=None)
+            begin_cm.__aexit__ = AsyncMock(return_value=False)
+            session.begin = MagicMock(return_value=begin_cm)
 
-            async def _flush():
-                import contextlib  # noqa: PLC0415
+            def _add(obj):
+                if getattr(obj, "id", None) is None:
+                    obj.id = 1
 
-                for obj in _added_receipts:
-                    if not isinstance(getattr(obj, "id", None), int):
-                        with contextlib.suppress(Exception):
-                            obj.id = 1
-
-            session.flush = AsyncMock(side_effect=_flush)
-            session.commit = AsyncMock()
+            session.add = MagicMock(side_effect=_add)
+            session.refresh = AsyncMock()
+            session.rollback = AsyncMock()
             yield session
 
         app.dependency_overrides[get_pg_session] = _patched_session
 
-        with (
-            patch(
-                "src.receipt.handlers.api.v1.router._storage.save",
-                new=AsyncMock(return_value="local://abc.jpg"),
-            ),
-            patch(
-                "src.receipt.handlers.api.v1.router._fraud_checker.check_file_hash",
-                new=AsyncMock(return_value=None),
-            ),
+        with patch(
+            "src.receipt.handlers.api.v1.router._storage.save",
+            new=AsyncMock(return_value="local://abc.jpg"),
         ):
             response = await client.post(
                 "/api/v1/receipts/upload",
-                files={"file": ("photo.jpg", io.BytesIO(_VALID_IMAGE_BYTES), "image/jpeg")},
+                files=[("files", ("photo.jpg", io.BytesIO(_VALID_IMAGE_BYTES), "image/jpeg"))],
                 data={"brand_id": "1"},
                 headers={"Authorization": f"Bearer {token}"},
             )
 
-        # 202 means accepted for processing — pipeline runs asynchronously.
         assert response.status_code == 202, f"Expected 202, got {response.status_code}: {response.text}"
-        body = response.json()
-        assert "receipt_id" in body
+        assert "receipt_id" in response.json()
 
 
 # ---------------------------------------------------------------------------
@@ -151,114 +132,19 @@ class TestUploadThresholds:
 
 
 class TestQrPayloadThresholds:
-    """POST /receipts/qr-payload edge cases."""
+    """POST /receipts/qr-payload — removed (QR-only deprecated, spec S3/В-2-A)."""
 
     @pytest.mark.asyncio
-    async def test_qr_payload__missing_fields__returns_400_QR_PARSE_FAILED(
-        self, client: AsyncClient
-    ):
-        """QR string with missing required keys must return 400 with QR_PARSE_FAILED."""
+    async def test_qr_payload__deprecated__returns_400(self, client: AsyncClient):
+        """QR-only submission is gone → 400 QR_ONLY_DEPRECATED regardless of payload."""
         token = _make_jwt()
         response = await client.post(
             "/api/v1/receipts/qr-payload",
-            json={"qr_raw": "s=100.00&fn=123", "brand_id": 1},
+            json={"qr_raw": _VALID_QR, "brand_id": 1},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 400
-        body = response.json()
-        # AppError envelope: top-level code (not nested under detail).
-        assert body["code"] == "QR_PARSE_FAILED"
-
-    @pytest.mark.asyncio
-    async def test_qr_payload__future_date__flagged_or_rejected(self, app, client: AsyncClient):
-        """A receipt dated far in the future should pass QR parse but be handled gracefully.
-
-        The fraud checker date_window check fires on dates that are *old*, not future.
-        This test verifies that a far-future date is at least accepted at the HTTP level
-        (status 202) since date window fraud is caught inside the async pipeline worker,
-        not synchronously in the upload handler.
-        """
-        token = _make_jwt()
-        future = datetime.now(UTC) + timedelta(days=3650)  # 10 years ahead
-        future_str = future.strftime("%Y%m%dT%H%M")
-        qr_raw = f"t={future_str}&s=100.00&fn=1234567890&i=12345&fp=67890&n=1"
-
-        from src.receipt.models import Receipt as ReceiptModel  # noqa: PLC0415
-
-        _added: list = []
-
-        def _capture_add(obj):
-            if isinstance(obj, ReceiptModel):
-                obj.id = 7
-            _added.append(obj)
-
-        from src.app.depends import get_pg_session  # noqa: PLC0415
-
-        async def _patched_session():
-            from unittest.mock import AsyncMock, MagicMock  # noqa: PLC0415
-
-            from sqlalchemy.ext.asyncio import AsyncSession  # noqa: PLC0415
-
-            session = MagicMock(spec=AsyncSession)
-            session.__aenter__ = AsyncMock(return_value=session)
-            session.__aexit__ = AsyncMock(return_value=False)
-            session.close = AsyncMock()
-            session.add = _capture_add
-
-            async def _flush():
-                for obj in _added:
-                    if not isinstance(obj.id, int):
-                        obj.id = 7
-
-            session.flush = AsyncMock(side_effect=_flush)
-            session.commit = AsyncMock()
-            session.execute = AsyncMock(
-                return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
-            )
-            yield session
-
-        app.dependency_overrides[get_pg_session] = _patched_session
-
-        with patch(
-            "src.receipt.handlers.api.v1.router._fraud_checker.check_fn_fd_fp",
-            new=AsyncMock(return_value=None),
-        ):
-            response = await client.post(
-                "/api/v1/receipts/qr-payload",
-                json={"qr_raw": qr_raw, "brand_id": 1},
-                headers={"Authorization": f"Bearer {token}"},
-            )
-
-        # The endpoint either accepts it (202) or rejects it (4xx) — both are valid
-        # outcomes depending on whether future-date guard is synchronous.
-        assert response.status_code in (202, 400, 409, 422)
-
-    @pytest.mark.asyncio
-    async def test_qr_payload__duplicate_fn_fd_fp__returns_409_duplicate(
-        self, client: AsyncClient
-    ):
-        """Re-submitting the same fn/fd/fp triple from the same seller returns 409."""
-        token = _make_jwt(user_id=42)
-
-        existing = MagicMock()
-        existing.id = 999
-        existing.seller_id = 42  # same seller → 409
-
-        with patch(
-            "src.receipt.handlers.api.v1.router._fraud_checker.check_fn_fd_fp",
-            new=AsyncMock(return_value=existing),
-        ):
-            response = await client.post(
-                "/api/v1/receipts/qr-payload",
-                json={"qr_raw": _VALID_QR, "brand_id": 1},
-                headers={"Authorization": f"Bearer {token}"},
-            )
-
-        assert response.status_code == 409
-        body = response.json()
-        # AppError envelope: top-level code + user_message + extra (not nested detail).
-        assert body["code"] == "RECEIPT_DUPLICATE"
-        assert body["extra"]["existing_receipt_id"] == 999
+        assert response.json()["code"] == "QR_ONLY_DEPRECATED"
 
 
 # ---------------------------------------------------------------------------
@@ -635,29 +521,6 @@ class TestDuplicateDetectionThresholds(TestPipelineOFDThresholds):
       same seller + same fn/fd/fp   → 409 at HTTP layer (check_fn_fd_fp returns same seller)
       different seller + same fn/fd/fp → pipeline step fraud_cross_seller → on_review
     """
-
-    @pytest.mark.asyncio
-    async def test_pipeline__same_seller_duplicate_fn_fd_fp__returns_409(self, client: AsyncClient):
-        """Re-submitting the same fn/fd/fp from the same seller → 409 at HTTP layer."""
-        token = _make_jwt(user_id=42)
-        existing = MagicMock()
-        existing.id = 888
-        existing.seller_id = 42  # same seller
-
-        with patch(
-            "src.receipt.handlers.api.v1.router._fraud_checker.check_fn_fd_fp",
-            new=AsyncMock(return_value=existing),
-        ):
-            response = await client.post(
-                "/api/v1/receipts/qr-payload",
-                json={"qr_raw": _VALID_QR, "brand_id": 1},
-                headers={"Authorization": f"Bearer {token}"},
-            )
-
-        assert response.status_code == 409
-        body = response.json()
-        assert body["code"] == "RECEIPT_DUPLICATE"
-        assert body["extra"]["existing_receipt_id"] == 888
 
     @pytest.mark.asyncio
     async def test_pipeline__different_sellers_same_fn_fd_fp__fraud_cross_seller(self):

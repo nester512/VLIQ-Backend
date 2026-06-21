@@ -43,6 +43,7 @@ def _make_receipt(receipt_id: int = 1) -> Receipt:
     r.ocr_raw = None
     r.items = []
     r.fraud_signals = []
+    r.attachments = []
     r.admin_comments = []
     r.is_deleted = False
     r.created_at = datetime(2025, 1, 1, 12, 0, 0)

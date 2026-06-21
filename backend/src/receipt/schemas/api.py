@@ -14,11 +14,11 @@ Internal schemas (admin / system):
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.receipt.models import ReceiptFileKind, ReceiptStatus
+from src.receipt.models import MAX_ATTACHMENTS_PER_RECEIPT, ReceiptFileKind, ReceiptStatus
 
 # ---------------------------------------------------------------------------
 # Shared sub-models
@@ -42,6 +42,40 @@ class ReceiptFraudSignal(BaseModel):
     severity: str
     duplicate_of_id: int | None = None
     details: dict[str, Any] | None = None
+
+
+class ReceiptAttachmentRead(BaseModel):
+    """One file of the receipt package, ordered by ``position``.
+
+    ``url`` is a browser-viewable URL (presigned/public) derived from the internal
+    ``storage_uri`` — the raw storage key is never exposed. ``url`` is ``None`` for
+    non-viewable backends (e.g. ``local://`` in pure-local dev).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    position: int
+    kind: Literal["image", "pdf"]
+    mime_type: str
+    url: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_url_from_orm(cls, data: Any) -> Any:
+        """When validating an ORM ``ReceiptAttachment``, derive the viewable ``url``
+        from its internal ``storage_uri`` (never expose the raw storage key)."""
+        if hasattr(data, "storage_uri"):
+            from src.receipt_ocr.storage import to_viewable_url  # noqa: PLC0415 — avoid import cycle
+
+            return {
+                "id": data.id,
+                "position": data.position,
+                "kind": getattr(data.kind, "value", data.kind),
+                "mime_type": data.mime_type,
+                "url": to_viewable_url(data.storage_uri),
+            }
+        return data
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +120,10 @@ class ReceiptStatusResponse(BaseModel):
     rejection_reason: str | None = None
     # Browser-viewable URL of the uploaded receipt photo/file (S4). None for
     # inline-QR submissions (no photo) or non-viewable storage URIs.
+    # Legacy mirror of attachments[0].url — prefer `attachments`.
     file_url: str | None = None
+    # Ordered package attachments (S4: seller sees every uploaded photo/file).
+    attachments: list[ReceiptAttachmentRead] = Field(default_factory=list)
 
 
 class ReceiptReviewAction(BaseModel):
@@ -121,6 +158,75 @@ class FinalizeUploadRequest(BaseModel):
     storage_uri: str = Field(..., description="The storage URI returned by upload-url")
     mime: str = Field(..., description="MIME type of the uploaded file")
     brand_id: int = Field(..., description="Brand the seller is registering this receipt against")
+
+
+# ---------------------------------------------------------------------------
+# Package upload schemas (1..5 files = one Receipt)
+# ---------------------------------------------------------------------------
+
+
+class PackageFileMeta(BaseModel):
+    """Per-file metadata supplied by the client when requesting presigned URLs."""
+
+    client_id: str = Field(..., min_length=1, max_length=64, description="Client-side id used to correlate slots")
+    filename: str = Field(..., min_length=1, max_length=512)
+    mime: str = Field(..., description="MIME type, e.g. image/jpeg or application/pdf")
+    size: int = Field(..., ge=0, description="File size in bytes (server re-validates)")
+
+
+class PackageUploadUrlsRequest(BaseModel):
+    """Body for POST /receipts/upload-urls — request 1..5 presigned upload slots."""
+
+    files: list[PackageFileMeta] = Field(..., min_length=1, max_length=MAX_ATTACHMENTS_PER_RECEIPT)
+
+
+class PackageUploadSlot(BaseModel):
+    """One presigned upload slot returned by /receipts/upload-urls."""
+
+    client_id: str
+    position: int
+    upload_url: str
+    fields: dict[str, str]
+    storage_uri: str
+
+
+class PackageUploadUrlsResponse(BaseModel):
+    """Response from POST /receipts/upload-urls."""
+
+    upload_session: str = Field(..., description="Signed session token binding the issued storage keys to the seller")
+    files: list[PackageUploadSlot]
+    expires_in: int
+
+
+class PackageAttachmentInput(BaseModel):
+    """One finalized attachment referenced by the package finalize request."""
+
+    position: int = Field(..., ge=0, lt=MAX_ATTACHMENTS_PER_RECEIPT)
+    storage_uri: str = Field(..., max_length=1000)
+    mime: str = Field(...)
+
+
+class PackageFinalizeRequest(BaseModel):
+    """Body for POST /receipts/finalize (package).
+
+    One submission → one Receipt with 1..5 attachments + an optional scanned QR.
+    ``idempotency_key`` makes a retried finalize return the existing receipt.
+    """
+
+    upload_session: str = Field(..., description="Token returned by /receipts/upload-urls")
+    brand_id: int
+    idempotency_key: str = Field(..., min_length=8, max_length=64)
+    attachments: list[PackageAttachmentInput] = Field(..., min_length=1, max_length=MAX_ATTACHMENTS_PER_RECEIPT)
+    scanned_qr: str | None = Field(default=None, max_length=1000, description="Optional raw QR scanned by the camera")
+
+    @model_validator(mode="after")
+    def _check_positions(self) -> PackageFinalizeRequest:
+        positions = [a.position for a in self.attachments]
+        if len(set(positions)) != len(positions):
+            raise ValueError("attachment positions must be unique")
+        if sorted(positions) != list(range(len(positions))):
+            raise ValueError(f"attachment positions must be 0..{len(positions) - 1} with no gaps")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -218,9 +324,11 @@ class ReceiptRead(BaseModel):
     status: ReceiptStatus
     bonus_amount: int
     rejection_reason: str | None = None
-    file_kind: ReceiptFileKind
-    file_url: str
-    file_hash: str
+    # Legacy single-file fields — nullable since the package model (mirror of
+    # attachments[0]); prefer `attachments` below.
+    file_kind: ReceiptFileKind | None = None
+    file_url: str | None = None
+    file_hash: str | None = None
     purchase_date: date | None = None
     total_sum: int | None = None
     shop_name: str | None = None
@@ -233,6 +341,9 @@ class ReceiptRead(BaseModel):
     ocr_raw: dict[str, Any] | None = None
     items: list[ReceiptItem]
     fraud_signals: list[ReceiptFraudSignal]
+    # Ordered package attachments (admin viewer source of truth). Legacy `file_url`
+    # above is kept as a mirror of attachments[0].url during the transition.
+    attachments: list[ReceiptAttachmentRead] = Field(default_factory=list)
     admin_comments: list[AdminComment] = Field(default_factory=list)
     # Joined from the seller (filled by the admin list/detail endpoints) so the
     # review card shows the real name + store instead of "Продавец #id".

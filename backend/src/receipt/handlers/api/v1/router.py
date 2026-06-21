@@ -25,11 +25,19 @@ from src.app.depends import get_pg_session
 from src.app.errors import AppError
 from src.audit_log.models import AuditLog
 from src.bonus_transaction.models import BonusTransaction, BonusTransactionKind
-from src.fraud.checks import FraudChecker
 from src.notification import outbox as notification_outbox
-from src.receipt.models import Receipt, ReceiptFileKind, ReceiptStatus
+from src.receipt.models import (
+    ALLOWED_ATTACHMENT_MIME_TYPES,
+    MAX_ATTACHMENT_SIZE_BYTES,
+    MAX_ATTACHMENTS_PER_RECEIPT,
+    Receipt,
+    ReceiptStatus,
+)
 from src.receipt.schemas.api import (
-    FinalizeUploadRequest,
+    PackageFinalizeRequest,
+    PackageUploadSlot,
+    PackageUploadUrlsRequest,
+    PackageUploadUrlsResponse,
     PresignedUploadRequest,
     PresignedUploadResponse,
     ReceiptCommentRequest,
@@ -42,8 +50,9 @@ from src.receipt.schemas.api import (
     ReceiptUpdate,
     ReceiptUploadResponse,
 )
+from src.receipt.service import PackageValidationError, PreparedAttachment, create_receipt_package
+from src.receipt.upload_session import UploadSessionError, sign_upload_session, verify_upload_session
 from src.receipt_ocr.hasher import sha256_hash
-from src.receipt_ocr.qr_parser import QRParseError, parse_qr_string
 from src.receipt_ocr.storage import get_receipt_storage, to_viewable_url
 from src.receipt_pipeline.state_machine import ReceiptStateMachine
 from src.seller.models import Seller
@@ -53,26 +62,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/receipts", tags=["Receipt"])
 
 _state_machine = ReceiptStateMachine()
-_fraud_checker = FraudChecker()
 _storage = get_receipt_storage()
-
-# Allowed MIME types for upload.
-_ALLOWED_MIME_TYPES = frozenset(
-    {
-        "image/jpeg",
-        "image/png",
-        "image/webp",
-        "application/pdf",
-    }
-)
-
-# Map MIME → ReceiptFileKind.
-_MIME_TO_KIND: dict[str, str] = {
-    "image/jpeg": ReceiptFileKind.photo.value,
-    "image/png": ReceiptFileKind.photo.value,
-    "image/webp": ReceiptFileKind.photo.value,
-    "application/pdf": ReceiptFileKind.pdf.value,
-}
 
 
 # ---------------------------------------------------------------------------
@@ -84,79 +74,104 @@ _MIME_TO_KIND: dict[str, str] = {
     "/upload",
     response_model=ReceiptUploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Upload receipt image (TMA)",
-    description="Accept a receipt image, perform duplicate check, store file, enqueue processing.",
+    summary="Upload a receipt package — 1..5 files + optional scanned QR (TMA)",
+    description=(
+        "Multipart batch upload: one submission → one Receipt with 1..5 attachments "
+        "(images and/or PDFs), optionally enriched by a scanned QR string. Files are "
+        "stored server-side; the receipt is created atomically and processed once. "
+        "This is the no-S3 / dev fallback for the presigned upload-urls + finalize flow."
+    ),
 )
-async def upload_receipt(
+async def upload_receipt(  # noqa: PLR0913
     request: Request,
-    file: UploadFile,
+    files: list[UploadFile],
     brand_id: Annotated[int, Form()],
+    scanned_qr: Annotated[str | None, Form()] = None,
+    idempotency_key: Annotated[str | None, Form()] = None,
     token: JwtTokenT = Depends(validate_token_dependency),
     session: AsyncSession = Depends(get_pg_session),
 ) -> ReceiptUploadResponse:
-    """Multipart receipt upload — main TMA client endpoint (H21)."""
+    """Multipart batch receipt upload — main TMA client fallback path (H21).
+
+    No hard 409 on duplicate file hash anymore: a repeated file becomes a fraud
+    *signal* for the admin during pipeline processing (spec S3/В-3).
+    """
     seller_id: int = token["user_id"]
 
-    # Validate MIME type.
-    content_type = file.content_type or ""
-    if content_type not in _ALLOWED_MIME_TYPES:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Unsupported file type: {content_type}. Allowed: jpeg, png, webp, pdf",
+    if not files:
+        raise AppError("RECEIPT_NO_FILES", status_code=400, user_message="Приложите хотя бы один файл.")
+    if len(files) > MAX_ATTACHMENTS_PER_RECEIPT:
+        raise AppError("RECEIPT_TOO_MANY_FILES", status_code=400)
+
+    prepared: list[PreparedAttachment] = []
+    for position, file in enumerate(files):
+        mime = (file.content_type or "").split(";")[0].strip().lower()
+        _validate_attachment_mime(mime)
+        data = await file.read()
+        if not data:
+            raise AppError("RECEIPT_EMPTY_FILE", status_code=400)
+        if len(data) > MAX_ATTACHMENT_SIZE_BYTES:
+            raise AppError("RECEIPT_FILE_TOO_LARGE", status_code=413)
+        storage_uri = await _storage.save(data, mime, seller_id)
+        prepared.append(
+            PreparedAttachment(
+                position=position,
+                storage_uri=storage_uri,
+                mime=mime,
+                file_hash=sha256_hash(data),
+                size_bytes=len(data),
+            )
         )
 
-    file_bytes = await file.read()
-    if not file_bytes:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
-
-    # 1. Compute file hash (SHA-256).
-    file_hash = sha256_hash(file_bytes)
-
-    # 2. Duplicate check — before any DB insert.
-    existing = await _fraud_checker.check_file_hash(session, file_hash)
-    if existing is not None:
-        # AppError → structured envelope with a user-facing Russian message,
-        # so the TMA shows "Этот чек уже был загружен ранее." instead of a
-        # generic error (the old dict-detail HTTPException had no user_message).
-        raise AppError(
-            "RECEIPT_DUPLICATE",
-            status_code=409,
-            extra={"existing_receipt_id": existing.id},
-        )
-
-    # 3. Store file.
-    file_url = await _storage.save(file_bytes, content_type, seller_id)
-
-    # 4. INSERT receipt (status=pending).
-    file_kind = _MIME_TO_KIND.get(content_type, ReceiptFileKind.photo.value)
-    receipt = Receipt(
+    receipt, created = await _create_package_or_raise(
+        session,
         seller_id=seller_id,
         brand_id=brand_id,
-        status=ReceiptStatus.pending.value,
-        file_kind=file_kind,
-        file_url=file_url,
-        file_hash=file_hash,
-        items=[],
-        fraud_signals=[],
-        created_by=seller_id,
+        attachments=prepared,
+        scanned_qr=scanned_qr,
+        idempotency_key=idempotency_key,
     )
-    session.add(receipt)
-    await session.flush()  # get receipt.id
-    await session.commit()
 
-    receipt_id = receipt.id
-
-    # 5. Enqueue arq task (if arq pool is available in app.state).
-    await _enqueue_processing(request, receipt_id)
-
+    if created:
+        await _enqueue_processing(request, receipt.id)
     logger.info(
-        "receipt.upload, receipt_id=%d, seller_id=%d, brand_id=%d, size=%d",
-        receipt_id,
+        "receipt.upload_package, receipt_id=%d, seller_id=%d, brand_id=%d, files=%d, created=%s",
+        receipt.id,
         seller_id,
         brand_id,
-        len(file_bytes),
+        len(prepared),
+        created,
     )
-    return ReceiptUploadResponse(receipt_id=receipt_id)
+    return ReceiptUploadResponse(receipt_id=receipt.id)
+
+
+def _validate_attachment_mime(mime: str) -> None:
+    """Reject unsupported MIME types (server-validated — client MIME is untrusted)."""
+    if mime not in ALLOWED_ATTACHMENT_MIME_TYPES:
+        raise AppError("RECEIPT_UNSUPPORTED_TYPE", status_code=415)
+
+
+async def _create_package_or_raise(  # noqa: PLR0913
+    session: AsyncSession,
+    *,
+    seller_id: int,
+    brand_id: int,
+    attachments: list[PreparedAttachment],
+    scanned_qr: str | None,
+    idempotency_key: str | None,
+) -> tuple[Receipt, bool]:
+    """Call the package service, translating structural errors to AppError."""
+    try:
+        return await create_receipt_package(
+            session,
+            seller_id=seller_id,
+            brand_id=brand_id,
+            attachments=attachments,
+            scanned_qr=scanned_qr,
+            idempotency_key=idempotency_key,
+        )
+    except PackageValidationError as exc:
+        raise AppError("RECEIPT_INVALID_PACKAGE", status_code=400, extra={"reason": str(exc)}) from exc
 
 
 async def _enqueue_processing(request: Request, receipt_id: int) -> None:
@@ -179,114 +194,106 @@ async def _enqueue_processing(request: Request, receipt_id: int) -> None:
 
 @router.post(
     "/qr-payload",
-    response_model=ReceiptUploadResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-    summary="Submit raw QR string scanned by Telegram in-app scanner (TMA)",
+    status_code=status.HTTP_400_BAD_REQUEST,
+    summary="[DEPRECATED] QR-only submission removed — attach files instead (TMA)",
     description=(
-        "Accepts a raw Russian fiscal QR string (``t=...&s=...&fn=...&i=...&fp=...&n=...``) "
-        "directly instead of a file upload.  Parses the QR, creates a pending receipt, "
-        "and enqueues processing — same flow as POST /receipts/upload but without a file."
+        "**Deprecated.** Standalone QR submission was removed per spec S3 (В-2-A): a scanned "
+        "QR may only accompany at least one photo/PDF. New submissions must use POST /receipts/upload "
+        "(multipart batch) or the presigned upload-urls + finalize flow, passing the scanned QR as "
+        "the optional ``scanned_qr`` field. Old QR-only receipts remain readable."
     ),
+    deprecated=True,
     include_in_schema=True,
 )
 async def submit_qr_payload(
-    request: Request,
     body: ReceiptQrPayloadIn,
     token: JwtTokenT = Depends(require_seller),
-    session: AsyncSession = Depends(get_pg_session),
-) -> ReceiptUploadResponse:
-    """Seller submits a raw QR string scanned by the Telegram in-app QR reader."""
+) -> None:
+    """Removed endpoint — QR-only submissions are no longer accepted."""
+    raise AppError(
+        "QR_ONLY_DEPRECATED",
+        status_code=400,
+        user_message="Отсканированный QR можно приложить только вместе с фото или PDF.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Presigned package upload (direct-to-S3) — upload-urls + finalize
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/upload-urls",
+    response_model=PackageUploadUrlsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Mint 1..5 presigned S3 POST URLs for a receipt package (TMA)",
+    description=(
+        "Returns one short-lived presigned POST slot per file (1..5) plus a signed "
+        "``upload_session`` token binding the issued storage keys to this seller. The "
+        "browser POSTs each file directly to S3/MinIO, then calls POST /receipts/finalize "
+        "with the session token and the attachment list. Requires an S3 storage backend "
+        "(501 otherwise → the client falls back to multipart POST /receipts/upload)."
+    ),
+)
+async def get_upload_urls(
+    body: PackageUploadUrlsRequest,
+    token: JwtTokenT = Depends(require_seller),
+) -> PackageUploadUrlsResponse:
+    """Mint presigned POST slots for a 1..5 file package, namespaced by the seller."""
     seller_id: int = token["user_id"]
 
-    # Validate / parse the QR string before touching the DB.
-    try:
-        parsed = parse_qr_string(body.qr_raw)
-    except QRParseError as exc:
-        # AppError → structured envelope with a user-facing Russian message so the
-        # TMA shows "Не удалось прочитать QR-код. Попробуй ещё раз." instead of a
-        # generic toast (the old dict-detail HTTPException had no user_message).
-        raise AppError("QR_PARSE_FAILED", status_code=400, extra={"reason": str(exc)}) from exc
+    from src.receipt_ocr.storage import S3FileStorage  # noqa: PLC0415
 
-    # Duplicate check on fn/fd/fp triple (same as pipeline fraud check, but early).
-    existing = await _fraud_checker.check_fn_fd_fp(session, parsed.fn, parsed.fd, parsed.fp)
-    if existing is not None and existing.seller_id == seller_id:
-        # AppError → envelope with a user-facing Russian message, same as the
-        # qr_hash check below and POST /receipts/upload. The old dict-detail
-        # HTTPException had no user_message, so re-scanning the same QR showed a
-        # generic "что-то пошло не так" in the TMA.
+    if not isinstance(_storage, S3FileStorage):
         raise AppError(
-            "RECEIPT_DUPLICATE",
-            status_code=409,
-            extra={"existing_receipt_id": existing.id},
+            "NOT_IMPLEMENTED",
+            user_message="Presigned upload requires S3 storage backend.",
+            status_code=501,
         )
 
-    # Hash the QR string itself so the partial-unique `file_hash` constraint
-    # both (a) prevents two empty-hash rows from colliding and (b) acts as a
-    # natural dedupe for the same QR submitted twice (sha256(qr_raw) is stable).
-    qr_hash = sha256_hash(body.qr_raw.encode("utf-8"))
-    existing = await _fraud_checker.check_file_hash(session, qr_hash)
-    if existing is not None:
-        raise AppError("RECEIPT_DUPLICATE", status_code=409)
+    slots: list[PackageUploadSlot] = []
+    issued_keys: list[str] = []
+    for position, meta in enumerate(body.files):
+        mime = meta.mime.strip().lower()
+        _validate_attachment_mime(mime)
+        if meta.size > MAX_ATTACHMENT_SIZE_BYTES:
+            raise AppError("RECEIPT_FILE_TOO_LARGE", status_code=413)
+        url, fields, storage_uri = await _storage.generate_presigned_post_url(
+            mime=mime,
+            telegram_id=seller_id,
+            expires_in=600,
+        )
+        issued_keys.append(storage_uri)
+        slots.append(
+            PackageUploadSlot(
+                client_id=meta.client_id,
+                position=position,
+                upload_url=url,
+                fields=fields,
+                storage_uri=storage_uri,
+            )
+        )
 
-    # Create receipt row with qr_raw pre-filled; no file_url needed.
-    receipt = Receipt(
-        seller_id=seller_id,
-        brand_id=body.brand_id,
-        status=ReceiptStatus.pending.value,
-        file_kind=ReceiptFileKind.qr.value,
-        # file_url is required by the model — use a sentinel so it's not blank.
-        file_url="qr://inline",
-        file_hash=qr_hash,
-        qr_raw=body.qr_raw,
-        fn=parsed.fn,
-        fd=parsed.fd,
-        fp=parsed.fp,
-        items=[],
-        fraud_signals=[],
-        created_by=seller_id,
-    )
-    session.add(receipt)
-    await session.flush()
-    await session.commit()
-
-    receipt_id = receipt.id
-    await _enqueue_processing(request, receipt_id)
-
-    logger.info(
-        "receipt.qr_payload, receipt_id=%d, seller_id=%d, brand_id=%d, fn=%s",
-        receipt_id,
-        seller_id,
-        body.brand_id,
-        parsed.fn,
-    )
-    return ReceiptUploadResponse(receipt_id=receipt_id)
-
-
-# ---------------------------------------------------------------------------
-# Presigned upload endpoints (direct-to-S3 flow)
-# ---------------------------------------------------------------------------
+    session_token = sign_upload_session(seller_id=seller_id, keys=issued_keys)
+    logger.info("receipt.presigned_urls_issued, seller_id=%d, files=%d", seller_id, len(slots))
+    return PackageUploadUrlsResponse(upload_session=session_token, files=slots, expires_in=600)
 
 
 @router.post(
     "/upload-url",
     response_model=PresignedUploadResponse,
     status_code=status.HTTP_200_OK,
-    summary="Mint presigned S3 POST URL for direct browser-to-S3 upload (TMA)",
-    description=(
-        "Returns a short-lived presigned POST URL + form fields.  "
-        "The browser POSTs the file directly to S3/MinIO, then calls "
-        "POST /receipts/finalize with the returned storage_uri."
-    ),
-    include_in_schema=True,
+    summary="[DEPRECATED] Mint a single presigned S3 POST URL — use /upload-urls",
+    description="Deprecated single-file presigned URL. Use POST /receipts/upload-urls for the package flow.",
+    deprecated=True,
 )
 async def get_upload_url(
     body: PresignedUploadRequest,
     token: JwtTokenT = Depends(require_seller),
 ) -> PresignedUploadResponse:
-    """Mint a presigned S3 POST URL namespaced by the seller's telegram_id."""
+    """Deprecated single-file presigned POST URL (kept for backward compatibility)."""
     mime = body.mime.strip().lower()
-    if mime not in _ALLOWED_MIME_TYPES:
-        raise AppError("RECEIPT_UNSUPPORTED_TYPE", status_code=415)
+    _validate_attachment_mime(mime)
 
     from src.receipt_ocr.storage import S3FileStorage  # noqa: PLC0415
 
@@ -302,109 +309,81 @@ async def get_upload_url(
         telegram_id=token["user_id"],
         expires_in=600,
     )
-    logger.info(
-        "receipt.presigned_url_issued, seller_id=%d, mime=%s",
-        token["user_id"],
-        mime,
-    )
-    return PresignedUploadResponse(
-        upload_url=url,
-        fields=fields,
-        storage_uri=storage_uri,
-        expires_in=600,
-    )
+    return PresignedUploadResponse(upload_url=url, fields=fields, storage_uri=storage_uri, expires_in=600)
 
 
 @router.post(
     "/finalize",
     response_model=ReceiptUploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Finalize direct-to-S3 upload — read file from storage and enqueue processing (TMA)",
+    summary="Finalize a presigned receipt package — create one Receipt + N attachments (TMA)",
     description=(
-        "After the browser has uploaded a file directly to S3 using the presigned POST URL "
-        "from POST /receipts/upload-url, the TMA calls this endpoint with the storage_uri "
-        "to create the receipt DB row and enqueue the OCR pipeline."
+        "After the browser uploaded 1..5 files directly to S3 using the slots from "
+        "POST /receipts/upload-urls, this creates one Receipt with N attachments and enqueues "
+        "processing once. Idempotent by ``idempotency_key`` — a retried finalize returns the "
+        "same receipt. The optional ``scanned_qr`` is an additional fiscal-identity candidate."
     ),
-    include_in_schema=True,
 )
 async def finalize_upload(
     request: Request,
-    body: FinalizeUploadRequest,
+    body: PackageFinalizeRequest,
     token: JwtTokenT = Depends(require_seller),
     session: AsyncSession = Depends(get_pg_session),
 ) -> ReceiptUploadResponse:
-    """Read the already-uploaded file from S3, run duplicate check, create receipt row."""
+    """Verify the upload session, read each object from storage, create the package."""
     seller_id: int = token["user_id"]
-    mime = body.mime.strip().lower()
 
-    if mime not in _ALLOWED_MIME_TYPES:
-        raise AppError("RECEIPT_UNSUPPORTED_TYPE", status_code=415)
-
-    # Security: verify the URI is namespaced to this seller.
-    # The presigned POST key format is: receipts/<telegram_id>/<uuid>.<ext>
-    expected_prefix = f"receipts/{seller_id}/"
-    # Strip the s3://<bucket>/ prefix to get the key.
-    uri = body.storage_uri
-    if not uri.startswith("s3://"):
-        raise AppError("RECEIPT_NOT_YOURS", status_code=403)
-    # Parse bucket and key from the URI.
-    without_scheme = uri[len("s3://"):]
-    slash = without_scheme.find("/")
-    if slash == -1:
-        raise AppError("RECEIPT_NOT_YOURS", status_code=403)
-    key = without_scheme[slash + 1:]
-    if not key.startswith(expected_prefix):
-        raise AppError("RECEIPT_NOT_YOURS", status_code=403)
-
-    # Read bytes from S3.
+    # 1. Verify the signed session binds these storage keys to this seller.
     try:
-        file_bytes = await _storage.read(uri)
-    except FileNotFoundError:
-        raise AppError("RECEIPT_NOT_FOUND", status_code=404)
+        granted_keys = set(verify_upload_session(body.upload_session, seller_id=seller_id))
+    except UploadSessionError as exc:
+        raise AppError("RECEIPT_UPLOAD_SESSION_INVALID", status_code=403, extra={"reason": str(exc)}) from exc
 
-    if not file_bytes:
-        raise AppError("RECEIPT_EMPTY_FILE", status_code=400)
-
-    # Duplicate check via file hash.
-    file_hash = sha256_hash(file_bytes)
-    existing = await _fraud_checker.check_file_hash(session, file_hash)
-    if existing is not None:
-        # Same AppError envelope as /upload and /qr-payload so the presigned-S3
-        # path also shows "Этот чек уже был загружен ранее." (not a generic toast).
-        raise AppError(
-            "RECEIPT_DUPLICATE",
-            status_code=409,
-            extra={"existing_receipt_id": existing.id},
+    # 2. Build prepared attachments — validate MIME, ownership, existence; hash/size.
+    prepared: list[PreparedAttachment] = []
+    for att in body.attachments:
+        mime = att.mime.strip().lower()
+        _validate_attachment_mime(mime)
+        if att.storage_uri not in granted_keys:
+            # The client may not finalize a key it was never granted (anti key-swap).
+            raise AppError("RECEIPT_NOT_YOURS", status_code=403)
+        try:
+            file_bytes = await _storage.read(att.storage_uri)
+        except FileNotFoundError:
+            raise AppError("RECEIPT_NOT_FOUND", status_code=404) from None
+        if not file_bytes:
+            raise AppError("RECEIPT_EMPTY_FILE", status_code=400)
+        if len(file_bytes) > MAX_ATTACHMENT_SIZE_BYTES:
+            raise AppError("RECEIPT_FILE_TOO_LARGE", status_code=413)
+        prepared.append(
+            PreparedAttachment(
+                position=att.position,
+                storage_uri=att.storage_uri,
+                mime=mime,
+                file_hash=sha256_hash(file_bytes),
+                size_bytes=len(file_bytes),
+            )
         )
 
-    # Insert receipt row.
-    file_kind = _MIME_TO_KIND.get(mime, ReceiptFileKind.photo.value)
-    receipt = Receipt(
+    receipt, created = await _create_package_or_raise(
+        session,
         seller_id=seller_id,
         brand_id=body.brand_id,
-        status=ReceiptStatus.pending.value,
-        file_kind=file_kind,
-        file_url=uri,
-        file_hash=file_hash,
-        items=[],
-        fraud_signals=[],
-        created_by=seller_id,
+        attachments=prepared,
+        scanned_qr=body.scanned_qr,
+        idempotency_key=body.idempotency_key,
     )
-    session.add(receipt)
-    await session.flush()
-    await session.commit()
 
-    receipt_id = receipt.id
-    await _enqueue_processing(request, receipt_id)
-
+    if created:
+        await _enqueue_processing(request, receipt.id)
     logger.info(
-        "receipt.finalize, receipt_id=%d, seller_id=%d, brand_id=%d, size=%d",
-        receipt_id,
+        "receipt.finalize_package, receipt_id=%d, seller_id=%d, attachments=%d, created=%s",
+        receipt.id,
         seller_id,
-        body.brand_id,
-        len(file_bytes),
+        len(prepared),
+        created,
     )
-    return ReceiptUploadResponse(receipt_id=receipt_id)
+    return ReceiptUploadResponse(receipt_id=receipt.id)
 
 
 # ---------------------------------------------------------------------------
@@ -726,7 +705,6 @@ async def edit_receipt_bonus(
         )
         session.add(log)
 
-    await session.refresh(receipt)
     logger.info(
         "receipt.bonus_edited, receipt_id=%d, admin=%d, before=%d, after=%d",
         receipt_id,
@@ -734,7 +712,7 @@ async def edit_receipt_bonus(
         old_bonus,
         new_bonus,
     )
-    return ReceiptRead.model_validate(receipt)
+    return await _build_receipt_read(session, receipt_id)
 
 
 # ---------------------------------------------------------------------------
@@ -787,9 +765,8 @@ async def add_receipt_comment(
         )
         session.add(log)
 
-    await session.refresh(receipt)
     logger.info("receipt.comment_added, receipt_id=%d, admin=%d", receipt_id, token["user_id"])
-    return ReceiptRead.model_validate(receipt)
+    return await _build_receipt_read(session, receipt_id)
 
 
 # ---------------------------------------------------------------------------
@@ -832,9 +809,10 @@ async def create_receipt(
         created_by=token["user_id"],
     )
     session.add(receipt)
+    await session.flush()
+    new_id = receipt.id
     await session.commit()
-    await session.refresh(receipt)
-    return ReceiptRead.model_validate(receipt)
+    return await _build_receipt_read(session, new_id)
 
 
 @router.get(
@@ -943,15 +921,14 @@ async def update_receipt(
     token: JwtTokenT = Depends(require_admin),
     session: AsyncSession = Depends(get_pg_session),
 ) -> ReceiptRead:
-    receipt = await _get_receipt_or_404(session, receipt_id)
+    await _get_receipt_or_404(session, receipt_id)  # 404 if missing/deleted
     update_data = payload.model_dump(exclude_none=True)
     if update_data:
         update_data["updated_by"] = token["user_id"]
         # dict positionally — `.values(**update_data)` breaks on the `fn` column.
         await session.execute(update(Receipt).where(Receipt.id == receipt_id).values(update_data))
         await session.commit()
-        await session.refresh(receipt)
-    return ReceiptRead.model_validate(receipt)
+    return await _build_receipt_read(session, receipt_id)
 
 
 @router.delete(
@@ -982,6 +959,20 @@ async def _get_receipt_or_404(session: AsyncSession, receipt_id: int) -> Receipt
     if receipt is None:
         raise AppError("RECEIPT_NOT_FOUND", status_code=404)
     return receipt
+
+
+async def _build_receipt_read(session: AsyncSession, receipt_id: int) -> ReceiptRead:
+    """Re-select the receipt (selectin eager-loads attachments) and build the admin DTO.
+
+    Write endpoints mutate via UPDATE/INSERT then need a fresh DTO. A plain
+    ``session.refresh()`` expires the selectin relationship, which would then
+    lazy-load ``attachments`` in a sync context (illegal under async) — so we
+    re-select instead, which loads attachments eagerly via selectin.
+    """
+    receipt = await _get_receipt_or_404(session, receipt_id)
+    read = ReceiptRead.model_validate(receipt)
+    read.file_url = to_viewable_url(receipt.file_url) or receipt.file_url
+    return read
 
 
 async def _get_receipt_for_update(session: AsyncSession, receipt_id: int) -> Receipt:
