@@ -320,9 +320,13 @@ class ReceiptPipelineOrchestrator:
             "fraud_signals": [s.to_dict() if isinstance(s, FraudSignal) else s for s in signals],
             "ocr_raw": self._evidence_payload(result),
         }
-        async with session.begin():
-            await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(vals))
-            await self._persist_attachment_evidence(session, receipt, result)
+        # NB: use the session's auto-begun transaction + explicit commit rather than
+        # `session.begin()` — earlier steps (e.g. _step_set_status) already issued an
+        # execute(), so the session has an open transaction and begin() would raise
+        # "A transaction is already begun".
+        await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(vals))
+        await self._persist_attachment_evidence(session, receipt, result)
+        await session.commit()
         receipt.status = ReceiptStatus.on_review.value
         logger.info("pipeline.demo_on_review, receipt_id=%d (no auto bonus — admin assigns)", receipt.id)
 
@@ -356,29 +360,32 @@ class ReceiptPipelineOrchestrator:
             )
             return
 
-        async with session.begin():
-            await session.execute(
-                update(Receipt)
-                .where(Receipt.id == receipt.id)
-                .values(
-                    {
-                        "status": ReceiptStatus.rejected.value,
-                        "rejection_reason": MULTIPLE_RECEIPTS_USER_REASON,
-                        "fraud_signals": all_signals,
-                        "bonus_amount": 0,
-                        "ocr_raw": self._evidence_payload(result),
-                    }
-                )
+        # Explicit commit on the session's auto-begun transaction (begin() would raise
+        # "already begun" — earlier steps already issued an execute). The status
+        # update, attachment evidence and the outbox notification all commit together,
+        # so there is no phantom send on rollback.
+        await session.execute(
+            update(Receipt)
+            .where(Receipt.id == receipt.id)
+            .values(
+                {
+                    "status": ReceiptStatus.rejected.value,
+                    "rejection_reason": MULTIPLE_RECEIPTS_USER_REASON,
+                    "fraud_signals": all_signals,
+                    "bonus_amount": 0,
+                    "ocr_raw": self._evidence_payload(result),
+                }
             )
-            await self._persist_attachment_evidence(session, receipt, result)
-            # Seller notification in the SAME transaction (no phantom send on rollback).
-            await notification_outbox.enqueue(
-                session,
-                recipient_id=receipt.seller_id,
-                channel="telegram",
-                template="receipt.rejected",
-                payload={"receipt_id": receipt.id, "reason": MULTIPLE_RECEIPTS_USER_REASON},
-            )
+        )
+        await self._persist_attachment_evidence(session, receipt, result)
+        await notification_outbox.enqueue(
+            session,
+            recipient_id=receipt.seller_id,
+            channel="telegram",
+            template="receipt.rejected",
+            payload={"receipt_id": receipt.id, "reason": MULTIPLE_RECEIPTS_USER_REASON},
+        )
+        await session.commit()
         receipt.status = ReceiptStatus.rejected.value
         logger.info(
             "pipeline.multiple_receipts_rejected",
@@ -795,50 +802,52 @@ class ReceiptPipelineOrchestrator:
         pqr = result.parsed_qr
         ofd = result.ofd_receipt
 
-        async with session.begin():
-            # SELECT … FOR UPDATE to prevent concurrent state changes.
-            locked = await session.execute(select(Receipt).where(Receipt.id == receipt.id).with_for_update())
-            locked_receipt = locked.scalar_one_or_none()
-            if locked_receipt is None:
-                raise StepError(
-                    step="finalize_review",
-                    reason=f"Receipt {receipt.id} disappeared during processing",
-                    new_status=ReceiptStatus.on_review.value,
-                )
+        # SELECT … FOR UPDATE to prevent concurrent state changes. Use the session's
+        # auto-begun transaction + an explicit commit — earlier steps already issued an
+        # execute(), so `session.begin()` here would raise "A transaction is already begun".
+        locked = await session.execute(select(Receipt).where(Receipt.id == receipt.id).with_for_update())
+        locked_receipt = locked.scalar_one_or_none()
+        if locked_receipt is None:
+            raise StepError(
+                step="finalize_review",
+                reason=f"Receipt {receipt.id} disappeared during processing",
+                new_status=ReceiptStatus.on_review.value,
+            )
 
-            # Build update values — terminal pipeline status is on_review (admin decides).
-            update_vals: dict = {
-                "status": ReceiptStatus.on_review.value,
-                "fraud_signals": [s.to_dict() for s in result.fraud_signals],
-                "items": result.matched_items,
-                # Suggested bonus only — the admin confirms/edits it on approve.
-                "bonus_amount": result.bonus_amount,
-                # Extraction provenance (per-attachment + detected identities).
-                "ocr_raw": self._evidence_payload(result),
-            }
-            if pqr:
-                update_vals.update(
-                    {
-                        "qr_raw": result.qr_raw,
-                        "fn": pqr.fn,
-                        "fd": pqr.fd,
-                        "fp": pqr.fp,
-                        "purchase_date": pqr.purchase_date.date(),
-                    }
-                )
-            if ofd:
-                update_vals.update(
-                    {
-                        "total_sum": ofd.total_sum,
-                        "shop_name": ofd.shop_name,
-                        "shop_inn": ofd.shop_inn,
-                    }
-                )
+        # Build update values — terminal pipeline status is on_review (admin decides).
+        update_vals: dict = {
+            "status": ReceiptStatus.on_review.value,
+            "fraud_signals": [s.to_dict() for s in result.fraud_signals],
+            "items": result.matched_items,
+            # Suggested bonus only — the admin confirms/edits it on approve.
+            "bonus_amount": result.bonus_amount,
+            # Extraction provenance (per-attachment + detected identities).
+            "ocr_raw": self._evidence_payload(result),
+        }
+        if pqr:
+            update_vals.update(
+                {
+                    "qr_raw": result.qr_raw,
+                    "fn": pqr.fn,
+                    "fd": pqr.fd,
+                    "fp": pqr.fp,
+                    "purchase_date": pqr.purchase_date.date(),
+                }
+            )
+        if ofd:
+            update_vals.update(
+                {
+                    "total_sum": ofd.total_sum,
+                    "shop_name": ofd.shop_name,
+                    "shop_inn": ofd.shop_inn,
+                }
+            )
 
-            # NB: dict positionally — `.values(**update_vals)` breaks on the `fn`
-            # column (collides with SQLAlchemy's @_generative `fn` param).
-            await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(update_vals))
-            await self._persist_attachment_evidence(session, receipt, result)
+        # NB: dict positionally — `.values(**update_vals)` breaks on the `fn`
+        # column (collides with SQLAlchemy's @_generative `fn` param).
+        await session.execute(update(Receipt).where(Receipt.id == receipt.id).values(update_vals))
+        await self._persist_attachment_evidence(session, receipt, result)
+        await session.commit()
 
         duration_ms = int((time.monotonic() - t0) * 1000)
         logger.info(

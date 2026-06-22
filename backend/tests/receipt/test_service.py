@@ -173,6 +173,54 @@ async def test_create__idempotency_hit__returns_existing_no_insert() -> None:
     )
     assert created is False
     assert receipt is existing
-    # No insert path on an idempotency hit.
+    # The lookup runs inside the transaction, but no INSERT happens on a hit.
     session.add.assert_not_called()
-    session.begin.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create__begin_is_first_session_op() -> None:
+    """Regression: the idempotency SELECT must happen INSIDE session.begin().
+
+    The real FastAPI session auto-begins a transaction on the first execute(), so
+    any execute() *before* begin() makes begin() raise "A transaction is already
+    begun". This strict mock reproduces that exact failure mode.
+    """
+    from sqlalchemy.exc import InvalidRequestError  # noqa: PLC0415
+
+    class _StrictSession(MagicMock):
+        _executed_before_begin = False
+        _in_begin = False
+
+        async def execute(self, *a, **k):  # noqa: ANN002, ANN003
+            if not self._in_begin:
+                self._executed_before_begin = True
+            result = MagicMock()
+            result.scalar_one_or_none = MagicMock(return_value=None)
+            return result
+
+        def begin(self):
+            if self._executed_before_begin:
+                raise InvalidRequestError("A transaction is already begun on this Session.")
+            cm = MagicMock()
+
+            async def _aenter(*_a):
+                self._in_begin = True
+
+            async def _aexit(*_a):
+                self._in_begin = False
+                return False
+
+            cm.__aenter__ = _aenter
+            cm.__aexit__ = _aexit
+            return cm
+
+    session = _StrictSession(spec=AsyncSession)
+    session.add = MagicMock(side_effect=lambda obj: setattr(obj, "id", 7) if getattr(obj, "id", None) is None else None)
+    session.refresh = AsyncMock()
+
+    # Must NOT raise InvalidRequestError — begin() is the first session op.
+    receipt, created = await create_receipt_package(
+        session, seller_id=1, brand_id=2, attachments=[_att(0)], idempotency_key="key-12345678"
+    )
+    assert created is True
+    assert receipt.id == 7

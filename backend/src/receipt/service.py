@@ -71,19 +71,6 @@ async def create_receipt_package(  # noqa: PLR0913
     """
     _validate_structure(attachments)
 
-    # Idempotency: a repeated finalize for the same (seller, key) returns the
-    # already-created receipt instead of inserting a second one.
-    if idempotency_key:
-        existing = await _find_by_idempotency_key(session, seller_id, idempotency_key)
-        if existing is not None:
-            logger.info(
-                "receipt.package_idempotent_hit, receipt_id=%d, seller_id=%d, key=%s",
-                existing.id,
-                seller_id,
-                idempotency_key,
-            )
-            return existing, False
-
     ordered = sorted(attachments, key=lambda a: a.position)
     primary = ordered[0]
     primary_kind = attachment_kind_for_mime(primary.mime)
@@ -114,20 +101,28 @@ async def create_receipt_package(  # noqa: PLR0913
         ],
     )
 
+    # NB: `session.begin()` must be the FIRST operation on the session — the
+    # FastAPI-provided session auto-begins a transaction on the first execute(),
+    # so doing the idempotency SELECT *before* begin() would raise
+    # "A transaction is already begun". So the lookup lives inside the transaction.
     try:
         async with session.begin():
+            if idempotency_key:
+                existing = await _find_by_idempotency_key(session, seller_id, idempotency_key)
+                if existing is not None:
+                    logger.info(
+                        "receipt.package_idempotent_hit, receipt_id=%d, seller_id=%d", existing.id, seller_id
+                    )
+                    return existing, False
             session.add(receipt)
     except IntegrityError:
         # Concurrent finalize with the same idempotency key won the race — return
         # the winner instead of surfacing a constraint error.
-        await session.rollback()
         if idempotency_key:
             existing = await _find_by_idempotency_key(session, seller_id, idempotency_key)
             if existing is not None:
                 logger.info(
-                    "receipt.package_idempotent_race, receipt_id=%d, seller_id=%d",
-                    existing.id,
-                    seller_id,
+                    "receipt.package_idempotent_race, receipt_id=%d, seller_id=%d", existing.id, seller_id
                 )
                 return existing, False
         raise
