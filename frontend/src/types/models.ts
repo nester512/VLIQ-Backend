@@ -9,6 +9,19 @@ export type ReceiptStatus =
   | 'needs_revision'
   | 'paid_out'
 
+/** One file of a receipt package (mirrors backend ReceiptAttachmentRead). */
+export type AttachmentKind = 'image' | 'pdf'
+
+export interface Attachment {
+  id: number
+  /** Stable display order within the receipt. */
+  position: number
+  kind: AttachmentKind
+  mime_type: string
+  /** Browser-viewable URL; null for non-viewable backends (local dev). */
+  url: string | null
+}
+
 export interface Receipt {
   id: string
   seller_id: number
@@ -20,6 +33,9 @@ export interface Receipt {
   created_at: string
   updated_at?: string
   items?: ReceiptItem[]
+  /** Ordered package attachments (primary source). */
+  attachments?: Attachment[]
+  /** @deprecated Legacy single-file mirror of attachments[0]; prefer `attachments`. */
   file_url?: string
 }
 
