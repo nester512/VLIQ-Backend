@@ -1,37 +1,24 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Avatar } from '@/components/atoms/Avatar'
-import { Pill } from '@/components/atoms/Pill'
 import { Icon } from '@/components/atoms/Icon'
 import { Btn } from '@/components/atoms/Btn'
 import { Spinner } from '@/components/atoms/Spinner'
 import { ReceiptGraphic } from '@/components/molecules/ReceiptGraphic'
+import { ReceiptInfoCard } from '@/components/molecules/ReceiptInfoCard'
+import { AttachmentViewer } from '@/components/organisms/AttachmentViewer'
 import { EditBonusSheet } from '@/components/molecules/EditBonusSheet'
 import { AddCommentSheet } from '@/components/molecules/AddCommentSheet'
 import { BlockSellerSheet } from '@/components/molecules/BlockSellerSheet'
-import { initialsFromName } from '@/utils/initials'
 import { fmtMoney, fmtMoneyDelta } from '@/utils/formatMoney'
 import { useUiStore } from '@/store/uiStore'
 import { useSwipeAction } from '@/features/admin/hooks/useReviewQueue'
 import { editReceiptBonus, addReceiptComment, blockSeller, deleteReceipt } from '@/api/admin'
 import { extractApiError } from '@/api/client'
 import type { AdminReceipt } from '@/api/admin'
-import type { Receipt } from '@/types/models'
 
 interface ReceiptDetailSheetProps {
   receiptId: string | null
   receipt?: AdminReceipt
-}
-
-/** One label/value cell in the 2-column "Распознанные данные" grid.
- *  `wide` spans both columns for long values (shop, address, ФН/ФД/ФП). */
-function KV({ label, value, wide }: { label: string; value: ReactNode; wide?: boolean }) {
-  return (
-    <div className={wide ? 'col-span-2 min-w-0' : 'min-w-0'}>
-      <div className="text-[11.5px] font-medium text-[var(--vliq-hint)] mb-0.5">{label}</div>
-      <div className="text-[14px] font-semibold text-[var(--vliq-text)] leading-snug break-words">{value}</div>
-    </div>
-  )
 }
 
 export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetProps) {
@@ -118,26 +105,8 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     )
   }
 
+  const hasAttachments = receipt.attachments.length > 0
   const sellerName = receipt.seller_name ?? `Продавец #${receipt.seller_id}`
-  const sellerStore = receipt.seller_store ?? '—'
-  const dupStatus = receipt.duplicate_status ?? 'ok'
-  const dupLabel = receipt.duplicate_label ?? 'Дублей нет'
-  const fraudDetails =
-    (receipt.fraud_signal?.[0]?.details) ??
-    receipt.rejection_reason ??
-    'Подозрительной активности не выявлено'
-
-  const receiptForGraphic: Receipt = {
-    ...receipt,
-    id: receipt.id,
-    seller_id: receipt.seller_id,
-    status: receipt.status,
-    shop_name: receipt.shop_name,
-    amount: receipt.amount,
-    bonus_amount: receipt.bonus_amount,
-    created_at: receipt.created_at,
-    items: receipt.items,
-  }
 
   function handleAction(dir: 'approve' | 'reject') {
     swipe(
@@ -154,71 +123,36 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     <>
       {/* Sheet sc: padding 6px 16px 16px (prototype: .sc) */}
       <div className="pt-[6px] vliq-pad pb-4">
-        {/* Header */}
-        <div className="flex items-center gap-[11px] mb-4 mt-1">
-          <Avatar initials={initialsFromName(sellerName)} size={42} />
-          <div className="flex-1 min-w-0">
-            <div className="font-extrabold text-[17px]">Чек #{receipt.id}</div>
-            <div className="text-[12.5px] text-[var(--vliq-hint)] font-medium">
-              {sellerName} · {sellerStore}
-            </div>
-          </div>
-          <Pill kind={dupStatus === 'ok' ? 'ok' : 'dg'}>
-            {dupStatus === 'ok' ? (
-              <Icon name="shield" size={12} />
-            ) : (
-              <Icon name="alert" size={12} />
-            )}
-            {dupLabel}
-          </Pill>
-        </div>
-
-        {/* Receipt graphic */}
+        {/* Attachments — ALL files (images / PDFs) in one reusable viewer.
+            Image tap opens a fullscreen lightbox; PDF opens externally; nav is
+            via tap-zones / arrows (no nested horizontal swipe). When there are
+            no attachments we fall back to the skeuomorphic ReceiptGraphic. */}
         <div
-          className="relative h-[330px] rounded-[18px] grid place-items-center overflow-hidden mb-3.5"
+          className="relative h-[330px] rounded-[18px] overflow-hidden mb-3.5"
           style={{ background: 'linear-gradient(160deg, #5a6172, #3d4350)' }}
         >
-          <div className="scale-[1.18] rotate-[-2deg]">
-            <ReceiptGraphic receipt={receiptForGraphic} />
-          </div>
-          <button
-            type="button"
-            className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/[0.16] text-white grid place-items-center backdrop-blur-sm"
-            onClick={() => {
-              if (receipt.file_url) window.open(receipt.file_url, '_blank', 'noopener,noreferrer')
-              else pushToast('Фото чека недоступно', 'info')
-            }}
-            aria-label="Открыть фото на весь экран"
-          >
-            <Icon name="zoom" size={16} />
-          </button>
-        </div>
-
-        {/* KV data — compact 2-column grid (less empty space, aligned, no overlap) */}
-        <b className="text-[14px] font-bold block mb-1.5">Распознанные данные</b>
-        <div className="bg-[var(--vliq-field)] rounded-[16px] p-4 sm:p-5 shadow-[var(--vliq-shadow-sm)] mb-3 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-x-6 gap-y-4">
-          <KV label="Пользователь" value={sellerName} />
-          <KV
-            label="Дата загрузки"
-            value={new Intl.DateTimeFormat('ru-RU', {
-              day: '2-digit', month: '2-digit', year: 'numeric',
-              hour: '2-digit', minute: '2-digit',
-            }).format(new Date(receipt.created_at))}
-          />
-          <KV label="Сумма покупки" value={fmtMoney(receipt.amount)} />
-          <KV label="Найдено товаров" value={receipt.items?.length != null ? String(receipt.items.length) : '—'} />
-          <KV label="Магазин" value={receipt.shop_name ?? '—'} wide />
-          <KV label="Адрес" value={receipt.shop_address ?? '—'} wide />
-          <KV
-            label="ФН / ФД / ФП"
-            value={
-              receipt.fn && receipt.fd && receipt.fp
-                ? `${receipt.fn.slice(-6)} / ${receipt.fd} / ${receipt.fp.slice(-4)}`
-                : '—'
+          <AttachmentViewer
+            attachments={receipt.attachments}
+            className="absolute inset-0"
+            emptyFallback={
+              <div className="absolute inset-0 grid place-items-center">
+                <div className="scale-[1.18] rotate-[-2deg]">
+                  <ReceiptGraphic receipt={receipt} />
+                </div>
+              </div>
             }
-            wide
           />
         </div>
+        {!hasAttachments && (
+          <div className="text-[12px] text-[var(--vliq-hint)] -mt-2 mb-3 text-center">
+            Фото чека недоступно — показан макет
+          </div>
+        )}
+
+        {/* Reusable info card — fiscal data, seller, duplicate/fraud signals,
+            system rejection reason, OCR extraction warnings. Shared with the
+            swipe-deck viewer. */}
+        <ReceiptInfoCard receipt={receipt} className="mb-1" />
 
         {receipt.fn && receipt.fd && receipt.fp && (
           <button
@@ -268,19 +202,6 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
             </div>
           </>
         )}
-
-        {/* Warning / fraud signal */}
-        <div
-          className={[
-            'flex gap-2 items-start rounded-[14px] px-4 py-3 mb-5 text-[13px] font-medium',
-            dupStatus === 'ok'
-              ? 'bg-[var(--vliq-ok-bg)] text-[var(--vliq-ok-ink)]'
-              : 'bg-[var(--vliq-dg-bg)] text-[var(--vliq-dg-ink)]',
-          ].join(' ')}
-        >
-          <Icon name={dupStatus === 'ok' ? 'shield' : 'alert'} size={16} className="flex-none mt-0.5" />
-          <span>Комментарий системы: {fraudDetails}</span>
-        </div>
 
         {/* State machine gate: approve/revise/reject ONLY when receipt is in_review.
             For terminal/non-actionable statuses we render a compact status badge

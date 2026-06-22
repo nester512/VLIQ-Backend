@@ -1,0 +1,98 @@
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
+import { SwipeDeck } from './SwipeDeck'
+import type { AdminReceipt } from '@/api/admin'
+import type { Attachment } from '@/types/models'
+
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
+
+function img(over: Partial<Attachment> = {}): Attachment {
+  return { id: 1, position: 0, kind: 'image', mime_type: 'image/jpeg', url: 'https://x/1.jpg', ...over }
+}
+
+function receipt(over: Partial<AdminReceipt> = {}): AdminReceipt {
+  return {
+    id: '1',
+    seller_id: 9,
+    status: 'on_review',
+    seller_name: 'Иван Петров',
+    seller_store: 'ТЦ Радуга',
+    amount: 100000,
+    bonus_amount: 2000,
+    created_at: '2026-06-20T10:00:00Z',
+    attachments: [img({ id: 1, position: 0 }), img({ id: 2, position: 1 })],
+    ...over,
+  }
+}
+
+/** The top SwipeCard root is the only element styled `cursor: grab`. */
+function topCard(): HTMLElement {
+  const el = document.querySelector('[style*="cursor: grab"]')
+  if (!(el instanceof HTMLElement)) throw new Error('top card not found')
+  return el
+}
+
+describe('SwipeDeck — outer approve/reject swipe still works with the AttachmentViewer', () => {
+  it('fires onSwipe("approve") on a horizontal right drag of the top card', () => {
+    vi.useFakeTimers()
+    const onSwipe = vi.fn()
+    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={vi.fn()} />)
+
+    const card = topCard()
+    fireEvent.pointerDown(card, { clientX: 100, clientY: 200, pointerId: 1 })
+    fireEvent.pointerMove(card, { clientX: 320, clientY: 200, pointerId: 1 })
+    fireEvent.pointerUp(card, { clientX: 320, clientY: 200, pointerId: 1 })
+
+    // doFly defers the onSwipe dispatch by ~320ms.
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+    expect(onSwipe).toHaveBeenCalledWith('1', 'approve')
+  })
+
+  it('fires onSwipe("reject") on a horizontal left drag', () => {
+    vi.useFakeTimers()
+    const onSwipe = vi.fn()
+    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={vi.fn()} />)
+
+    const card = topCard()
+    fireEvent.pointerDown(card, { clientX: 300, clientY: 200, pointerId: 1 })
+    fireEvent.pointerMove(card, { clientX: 60, clientY: 200, pointerId: 1 })
+    fireEvent.pointerUp(card, { clientX: 60, clientY: 200, pointerId: 1 })
+
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+    expect(onSwipe).toHaveBeenCalledWith('1', 'reject')
+  })
+
+  it('advancing an attachment via the next zone does NOT fire onSwipe', () => {
+    const onSwipe = vi.fn()
+    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={vi.fn()} />)
+
+    // Two attachments on the top card → a "next" nav zone exists.
+    const next = screen.getAllByLabelText('Следующее вложение')[0]!
+    fireEvent.pointerDown(next, { pointerId: 2 })
+    fireEvent.click(next)
+
+    // The counter advances but no approve/reject is dispatched.
+    expect(screen.getByTestId('attachment-counter')).toHaveTextContent('2 / 2')
+    expect(onSwipe).not.toHaveBeenCalled()
+  })
+
+  it('a plain tap (no drag) on the card calls onTap, not onSwipe', () => {
+    const onSwipe = vi.fn()
+    const onTap = vi.fn()
+    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={onTap} />)
+
+    const card = topCard()
+    fireEvent.pointerDown(card, { clientX: 100, clientY: 200, pointerId: 3 })
+    fireEvent.pointerUp(card, { clientX: 100, clientY: 200, pointerId: 3 })
+
+    expect(onTap).toHaveBeenCalledWith('1')
+    expect(onSwipe).not.toHaveBeenCalled()
+  })
+})

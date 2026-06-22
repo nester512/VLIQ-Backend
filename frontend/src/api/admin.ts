@@ -1,6 +1,6 @@
 import { api } from './client'
 import type {
-  Receipt, PayoutRequest, SellerProfile, PayoutMethod, ReceiptStatus,
+  Receipt, PayoutRequest, SellerProfile, PayoutMethod, ReceiptStatus, Attachment, AttachmentKind,
 } from '../types/models'
 
 // ---- Filters ----
@@ -40,17 +40,45 @@ export interface PaginatedResponse<T> {
 
 // ---- Domain shapes returned by the admin endpoints ----
 
+/** A fiscal identity {ФН / ФД / ФП} — one receipt may carry several when a
+ *  single upload accidentally bundled multiple distinct receipts. */
+export interface FiscalIdentity {
+  fn?: string
+  fd?: string
+  fp?: string
+}
+
+/** Normalised, display-ready fraud signal. `details` is human-readable text. */
+export interface AdminFraudSignal {
+  /** Backend `signal` slug (e.g. `multiple_receipts_detected`). */
+  type: string
+  /** Advisory severity from backend (`info` | `warning` | `danger` | …). */
+  severity?: string
+  /** Russian, ready-to-render description. */
+  details: string
+  /** Set for historical duplicates — the receipt this one duplicates. */
+  duplicate_of_id?: number
+}
+
 export interface AdminReceipt extends Receipt {
   seller_name?: string
   seller_store?: string
-  fraud_signal?: Array<{ type: string; details: string }>
+  fraud_signal?: AdminFraudSignal[]
   rejection_reason?: string
   fn?: string
   fd?: string
   fp?: string
   shop_address?: string
+  purchase_date?: string
   duplicate_status?: 'ok' | 'warn' | 'danger'
   duplicate_label?: string
+  /** Ordered package attachments (1–5 images and/or PDFs). */
+  attachments: Attachment[]
+  /** Distinct fiscal identities found in the upload (from `multiple_receipts_detected`
+   *  details.identities, or ocr_raw.detected_identities). */
+  detected_identities?: FiscalIdentity[]
+  /** Per-attachment extraction warnings, surfaced from `ocr_raw.extraction_evidence`. */
+  extraction_warnings?: string[]
 }
 
 export interface AdminSellerRow extends SellerProfile {
@@ -97,6 +125,38 @@ interface BackendPayoutRequest {
   updated_at?: string | null
 }
 
+/** Wire shape for a single receipt attachment (backend ReceiptAttachmentRead). */
+interface BackendAttachment {
+  id: number
+  position: number
+  kind: AttachmentKind
+  mime_type: string
+  url?: string | null
+}
+
+/** Per-position extraction evidence inside ocr_raw.extraction_evidence. */
+interface BackendExtractionEvidence {
+  kind?: string
+  qr_candidates?: number
+  pdf_pages?: number
+  warnings?: string[]
+}
+
+/** Backend ReceiptFraudSignal shape — `signal` not `type`. */
+interface BackendFraudSignal {
+  signal: string
+  severity?: string
+  details?: Record<string, unknown> | string | null
+  duplicate_of_id?: number
+}
+
+/** Subset of the backend ocr_raw JSON the admin info card consumes. */
+interface BackendOcrRaw {
+  extraction_evidence?: Record<string, BackendExtractionEvidence | null> | null
+  detected_identities?: Array<{ fn?: string | null; fd?: string | null; fp?: string | null }> | null
+  [key: string]: unknown
+}
+
 interface BackendReceipt {
   id: number
   seller_id: number
@@ -107,15 +167,19 @@ interface BackendReceipt {
   bonus_amount?: number
   rejection_reason?: string | null
   file_url?: string
+  attachments?: BackendAttachment[] | null
   shop_name?: string | null
   shop_inn?: string | null
+  shop_address?: string | null
   total_sum?: number | null
+  purchase_date?: string | null
   fn?: string | null
   fd?: string | null
   fp?: string | null
   items?: Array<{ raw_name?: string; name?: string; price: number; qty?: number }>
   // Backend ReceiptFraudSignal shape — `signal` not `type`, plus severity + duplicate_of_id.
-  fraud_signals?: Array<{ signal: string; severity?: string; details?: Record<string, unknown> | string | null; duplicate_of_id?: number }>
+  fraud_signals?: BackendFraudSignal[]
+  ocr_raw?: BackendOcrRaw | null
   created_at: string
   updated_at?: string | null
 }
@@ -154,10 +218,109 @@ function mapPayout(p: BackendPayoutRequest): PayoutRequest {
   }
 }
 
+/** Signals that mark the receipt as a (suspected) duplicate. */
+const DUPLICATE_SIGNALS = new Set([
+  'duplicate',
+  'duplicate_qr',
+  'historical_duplicate_fn_fd_fp',
+  'historical_duplicate_file_hash',
+  'cross_seller_duplicate',
+])
+
+/** Human-readable Russian label per known fraud-signal slug. */
+const FRAUD_SIGNAL_LABEL: Record<string, string> = {
+  multiple_receipts_detected: 'В одной загрузке обнаружено несколько разных чеков',
+  historical_duplicate_fn_fd_fp: 'Дубль по ФН / ФД / ФП — чек уже загружался',
+  historical_duplicate_file_hash: 'Дубль файла — идентичное изображение уже загружалось',
+  cross_seller_duplicate: 'Дубль между продавцами — этот чек уже загрузил другой продавец',
+  demo_mode: 'Демо-режим: проверка ФНС/ОFD не выполнялась',
+  receipt_too_old: 'Чек слишком старый — вне допустимого периода',
+  qr_ofd_sum_mismatch: 'Сумма из QR не совпала с данными ОФД',
+}
+
+/** Stringify backend `details` into a readable Russian sentence. */
+function fraudDetailsText(slug: string, raw: BackendFraudSignal): string {
+  const base = FRAUD_SIGNAL_LABEL[slug]
+  const d = raw.details
+  if (typeof d === 'string' && d.trim()) return base ? `${base}: ${d}` : d
+  if (base) return base
+  if (d && typeof d === 'object') return JSON.stringify(d)
+  return slug
+}
+
+/** Pull distinct {fn,fd,fp} identities from a `multiple_receipts_detected` signal. */
+function identitiesFromSignal(s: BackendFraudSignal): FiscalIdentity[] {
+  const d = s.details
+  if (!d || typeof d !== 'object') return []
+  const identities = (d as { identities?: unknown }).identities
+  if (!Array.isArray(identities)) return []
+  return identities
+    .filter((it): it is Record<string, unknown> => Boolean(it) && typeof it === 'object')
+    .map((it) => ({
+      fn: typeof it['fn'] === 'string' ? it['fn'] : undefined,
+      fd: typeof it['fd'] === 'string' ? it['fd'] : undefined,
+      fp: typeof it['fp'] === 'string' ? it['fp'] : undefined,
+    }))
+}
+
+/** Collect every extraction warning across all positions in ocr_raw. */
+function extractionWarnings(ocr: BackendOcrRaw | null | undefined): string[] {
+  const evidence = ocr?.extraction_evidence
+  if (!evidence) return []
+  const out: string[] = []
+  for (const ev of Object.values(evidence)) {
+    if (ev?.warnings) out.push(...ev.warnings.filter((w): w is string => typeof w === 'string'))
+  }
+  return out
+}
+
+function mapAttachments(r: BackendReceipt): Attachment[] {
+  const raw = r.attachments ?? []
+  const mapped = raw.map((a) => ({
+    id: a.id,
+    position: a.position,
+    kind: a.kind,
+    mime_type: a.mime_type,
+    url: a.url ?? null,
+  }))
+  // Stable order by position; tie-break on id so the sort is deterministic.
+  mapped.sort((a, b) => (a.position - b.position) || (a.id - b.id))
+  // Legacy single-file fallback: synthesise one image attachment from file_url
+  // for older receipts that predate the multi-file pipeline.
+  if (mapped.length === 0 && r.file_url) {
+    return [{ id: 0, position: 0, kind: 'image', mime_type: 'image/*', url: r.file_url }]
+  }
+  return mapped
+}
+
 function mapAdminReceipt(r: BackendReceipt): AdminReceipt {
+  const signals = r.fraud_signals ?? []
   // Duplicate label inferred from fraud signals (backend uses `signal` field,
   // not `type`). Severity is currently advisory only.
-  const dup = r.fraud_signals?.find((s) => s.signal === 'duplicate' || s.signal === 'duplicate_qr')
+  const dup = signals.find((s) => DUPLICATE_SIGNALS.has(s.signal))
+  const multiple = signals.find((s) => s.signal === 'multiple_receipts_detected')
+
+  const fraud_signal: AdminFraudSignal[] = signals.map((s) => ({
+    type: s.signal,
+    severity: s.severity,
+    details: fraudDetailsText(s.signal, s),
+    duplicate_of_id: s.duplicate_of_id,
+  }))
+
+  // Distinct fiscal identities: prefer the multiple-receipts signal payload,
+  // fall back to ocr_raw.detected_identities.
+  const detected_identities: FiscalIdentity[] = multiple
+    ? identitiesFromSignal(multiple)
+    : (r.ocr_raw?.detected_identities ?? [])
+        .map((it) => ({
+          fn: it.fn ?? undefined,
+          fd: it.fd ?? undefined,
+          fp: it.fp ?? undefined,
+        }))
+
+  const attachments = mapAttachments(r)
+  const warnings = extractionWarnings(r.ocr_raw)
+
   return {
     id: String(r.id),
     seller_id: r.seller_id,
@@ -165,10 +328,13 @@ function mapAdminReceipt(r: BackendReceipt): AdminReceipt {
     seller_store: r.seller_store ?? undefined,
     status: r.status,
     shop_name: r.shop_name ?? undefined,
+    shop_address: r.shop_address ?? undefined,
     amount: r.total_sum ?? undefined,
+    purchase_date: r.purchase_date ?? undefined,
     bonus_amount: r.bonus_amount,
     rejection_reason: r.rejection_reason ?? undefined,
-    file_url: r.file_url,
+    file_url: r.file_url ?? attachments[0]?.url ?? undefined,
+    attachments,
     created_at: r.created_at,
     updated_at: r.updated_at ?? undefined,
     items: r.items?.map((it) => ({
@@ -179,10 +345,9 @@ function mapAdminReceipt(r: BackendReceipt): AdminReceipt {
     fn: r.fn ?? undefined,
     fd: r.fd ?? undefined,
     fp: r.fp ?? undefined,
-    fraud_signal: r.fraud_signals?.map((s) => ({
-      type: s.signal,
-      details: typeof s.details === 'string' ? s.details : (s.details ? JSON.stringify(s.details) : ''),
-    })),
+    fraud_signal: fraud_signal.length ? fraud_signal : undefined,
+    detected_identities: detected_identities.length ? detected_identities : undefined,
+    extraction_warnings: warnings.length ? warnings : undefined,
     duplicate_status: dup ? 'danger' : 'ok',
     duplicate_label: dup ? 'Возможный дубль' : 'Уникален',
   }

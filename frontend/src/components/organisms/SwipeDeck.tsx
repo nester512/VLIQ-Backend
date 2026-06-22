@@ -5,6 +5,7 @@ import { Icon } from '@/components/atoms/Icon'
 import { Avatar } from '@/components/atoms/Avatar'
 import { Pill } from '@/components/atoms/Pill'
 import { ReceiptGraphic } from '@/components/molecules/ReceiptGraphic'
+import { AttachmentViewer } from '@/components/organisms/AttachmentViewer'
 import { fmtMoney, fmtMoneyDelta } from '@/utils/formatMoney'
 import type { AdminReceipt } from '@/api/admin'
 import type { SwipeDirection } from '@/features/admin/hooks/useReviewQueue'
@@ -197,20 +198,32 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
           background: 'linear-gradient(160deg, #cfd4dd, #b1b8c4)',
         }}
       >
-        {receipt.file_url ? (
-          <img
-            src={receipt.file_url}
-            alt={`Чек #${receipt.id}`}
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-            draggable={false}
-          />
-        ) : (
-          // No photo on file (seed-time receipts) — render the skeuomorphic
-          // ReceiptGraphic mock so the card doesn't show an empty grey box.
-          <div style={{ transform: 'scale(.95) rotate(-2deg)', pointerEvents: 'none' }}>
-            <ReceiptGraphic receipt={receipt} />
-          </div>
-        )}
+        {/* AttachmentViewer renders ALL of the receipt's attachments (images /
+            PDFs). Its inner nav uses TAP ZONES + arrow buttons that
+            stopPropagation, so advancing an attachment never reaches this
+            card's pointer handlers (= never fires an approve/reject swipe).
+            When the receipt has no attachments we fall back to the
+            skeuomorphic ReceiptGraphic mock. */}
+        <AttachmentViewer
+          attachments={receipt.attachments}
+          interactiveImage={false}
+          className="absolute inset-0"
+          emptyFallback={
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <div style={{ transform: 'scale(.95) rotate(-2deg)', pointerEvents: 'none' }}>
+                <ReceiptGraphic receipt={receipt} />
+              </div>
+            </div>
+          }
+        />
         <div
           style={{
             position: 'absolute',
@@ -399,7 +412,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
   // Also clamp deckIdx if the underlying list shrank (after refetch).
   // Controlled-component pattern: parent owns the undo signal, child reacts.
   const lastUndoRef = useRef(undoTrigger)
-  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/refs */
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (undoTrigger !== lastUndoRef.current) {
       lastUndoRef.current = undoTrigger
@@ -407,7 +420,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
     }
     setDeckIdx((i) => Math.min(i, receipts.length))
   }, [undoTrigger, receipts.length])
-  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/refs */
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSwipe = useCallback(
     (dir: SwipeDirection) => {
