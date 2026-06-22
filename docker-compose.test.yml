@@ -1,0 +1,39 @@
+# Test-stand overlay. Always pass it explicitly so the ignored local
+# docker-compose.override.yml cannot alter the deployment:
+#   IMAGE_TAG=<git-sha> docker compose -f docker-compose.yml -f docker-compose.test.yml up -d
+
+services:
+  backend:
+    image: "${BACKEND_IMAGE:-ghcr.io/nester512/vliq-backend}:${IMAGE_TAG:?IMAGE_TAG is required}"
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      OFD_PROVIDER: ${OFD_PROVIDER:-fake}
+      OCR_MODE: ${OCR_MODE:-full}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-https://shamilara.fun/storage}
+    # Alembic runs once in ops/deploy-test.sh before application services switch.
+    command: >
+      sh -c "
+        python -m src.scripts.seed_dev &&
+        uvicorn src.app.main:app --host 0.0.0.0 --port 8000
+      "
+
+  bot:
+    image: "${BACKEND_IMAGE:-ghcr.io/nester512/vliq-backend}:${IMAGE_TAG:?IMAGE_TAG is required}"
+    pull_policy: always
+
+  notifications-worker:
+    image: "${BACKEND_IMAGE:-ghcr.io/nester512/vliq-backend}:${IMAGE_TAG:?IMAGE_TAG is required}"
+    pull_policy: always
+
+  receipt-pipeline-worker:
+    image: "${BACKEND_IMAGE:-ghcr.io/nester512/vliq-backend}:${IMAGE_TAG:?IMAGE_TAG is required}"
+    pull_policy: always
+    environment:
+      OFD_PROVIDER: ${OFD_PROVIDER:-fake}
+      OCR_MODE: ${OCR_MODE:-full}
+
+  frontend:
+    image: "${FRONTEND_IMAGE:-ghcr.io/nester512/vliq-frontend}:${IMAGE_TAG:?IMAGE_TAG is required}"
+    pull_policy: always
+    restart: unless-stopped

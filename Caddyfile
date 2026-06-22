@@ -1,26 +1,38 @@
 {
-  email {$CADDY_EMAIL:admin@example.com}
-  # Dev default: CADDY_TLS_DIRECTIVE=internal -> self-signed local CA.
-  # Prod: set CADDY_TLS_DIRECTIVE to your email -> `tls <email>`, which makes
-  #       Caddy provision a trusted Let's Encrypt cert automatically.
-  #       Do NOT use `auto` here — it is not a valid tls value.
+	email {$CADDY_EMAIL:admin@example.com}
+	# Dev default: CADDY_TLS_DIRECTIVE=internal -> self-signed local CA.
+	# Prod: set CADDY_TLS_DIRECTIVE to your email -> `tls <email>`, which makes
+	#       Caddy provision a trusted Let's Encrypt cert automatically.
+	#       Do NOT use `auto` here — it is not a valid tls value.
 }
 
 {$CADDY_HOSTNAME:vliq.local} {
-  tls {$CADDY_TLS_DIRECTIVE:internal}
+	tls {$CADDY_TLS_DIRECTIVE:internal}
 
-  encode gzip zstd
+	encode gzip zstd
 
-  handle /api/* {
-    reverse_proxy backend:8000
-  }
+	# Public health-check used by CI/CD. Keeping this separate from /api makes
+	# it possible to verify the backend itself instead of the frontend SPA.
+	handle /health {
+		reverse_proxy backend:8000
+	}
 
-  handle {
-    reverse_proxy frontend:80
-  }
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
 
-  log {
-    output stdout
-    format json
-  }
+	# Receipt objects are anonymous-download in the dedicated MinIO bucket.
+	# handle_path strips /storage so MinIO receives /<bucket>/<object-key>.
+	handle_path /storage/* {
+		reverse_proxy minio:9000
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	log {
+		output stdout
+		format json
+	}
 }

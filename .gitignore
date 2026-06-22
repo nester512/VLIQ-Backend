@@ -80,6 +80,7 @@ Thumbs.db
 docker-compose.override.yml
 docker-compose.ngrok.yml
 .docker/
+.deploy/
 
 # ───────────────────────────── Backup ─────────────────────────────────────────
 *.bak
