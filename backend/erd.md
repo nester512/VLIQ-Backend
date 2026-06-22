@@ -8,6 +8,7 @@ erDiagram
     BRANDS ||--o{ BONUS_TRANSACTIONS : ""
 
     SELLERS ||--o{ RECEIPTS : ""
+    RECEIPTS ||--o{ RECEIPT_ATTACHMENTS : ""
     SELLERS ||--o{ BONUS_TRANSACTIONS : ""
     SELLERS ||--o{ PAYOUT_REQUESTS : ""
     SELLERS ||--o{ NOTIFICATIONS : ""
@@ -108,27 +109,40 @@ erDiagram
         bigint brand_id FK
         enum status "pending|on_review|approved|rejected|needs_revision|paid_out"
         int bonus_amount
-        string rejection_reason
-        enum file_kind "photo|pdf|qr|screenshot"
-        string file_url
-        string file_hash UK
+        string rejection_reason "user-facing; MULTIPLE_RECEIPTS_DETECTED reason here"
+        string upload_idempotency_key "since 0005 — partial-unique per (seller_id, key)"
+        enum file_kind "photo|pdf|qr|screenshot — nullable since 0005 (mirror of attachments[0])"
+        string file_url "nullable since 0005 — mirror of attachments[0]"
+        string file_hash "nullable since 0005; index NON-unique (dup = signal, no 409)"
         date purchase_date
         int total_sum
         string shop_name
         string shop_inn
-        string qr_raw UK
+        string qr_raw "optional scanned QR / resolved identity; index NON-unique since 0005"
         string fn
         string fd
         string fp
         float ocr_confidence
-        jsonb ocr_raw
+        jsonb ocr_raw "extraction_evidence per attachment + detected_identities"
         jsonb items "позиции: raw_name, qty, price, matched_sku_id, confidence"
-        jsonb fraud_signals "сигналы: signal, severity, duplicate_of_id, details"
+        jsonb fraud_signals "сигналы: signal, severity, duplicate_of_id, details (вкл. multiple_receipts_detected)"
         bool is_deleted
         timestamp created_at
         uint64 created_by
         timestamp updated_at
         uint64 updated_by
+    }
+    RECEIPT_ATTACHMENTS {
+        bigint id PK
+        bigint receipt_id FK "ON DELETE CASCADE"
+        int position "0-based, unique within receipt (uq_receipt_attachment_receipt_position)"
+        enum kind "image|pdf"
+        string mime_type
+        string storage_uri "internal s3:// / local:// — never exposed raw to clients"
+        string file_hash "index NON-unique"
+        int size_bytes
+        jsonb extraction "per-file evidence: qr_candidates, pdf_pages, warnings"
+        timestamp created_at
     }
     BONUS_TRANSACTIONS {
         bigint id PK
