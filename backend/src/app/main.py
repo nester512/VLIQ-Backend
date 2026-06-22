@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import traceback
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -106,7 +105,33 @@ def setup_routers(app: FastAPI) -> None:
         return {"result": "ok"}
 
 
-def setup_exception_handlers(app: FastAPI, cfg: Settings) -> None:
+# Only these structured keys from AppError.extra are ever returned to the client.
+_SAFE_EXTRA_KEYS = frozenset({"existing_receipt_id"})
+
+# Pydantic v2 error type → localized field message (no raw English ever surfaces).
+_FIELD_ERROR_MESSAGES: dict[str, str] = {
+    "missing": "Заполните это поле.",
+    "string_too_short": "Слишком короткое значение.",
+    "string_too_long": "Слишком длинное значение.",
+    "too_short": "Слишком мало элементов.",
+    "too_long": "Слишком много элементов.",
+    "greater_than": "Значение слишком маленькое.",
+    "greater_than_equal": "Значение слишком маленькое.",
+    "less_than": "Значение слишком большое.",
+    "less_than_equal": "Значение слишком большое.",
+    "int_parsing": "Введите число.",
+    "float_parsing": "Введите число.",
+    "string_type": "Неверный формат значения.",
+    "bool_parsing": "Неверный формат значения.",
+    "value_error": "Неверное значение.",
+}
+
+
+def _localize_field_error(err_type: str) -> str:
+    return _FIELD_ERROR_MESSAGES.get(err_type, "Проверьте это поле.")
+
+
+def setup_exception_handlers(app: FastAPI, cfg: Settings) -> None:  # noqa: ARG001 — cfg kept for call-site compat
     # AppError → structured envelope with carried status_code.
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
@@ -116,46 +141,44 @@ def setup_exception_handlers(app: FastAPI, cfg: Settings) -> None:
             "user_message": exc.user_message,
             "debug_id": debug_id,
         }
-        if exc.extra:
-            content["extra"] = exc.extra
+        # Only explicitly-safe structured keys are returned to the client; technical
+        # details (e.g. a raw `reason`) stay in the logs, keyed by debug_id.
+        safe_extra = {k: v for k, v in exc.extra.items() if k in _SAFE_EXTRA_KEYS}
+        if safe_extra:
+            content["extra"] = safe_extra
         logger.info(
             "app.app_error",
             code=exc.code,
             debug_id=debug_id,
             path=request.url.path,
             status_code=exc.status_code,
+            extra_keys=list(exc.extra.keys()),
         )
         return JSONResponse(status_code=exc.status_code, content=content)
 
-    # H20: RequestValidationError → 422 with envelope + field-level details.
+    # RequestValidationError → 422 with LOCALIZED field errors (never raw Pydantic
+    # English `msg` or the request body, which may carry untrusted/sensitive input).
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
         debug_id = uuid.uuid4().hex
-        # Pydantic v2 errors carry an ``input`` (and sometimes ``ctx``) field that,
-        # for multipart/form-data requests, is the raw starlette ``FormData`` /
-        # ``UploadFile`` — neither is JSON-serializable and json.dumps raised
-        # TypeError here, masking the real 422 with a 500. Keep only the
-        # serializable fields. Likewise ``exc.body`` is FormData on multipart.
-        safe_errors = [
-            {"type": err.get("type"), "loc": list(err.get("loc", ())), "msg": err.get("msg")}
-            for err in exc.errors()
-        ]
-        body = exc.body
-        if isinstance(body, bytes):
-            body = body.decode("utf-8", "replace")
-        elif not isinstance(body, (str, int, float, bool, dict, list, type(None))):
-            body = None  # multipart FormData / UploadFile — not serializable
+        field_errors: dict[str, str] = {}
+        for err in exc.errors():
+            loc = [str(part) for part in err.get("loc", ()) if part not in ("body", "query", "path")]
+            field = loc[-1] if loc else "body"
+            field_errors.setdefault(field, _localize_field_error(str(err.get("type", ""))))
+        logger.info("app.validation_error", debug_id=debug_id, path=request.url.path, fields=list(field_errors))
         return JSONResponse(
             status_code=422,
             content={
                 "code": "VALIDATION_ERROR",
-                "user_message": "Проверь введённые данные.",
+                "user_message": "Проверьте введённые данные.",
                 "debug_id": debug_id,
-                "extra": {"errors": safe_errors, "body": body},
+                "field_errors": field_errors,
             },
         )
 
-    # H20: Catch-all — log full traceback, return envelope.
+    # Catch-all — log the full traceback server-side; the client gets ONLY the
+    # envelope (never a traceback or raw exception text).
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         debug_id = uuid.uuid4().hex
@@ -165,14 +188,14 @@ def setup_exception_handlers(app: FastAPI, cfg: Settings) -> None:
             exc_type=type(exc).__name__,
             debug_id=debug_id,
         )
-        content: dict = {
-            "code": "INTERNAL_ERROR",
-            "user_message": "Что-то пошло не так. Попробуй ещё раз.",
-            "debug_id": debug_id,
-        }
-        if cfg.env != Env.prod:
-            content["traceback"] = traceback.format_exc()
-        return JSONResponse(status_code=500, content=content)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "code": "INTERNAL_ERROR",
+                "user_message": "Что-то пошло не так. Попробуйте ещё раз.",
+                "debug_id": debug_id,
+            },
+        )
 
 
 _ERROR_ENVELOPE_SCHEMA = {
