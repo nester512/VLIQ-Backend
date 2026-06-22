@@ -14,6 +14,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.app.telegram_bot import TelegramBotClient
+from src.notification.formatting import render_money_payload
 from src.notification.models import Notification, NotificationDeliveryStatus
 from src.seller.models import Seller
 
@@ -45,7 +46,8 @@ def _render_text(notification_type: str, payload: dict[str, Any]) -> str:
         logger.warning("notification.unknown_type type=%s", notification_type)
         return f"📬 Уведомление: {notification_type}"
     try:
-        return template.format_map(payload)
+        # Money fields are stored in kopecks — convert to rubles before rendering ₽.
+        return template.format_map(render_money_payload(payload))
     except KeyError as exc:
         logger.warning(
             "notification.template_missing_key type=%s key=%s",

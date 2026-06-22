@@ -31,6 +31,7 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.notification import outbox as notification_outbox
+from src.notification.formatting import render_money_payload
 from src.notification.models import Notification, NotificationDeliveryStatus, NotificationType
 
 _HTTP_TOO_MANY_REQUESTS = 429
@@ -61,7 +62,9 @@ def _render(template: str, payload: dict) -> str:
     if tpl is None:
         return f"📬 Уведомление: {template}"
     try:
-        return tpl.format_map(payload)
+        # Money fields are stored in kopecks — convert to rubles before rendering
+        # next to ₽ (otherwise the bot shows kopecks as rubles).
+        return tpl.format_map(render_money_payload(payload))
     except KeyError:
         return tpl
 
