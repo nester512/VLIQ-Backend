@@ -197,3 +197,60 @@ rasterization → QR. Rejected alternatives: PyMuPDF (AGPL), pdf2image (needs po
 ## 12. Out of scope (unchanged): split one package into many Receipts; auto-approve; auto-bonus; real OFD
 provider; auth/role changes; deleting old data; unrelated refactors; the pre-existing red
 `tests/ofd_client/test_proverkacheka.py::test_unexpected_code__raises_ofd_blocked`.
+
+---
+
+## 13. Hardening iteration (2026-06-22 — post real-PostgreSQL verification)
+
+Independent verification on a **real** `AsyncSession`/PostgreSQL (mock-session unit
+tests hid these) drove the following. Covered by `tests/integration/pg/*` (real DB).
+
+- **Real transaction boundaries.** The package service + pipeline must NOT call
+  `session.begin()` after an earlier `execute()` (the FastAPI/worker session
+  auto-begins on first `execute()` → `begin()` raises "A transaction is already
+  begun"). `create_receipt_package` runs its idempotency SELECT *inside* the
+  transaction; the orchestrator's terminal steps (`_finalize_demo`,
+  `_system_reject_multiple`, `_step_finalize_review`) use the auto-begun
+  transaction + an explicit `commit()` (matching `_set_status_with_signals`). The
+  logged final status now always matches the committed DB status.
+
+- **`rejection_code`** (migration **0006**, nullable). `rejection_reason` stays the
+  user text; `rejection_code` is the machine code — `MULTIPLE_RECEIPTS_DETECTED` for
+  a system rejection, `NULL` for an ordinary admin rejection (so the admin can tell
+  them apart). Carried through `ReceiptRead`/`ReceiptStatusResponse` + frontend DTOs;
+  the admin info card shows reason + code.
+
+- **Historical-duplicate WARNING to the seller.** The upload response carries a
+  non-blocking `warnings: [{code, message}]` (`POSSIBLE_DUPLICATE`) from a cheap,
+  data-only check (attachment `file_hash` + scanned-QR identity, excluding the
+  just-created receipt; NO synchronous OCR). The receipt is still saved/on_review;
+  the seller sees a warning toast and the flow continues. Distinct from
+  `MULTIPLE_RECEIPTS_DETECTED` (intra-package, terminal rejection).
+
+- **Reliable pipeline enqueue (KAN-16).** `_enqueue_processing` returns a bool and
+  uses a deterministic job id (`receipt-<id>`) so the upload/idempotent-retry path
+  cannot spawn parallel jobs; on enqueue failure the receipt is moved out of
+  `pending` to `on_review` with a `pipeline_enqueue_failed` signal (never stuck
+  pending). Admin `/retry` keeps a unique job id so it always reprocesses. Active
+  review queue stays `on_review` only.
+
+- **Server-side MIME sniffing + storage cleanup.** `/upload` and `/finalize` sniff
+  the real MIME from magic bytes (a text file relabelled `image/jpeg` is rejected;
+  the sniffed type is stored). A half-built multipart package deletes its
+  already-saved objects on any per-file failure (`storage.delete()`); presigned
+  objects rely on the bucket lifecycle/TTL.
+
+- **Safe, localized error envelope.** Every expected error → `{code, user_message,
+  debug_id}` (+ allowlisted `extra`; 422 → localized `field_errors`). The 500
+  catch-all never returns a traceback (logged with `debug_id` only); raw
+  `HTTPException`/English text is gone from user-facing endpoints (payout/admin/
+  brand/receipt converted to `AppError` with subject codes). A table test enforces
+  that every `AppError` code raised in `src/` is in the catalog, handlers don't use
+  raw `HTTPException`, and all messages are Russian. **Rule:** a new public error
+  code requires a catalog message + a test. The frontend `extractApiError` decides
+  by `code`/HTTP status (never text) and never surfaces raw `detail`/`Error.message`/
+  traceback/English; offline/timeout/401/403/413/415/429/5xx(+debug_id) are localized.
+
+> **Jira:** KAN-16 should be re-described to the documented decision — the fix is
+> pipeline/enqueue reliability (Receipt always leaves `pending` → on_review/rejected),
+> NOT "show all pending in the active queue".
