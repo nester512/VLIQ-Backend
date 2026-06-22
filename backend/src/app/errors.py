@@ -50,6 +50,8 @@ USER_MESSAGES: dict[str, str] = {
     "SELLER_NOT_FOUND": "Продавец не найден.",
     "SELLER_PHONE_TAKEN": "Этот номер телефона уже зарегистрирован. Укажите другой.",
     "SELLER_CITY_INVALID": "Выберите город из списка.",
+    "SELLER_ALREADY_BLOCKED": "Продавец уже заблокирован.",
+    "SELLER_NOT_BLOCKED": "Продавец не заблокирован.",
     # --- Payout ---
     "PAYOUT_NOT_FOUND": "Заявка на выплату не найдена.",
     "PAYOUT_DETAILS_REQUIRED": "Укажите номер телефона для выплаты.",

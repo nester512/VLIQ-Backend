@@ -15,7 +15,7 @@ import logging
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -540,7 +540,7 @@ async def get_receipt_status(
 
     # Sellers can only view their own receipts; admins see all.
     if token["role"] == "seller" and receipt.seller_id != seller_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your receipt")
+        raise AppError("RECEIPT_NOT_YOURS", status_code=403)
 
     resp = ReceiptStatusResponse.model_validate(receipt)
     resp.file_url = to_viewable_url(receipt.file_url)
