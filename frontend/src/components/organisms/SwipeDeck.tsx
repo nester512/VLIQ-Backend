@@ -5,6 +5,7 @@ import { Icon } from '@/components/atoms/Icon'
 import { Avatar } from '@/components/atoms/Avatar'
 import { Pill } from '@/components/atoms/Pill'
 import { ReceiptGraphic } from '@/components/molecules/ReceiptGraphic'
+import { ReceiptInfoCard } from '@/components/molecules/ReceiptInfoCard'
 import { AttachmentViewer } from '@/components/organisms/AttachmentViewer'
 import { fmtMoney, fmtMoneyDelta } from '@/utils/formatMoney'
 import type { AdminReceipt } from '@/api/admin'
@@ -120,6 +121,7 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
   const sellerStore = receipt.seller_store ?? '—'
   const dupStatus = receipt.duplicate_status ?? 'ok'
   const dupLabel = receipt.duplicate_label ?? 'Дублей нет'
+  const hasAttachments = receipt.attachments.length > 0
 
   return (
     <motion.div
@@ -199,15 +201,25 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
         }}
       >
         {/* AttachmentViewer renders ALL of the receipt's attachments (images /
-            PDFs). Its inner nav uses TAP ZONES + arrow buttons that
-            stopPropagation, so advancing an attachment never reaches this
-            card's pointer handlers (= never fires an approve/reject swipe).
-            When the receipt has no attachments we fall back to the
-            skeuomorphic ReceiptGraphic mock. */}
+            PDFs) followed by the receipt+seller info card as the LAST page
+            (finalCard). Its inner nav uses TAP ZONES + arrow buttons that
+            stopPropagation, so advancing a page never reaches this card's
+            pointer handlers (= never fires an approve/reject swipe). The image's
+            explicit zoom button opens the fullscreen lightbox (also
+            stopPropagation'd) without breaking the deck drag. When the receipt
+            has no attachments we fall back to the skeuomorphic ReceiptGraphic
+            mock as the page BEFORE the info card. */}
         <AttachmentViewer
           attachments={receipt.attachments}
           interactiveImage={false}
           className="absolute inset-0"
+          finalCard={
+            hasAttachments ? (
+              <div className="vliq-pad py-4">
+                <ReceiptInfoCard receipt={receipt} />
+              </div>
+            ) : undefined
+          }
           emptyFallback={
             <div
               style={{

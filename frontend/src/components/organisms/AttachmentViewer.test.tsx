@@ -110,10 +110,49 @@ describe('AttachmentViewer — fullscreen image (lightbox)', () => {
     expect(screen.queryByTestId('attachment-lightbox')).toBeNull()
   })
 
-  it('does NOT make the image a zoom button when interactiveImage=false', () => {
+  it('does NOT make the image body a zoom button when interactiveImage=false', () => {
     render(<AttachmentViewer attachments={[img()]} interactiveImage={false} />)
     const surface = screen.getByTestId('attachment-image')
     expect(surface.tagName).toBe('DIV') // not a <button>
+  })
+
+  it('still exposes an explicit zoom button when interactiveImage=false (feed)', () => {
+    render(<AttachmentViewer attachments={[img()]} interactiveImage={false} />)
+    // The corner fullscreen affordance is present even for inert images so an
+    // admin can open the receipt fullscreen straight from the SwipeDeck feed.
+    fireEvent.click(screen.getByTestId('attachment-zoom-button'))
+    expect(screen.getByTestId('attachment-lightbox')).toBeInTheDocument()
+  })
+
+  it('the inert-feed zoom button does NOT bubble pointerdown/click to the host', () => {
+    // In production the host is SwipeDeck's drag surface — opening fullscreen
+    // must never be read as an approve/reject swipe nor a detail-sheet tap.
+    const hostPointerDown = vi.fn()
+    const hostClick = vi.fn()
+    render(
+      <div onPointerDown={hostPointerDown} onClick={hostClick}>
+        <AttachmentViewer attachments={[img()]} interactiveImage={false} />
+      </div>,
+    )
+    const zoom = screen.getByTestId('attachment-zoom-button')
+    fireEvent.pointerDown(zoom)
+    fireEvent.click(zoom)
+    expect(hostPointerDown).not.toHaveBeenCalled()
+    expect(hostClick).not.toHaveBeenCalled()
+    expect(screen.getByTestId('attachment-lightbox')).toBeInTheDocument()
+  })
+
+  it('the image BODY stays inert (no stopPropagation) so the deck drag survives', () => {
+    // Pointerdown on the image body itself must reach the host so the outer
+    // SwipeDeck horizontal drag (approve/reject) still works from the centre.
+    const hostPointerDown = vi.fn()
+    render(
+      <div onPointerDown={hostPointerDown}>
+        <AttachmentViewer attachments={[img()]} interactiveImage={false} />
+      </div>,
+    )
+    fireEvent.pointerDown(screen.getByTestId('attachment-image'))
+    expect(hostPointerDown).toHaveBeenCalled()
   })
 })
 
@@ -144,5 +183,22 @@ describe('AttachmentViewer — final info card page', () => {
     expect(screen.getByTestId('attachment-final-card')).toBeInTheDocument()
     // Single page → no nav.
     expect(screen.queryByLabelText('Следующее вложение')).toBeNull()
+  })
+
+  it('stops pointerdown on the final-card surface so the host never swipes/taps', () => {
+    // The final info page must NEVER fire an approve/reject swipe nor the
+    // detail-sheet tap — scrolling/tapping it stays inside the viewer.
+    const hostPointerDown = vi.fn()
+    render(
+      <div onPointerDown={hostPointerDown}>
+        <AttachmentViewer
+          attachments={[img({ id: 1, position: 0 })]}
+          finalCard={<div data-testid="final">d</div>}
+        />
+      </div>,
+    )
+    fireEvent.click(screen.getByLabelText('Следующее вложение'))
+    fireEvent.pointerDown(screen.getByTestId('attachment-final-card'))
+    expect(hostPointerDown).not.toHaveBeenCalled()
   })
 })

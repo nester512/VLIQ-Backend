@@ -83,6 +83,70 @@ describe('SwipeDeck — outer approve/reject swipe still works with the Attachme
     expect(onSwipe).not.toHaveBeenCalled()
   })
 
+  it('exposes the 2 attachment pages + a final info-card page showing seller/store', () => {
+    const onSwipe = vi.fn()
+    const onTap = vi.fn()
+    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={onTap} />)
+
+    // Page 1: first attachment.
+    expect(screen.getAllByTestId('attachment-counter')[0]!).toHaveTextContent('1 / 2')
+
+    const advance = () => {
+      const next = screen.getAllByLabelText('Следующее вложение')[0]!
+      fireEvent.pointerDown(next, { pointerId: 9 })
+      fireEvent.click(next)
+    }
+    advance() // → page 2 (attachment 2)
+    expect(screen.getAllByTestId('attachment-counter')[0]!).toHaveTextContent('2 / 2')
+    advance() // → final info-card page
+
+    const finalCard = screen.getAllByTestId('attachment-final-card')[0]!
+    expect(finalCard).toBeInTheDocument()
+    // The final page renders the receipt+seller info card.
+    expect(finalCard).toHaveTextContent('Иван Петров')
+    expect(finalCard).toHaveTextContent('ТЦ Радуга')
+    // Navigating to the final page never fired a swipe nor a tap.
+    expect(onSwipe).not.toHaveBeenCalled()
+    expect(onTap).not.toHaveBeenCalled()
+  })
+
+  it('navigating to the final info-card page does not fire onSwipe/onTap; a pointerdown on it stays inert', () => {
+    const onSwipe = vi.fn()
+    const onTap = vi.fn()
+    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={onTap} />)
+
+    const advance = () => {
+      const next = screen.getAllByLabelText('Следующее вложение')[0]!
+      fireEvent.pointerDown(next, { pointerId: 9 })
+      fireEvent.click(next)
+    }
+    advance()
+    advance() // → final card
+
+    // A pointerdown on the final card must NOT reach the card's drag/tap.
+    fireEvent.pointerDown(screen.getAllByTestId('attachment-final-card')[0]!, {
+      clientX: 200,
+      clientY: 200,
+      pointerId: 11,
+    })
+    expect(onSwipe).not.toHaveBeenCalled()
+    expect(onTap).not.toHaveBeenCalled()
+  })
+
+  it('the fullscreen zoom control opens the lightbox and fires neither onSwipe nor onTap', () => {
+    const onSwipe = vi.fn()
+    const onTap = vi.fn()
+    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={onTap} />)
+
+    const zoom = screen.getAllByTestId('attachment-zoom-button')[0]!
+    fireEvent.pointerDown(zoom, { pointerId: 7 })
+    fireEvent.click(zoom)
+
+    expect(screen.getByTestId('attachment-lightbox')).toBeInTheDocument()
+    expect(onSwipe).not.toHaveBeenCalled()
+    expect(onTap).not.toHaveBeenCalled()
+  })
+
   it('a plain tap (no drag) on the card calls onTap, not onSwipe', () => {
     const onSwipe = vi.fn()
     const onTap = vi.fn()

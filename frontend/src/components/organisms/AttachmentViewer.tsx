@@ -35,6 +35,32 @@ function FallbackCard({ label, hint }: { label: string; hint?: string }) {
   )
 }
 
+/** Small fullscreen/zoom affordance overlaid on the TOP-RIGHT of an image.
+ *  Rendered even when `interactiveImage={false}` (the SwipeDeck feed) so an
+ *  admin can open the receipt fullscreen straight from the review card. It
+ *  stopPropagation()s on BOTH pointerdown and click so the outer SwipeDeck
+ *  drag/tap never sees it — opening the lightbox can never fire an
+ *  approve/reject swipe nor the detail-sheet tap. The center of the image is
+ *  left untouched so a horizontal drag there still reaches the deck. */
+function ZoomButton({ url, onZoom }: { url: string; onZoom: (url: string) => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Открыть фото на весь экран"
+      data-testid="attachment-zoom-button"
+      onPointerDown={stopAll}
+      onClick={(e) => {
+        stopAll(e)
+        onZoom(url)
+      }}
+      className="absolute top-2.5 right-2.5 z-20 w-9 h-9 rounded-full grid place-items-center text-white border-0 cursor-pointer"
+      style={{ background: 'rgba(0,0,0,0.5)' }}
+    >
+      <Icon name="zoom" size={17} />
+    </button>
+  )
+}
+
 // ---- One attachment surface ----
 function AttachmentSlide({
   attachment,
@@ -43,8 +69,9 @@ function AttachmentSlide({
 }: {
   attachment: Attachment
   onZoom: (url: string) => void
-  /** When false the image is inert (the host — e.g. SwipeDeck — owns taps so
-   *  its approve/reject drag is never blocked). */
+  /** When false the image body is inert (the host — e.g. SwipeDeck — owns taps
+   *  so its approve/reject drag is never blocked). The explicit zoom button is
+   *  shown regardless so fullscreen is reachable from the feed. */
   interactiveImage: boolean
 }) {
   const [broken, setBroken] = useState(false)
@@ -98,31 +125,39 @@ function AttachmentSlide({
   )
 
   // Inert image: host owns the tap (SwipeDeck → detail sheet) and the drag
-  // (approve/reject). We deliberately do NOT stopPropagation here.
+  // (approve/reject). We deliberately do NOT stopPropagation on the image body
+  // so a horizontal drag across the centre still reaches the deck. The explicit
+  // zoom button (which DOES stopPropagation) is the only fullscreen affordance.
   if (!interactiveImage) {
     return (
       <div className="absolute inset-0" data-testid="attachment-image">
         {img}
+        <ZoomButton url={url} onZoom={onZoom} />
       </div>
     )
   }
 
-  // Interactive image (detail sheet): tap opens the fullscreen lightbox. We do
-  // NOT stopPropagation on pointerdown so an enclosing scroll/drag still works;
-  // the zoom only fires on a genuine click.
+  // Interactive image (detail sheet): tap anywhere opens the fullscreen
+  // lightbox. We do NOT stopPropagation on pointerdown so an enclosing
+  // scroll/drag still works; the zoom only fires on a genuine click. The
+  // full-surface button keeps the `attachment-image` testid; the explicit
+  // corner zoom button is layered on top as a clear affordance.
   return (
-    <button
-      type="button"
-      onClick={(e) => {
-        stopAll(e)
-        onZoom(url)
-      }}
-      className="absolute inset-0 w-full h-full border-0 p-0 m-0 bg-transparent cursor-zoom-in"
-      aria-label="Открыть изображение на весь экран"
-      data-testid="attachment-image"
-    >
-      {img}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={(e) => {
+          stopAll(e)
+          onZoom(url)
+        }}
+        className="absolute inset-0 w-full h-full border-0 p-0 m-0 bg-transparent cursor-zoom-in"
+        aria-label="Открыть изображение на весь экран"
+        data-testid="attachment-image"
+      >
+        {img}
+      </button>
+      <ZoomButton url={url} onZoom={onZoom} />
+    </>
   )
 }
 
@@ -236,8 +271,14 @@ export function AttachmentViewer({
       {/* The page surface */}
       {isFinalPage ? (
         <div
-          className="absolute inset-0 overflow-y-auto"
-          style={{ background: 'var(--vliq-card)' }}
+          className="absolute inset-0 overflow-y-auto z-10"
+          // `touchAction: pan-y` re-enables vertical touch scrolling here even
+          // though the outer SwipeCard sets `touchAction: none` for its drag.
+          // stopPropagation on pointerdown keeps a scroll/tap on the info card
+          // from reaching the deck — so the final page can NEVER fire an
+          // approve/reject swipe nor the detail-sheet tap.
+          style={{ background: 'var(--vliq-card)', touchAction: 'pan-y' }}
+          onPointerDown={stopAll}
           data-testid="attachment-final-card"
         >
           {finalCard}

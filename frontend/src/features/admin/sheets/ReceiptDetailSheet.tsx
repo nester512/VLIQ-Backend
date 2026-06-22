@@ -134,6 +134,17 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
           <AttachmentViewer
             attachments={receipt.attachments}
             className="absolute inset-0"
+            // finalCard only when there ARE attachments — a legacy receipt with
+            // none keeps falling back to the skeuomorphic ReceiptGraphic mock
+            // (otherwise the info-card page would suppress emptyFallback). The
+            // full ReceiptInfoCard still renders below the viewer regardless.
+            finalCard={
+              hasAttachments ? (
+                <div className="vliq-pad py-4">
+                  <ReceiptInfoCard receipt={receipt} />
+                </div>
+              ) : undefined
+            }
             emptyFallback={
               <div className="absolute inset-0 grid place-items-center">
                 <div className="scale-[1.18] rotate-[-2deg]">
