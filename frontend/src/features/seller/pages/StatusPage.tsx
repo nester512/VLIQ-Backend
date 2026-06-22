@@ -7,7 +7,7 @@ import { Skeleton } from '@/components/atoms/Skeleton'
 import { Timeline } from '@/components/molecules/Timeline'
 import { EmptyState } from '@/components/molecules/EmptyState'
 import type { TimelineStep } from '@/components/molecules/Timeline'
-import type { ReceiptStatus } from '@/types/models'
+import type { Attachment, Receipt, ReceiptStatus } from '@/types/models'
 import { RECEIPT_STATUS, type StatusKind } from '@/utils/receiptStatus'
 import { fmtMoney } from '@/utils/formatMoney'
 
@@ -55,6 +55,86 @@ function buildTimeline(status: ReceiptStatus, createdAt: string): TimelineStep[]
     { label: 'Проверка администратором', subtitle: isReview ? 'Обычно до 24 часов' : undefined, status: isReview ? 'active' : (isOk || isDg ? 'done' : 'pending') },
     { label: 'Начисление бонуса',     subtitle: isOk ? 'Завершено' : 'Ожидается', status: isOk ? 'done' : 'pending' },
   ]
+}
+
+/** Tile for one uploaded attachment: image inline, PDF as a link/card. */
+function AttachmentTile({ att }: { att: Attachment }) {
+  if (!att.url) return null
+  if (att.kind === 'pdf') {
+    return (
+      <a
+        href={att.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '14px',
+          borderRadius: 12,
+          background: 'var(--vliq-field)',
+          color: 'var(--vliq-brand)',
+          fontWeight: 600,
+          fontSize: 14,
+        }}
+      >
+        <Icon name="file" size={20} aria-hidden />
+        Открыть PDF →
+      </a>
+    )
+  }
+  return (
+    <a href={att.url} target="_blank" rel="noopener noreferrer" aria-label="Открыть фото на весь экран" style={{ display: 'block' }}>
+      <img
+        src={att.url}
+        alt="Фото чека"
+        style={{ display: 'block', width: '100%', maxHeight: 360, objectFit: 'contain', borderRadius: 12, background: 'var(--vliq-field)' }}
+      />
+    </a>
+  )
+}
+
+/**
+ * Render the receipt's uploaded files. Prefers the ordered `attachments`
+ * package; falls back to the legacy single `file_url` only when the package is
+ * empty/absent (older receipts).
+ */
+function ReceiptAttachments({ receipt }: { receipt: Receipt }) {
+  const attachments = receipt.attachments ?? []
+  const hasAttachments = attachments.length > 0
+  const legacyUrl = receipt.file_url
+
+  if (!hasAttachments && !legacyUrl) return null
+
+  return (
+    <div className="vliq-card" style={{ padding: 14, marginTop: 14 }}>
+      <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10, color: 'var(--vliq-text)' }}>
+        Загруженный чек
+      </h3>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {hasAttachments ? (
+          [...attachments]
+            .sort((a, b) => a.position - b.position)
+            .map((att) => <AttachmentTile key={att.id} att={att} />)
+        ) : legacyUrl ? (
+          legacyUrl.toLowerCase().endsWith('.pdf') ? (
+            <a href={legacyUrl} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'block', textAlign: 'center', padding: '14px', borderRadius: 12, background: 'var(--vliq-field)', color: 'var(--vliq-brand)', fontWeight: 600, fontSize: 14 }}>
+              Открыть PDF →
+            </a>
+          ) : (
+            <a href={legacyUrl} target="_blank" rel="noopener noreferrer" aria-label="Открыть фото на весь экран" style={{ display: 'block' }}>
+              <img
+                src={legacyUrl}
+                alt="Фото чека"
+                style={{ display: 'block', width: '100%', maxHeight: 360, objectFit: 'contain', borderRadius: 12, background: 'var(--vliq-field)' }}
+              />
+            </a>
+          )
+        ) : null}
+      </div>
+    </div>
+  )
 }
 
 export function StatusPage() {
@@ -190,28 +270,9 @@ export function StatusPage() {
         <Timeline steps={steps} />
       </div>
 
-      {/* Uploaded receipt photo / file (S4) */}
-      {receipt.file_url && (
-        <div className="vliq-card" style={{ padding: 14, marginTop: 14 }}>
-          <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10, color: 'var(--vliq-text)' }}>
-            Загруженный чек
-          </h3>
-          {receipt.file_url.toLowerCase().endsWith('.pdf') ? (
-            <a href={receipt.file_url} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'block', textAlign: 'center', padding: '14px', borderRadius: 12, background: 'var(--vliq-field)', color: 'var(--vliq-brand)', fontWeight: 600, fontSize: 14 }}>
-              Открыть PDF →
-            </a>
-          ) : (
-            <a href={receipt.file_url} target="_blank" rel="noopener noreferrer" aria-label="Открыть фото на весь экран" style={{ display: 'block' }}>
-              <img
-                src={receipt.file_url}
-                alt="Фото чека"
-                style={{ display: 'block', width: '100%', maxHeight: 360, objectFit: 'contain', borderRadius: 12, background: 'var(--vliq-field)' }}
-              />
-            </a>
-          )}
-        </div>
-      )}
+      {/* Uploaded receipt package (S4): render ALL attachments by position.
+          Fall back to the legacy single file_url only when none are present. */}
+      <ReceiptAttachments receipt={receipt} />
 
       {/* Bonus preview */}
       {receipt.bonus_amount !== undefined && receipt.bonus_amount > 0 && (

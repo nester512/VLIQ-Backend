@@ -26,6 +26,7 @@ pyjwt = "^2.9"                     # future migration from python-jose (H1)
 # Sprint 1 / OCR pipeline deps
 zxing-cpp = "^2.2"                # QR decode — no native libzbar required
 Pillow = "^10.4"                  # image open for phash + QR
+pypdfium2 = ">=4.30,<6"           # PDF page rasterization → QR (pure manylinux wheel, permissive)
 imagehash = "^4.3"                # perceptual hash (phash) for near-duplicate detection
 arq = "^0.26"                     # asyncio-native task queue (same event loop as FastAPI)
 redis = {version = "^5.0", extras = ["hiredis"]}  # OFD response cache + arq broker

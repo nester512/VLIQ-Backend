@@ -7,6 +7,29 @@
 
 ---
 
+## 0. Загрузка чека: deprecated endpoints / поведение (2026-06-22)
+
+Переход на модель «одна отправка = один Receipt с 1–5 вложениями»
+([design freeze](handover/MULTI-UPLOAD-DESIGN-FREEZE-2026-06-22.md)):
+
+- **`POST /api/v1/receipts/qr-payload`** — **deprecated**. Самостоятельный QR-скан (без файлов) как
+  способ загрузки убран (S3, В-2-A). Эндпоинт помечен `deprecated` в OpenAPI и возвращает
+  `400 QR_ONLY_DEPRECATED` («Отсканированный QR можно приложить только вместе с фото или PDF»).
+  Старые QR-only записи (`qr://inline`) по-прежнему читаются. Новый flow: `POST /receipts/upload`
+  (multipart-пакет 1–5 файлов) с опциональным полем `scanned_qr`.
+- **`POST /api/v1/receipts/finalize`** — контракт **изменён**: был single-file `{storage_uri, mime, brand_id}`,
+  стал package `{upload_session, brand_id, idempotency_key, attachments[], scanned_qr?}` (после
+  `POST /receipts/upload-urls`). Старый single-file `finalize` больше не поддерживается.
+- **`POST /api/v1/receipts/upload-url`** (single) — **deprecated** (помечен в OpenAPI), оставлен для
+  совместимости; новый пакетный аналог — `POST /receipts/upload-urls`.
+- **Жёсткий 409 на дубль при ingest** (по `file_hash` / `qr_raw` / ФН-ФД-ФП) — **убран**. UNIQUE-индексы
+  `uq_receipt_file_hash_active` / `uq_receipt_qr_raw_active` / `uq_receipt_fn_fd_fp` заменены на
+  обычные (миграция `0005`). Дубль теперь — **сигнал** админу, а не отказ.
+- Legacy-колонки `receipt.file_url / file_hash / file_kind` стали nullable (зеркало `attachments[0]`);
+  будущая cleanup-миграция может их удалить, когда все читатели перейдут на `attachments`.
+
+---
+
 ## 1. `SELLER_US_QUIZ_2026-06.md` (удалён)
 
 Квиз бизнес-валидации: 23 вопроса по фактическому поведению системы, заполнен

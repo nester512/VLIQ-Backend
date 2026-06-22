@@ -28,6 +28,7 @@ def _make_receipt(receipt_id: int = 1, status: str = "on_review", bonus_amount: 
     r.status = status
     r.bonus_amount = bonus_amount
     r.rejection_reason = None
+    r.rejection_code = None
     r.file_kind = ReceiptFileKind.photo
     r.file_url = "seed://r1.jpg"
     r.file_hash = "abc123"
@@ -43,6 +44,7 @@ def _make_receipt(receipt_id: int = 1, status: str = "on_review", bonus_amount: 
     r.ocr_raw = None
     r.items = []
     r.fraud_signals = []
+    r.attachments = []
     r.admin_comments = []
     r.is_deleted = False
     r.created_at = datetime(2025, 1, 1, 12, 0, 0)

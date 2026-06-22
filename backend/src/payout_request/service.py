@@ -14,12 +14,13 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from fastapi import HTTPException, status
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.errors import AppError
 from src.bonus_transaction.models import BonusTransaction, BonusTransactionKind
+from src.notification.formatting import format_kopecks
 from src.payout_request.models import PayoutRequest, PayoutRequestStatus
 from src.payout_request.schemas.api import PayoutRequestRead
 from src.seller.models import Seller
@@ -87,22 +88,23 @@ async def create_payout_request(  # noqa: PLR0913
         ).scalar_one_or_none()
 
         if seller_row is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Seller not found")
+            raise AppError("SELLER_NOT_FOUND", status_code=404)
 
         # Derive brand + payout account from the locked row (request body may
         # override the masked account for this single payout).
         brand_id = seller_row.brand_id
         payout_masked = payout_masked_override or seller_row.payout_masked
         if not payout_masked:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Payout account not set")
+            raise AppError("PAYOUT_DETAILS_REQUIRED", status_code=422)
 
         # Compute available balance within the same transaction.
         balance = await get_seller_balance(seller_id=seller_id, session=session)
 
         if balance.available < amount:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Insufficient balance: available={balance.available}, requested={amount}",
+            raise AppError(
+                "PAYOUT_INSUFFICIENT_BALANCE",
+                user_message=f"Недостаточно средств. Доступно: {format_kopecks(balance.available)} ₽.",
+                status_code=422,
             )
 
         payout = PayoutRequest(
@@ -153,16 +155,13 @@ async def approve_payout_request(
         ).scalar_one_or_none()
 
         if payout is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "PayoutRequest not found")
+            raise AppError("PAYOUT_NOT_FOUND", status_code=404)
 
         if payout.status == PayoutRequestStatus.paid.value:
             # Already paid — idempotent.
             pass
         elif payout.status not in (PayoutRequestStatus.new.value, PayoutRequestStatus.in_progress.value):
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                detail=f"Cannot approve payout in status={payout.status}",
-            )
+            raise AppError("PAYOUT_INVALID_STATE", status_code=409)
         else:
             payout.status = PayoutRequestStatus.paid.value
             payout.updated_by = admin_id
@@ -203,16 +202,13 @@ async def reject_payout_request(
         ).scalar_one_or_none()
 
         if payout is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "PayoutRequest not found")
+            raise AppError("PAYOUT_NOT_FOUND", status_code=404)
 
         if payout.status == PayoutRequestStatus.rejected.value:
             # Already rejected — idempotent.
             pass
         elif payout.status not in (PayoutRequestStatus.new.value, PayoutRequestStatus.in_progress.value):
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                detail=f"Cannot reject payout in status={payout.status}",
-            )
+            raise AppError("PAYOUT_INVALID_STATE", status_code=409)
         else:
             payout.status = PayoutRequestStatus.rejected.value
             payout.updated_by = admin_id

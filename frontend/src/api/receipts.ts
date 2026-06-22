@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { Receipt, ReceiptStatus } from '../types/models'
+import type { Attachment, AttachmentKind, Receipt, ReceiptStatus } from '../types/models'
 
 export interface ReceiptsFilters {
   status?: string
@@ -20,6 +20,15 @@ interface BackendReceiptItem {
   qty?: number
 }
 
+/** Mirrors backend `ReceiptAttachmentRead`. */
+interface BackendAttachment {
+  id: number
+  position: number
+  kind: AttachmentKind
+  mime_type: string
+  url?: string | null
+}
+
 interface BackendReceipt {
   id: number
   seller_id: number
@@ -34,6 +43,7 @@ interface BackendReceipt {
   total_sum?: number | null
   purchase_date?: string | null
   items?: BackendReceiptItem[]
+  attachments?: BackendAttachment[]
   created_at: string
   updated_at?: string | null
 }
@@ -46,7 +56,20 @@ interface PagedResponse<T> {
   has_more: boolean
 }
 
-interface BackendReceiptUpload { receipt_id: number }
+/** A non-blocking advisory returned alongside a successful 202 upload. */
+export interface UploadWarning {
+  code: string
+  message: string
+}
+
+/** 202 response from the batch `POST /receipts/upload`. */
+interface BackendReceiptUpload {
+  receipt_id: number
+  status?: string
+  message?: string
+  /** e.g. [{ code: 'POSSIBLE_DUPLICATE', message: '…' }] — additive, optional. */
+  warnings?: UploadWarning[]
+}
 interface BackendReceiptStatus {
   // Backend uses `receipt_id` alias `id` via populate_by_name — accept either.
   id?: number
@@ -54,15 +77,11 @@ interface BackendReceiptStatus {
   status: ReceiptStatus
   bonus_amount?: number
   rejection_reason?: string | null
+  rejection_code?: string | null
   /** Browser-viewable URL of the uploaded photo/file (null for inline-QR). */
   file_url?: string | null
-}
-
-export interface PresignedUploadResponse {
-  upload_url: string
-  fields: Record<string, string>
-  storage_uri: string
-  expires_in: number
+  /** Ordered package attachments (preferred over the legacy single file_url). */
+  attachments?: BackendAttachment[]
 }
 
 // TODO: unit test — mock BackendReceipt with total_sum, bonus_amount, items[{raw_name,qty,price}]
@@ -70,6 +89,18 @@ export interface PresignedUploadResponse {
 // e.g. mapReceipt({ id:1, seller_id:2, status:'approved', total_sum:1500, bonus_amount:150,
 //   items:[{raw_name:'Молоко',price:1500,qty:1}], created_at:'2024-01-01T00:00:00Z' })
 // should return { amount:1500, bonus_amount:150, items:[{name:'Молоко',price:1500,qty:1}] }
+/** Map wire attachments to the shared domain type, preserving backend order. */
+function mapAttachments(raw?: BackendAttachment[]): Attachment[] | undefined {
+  if (!raw) return undefined
+  return raw.map((a) => ({
+    id: a.id,
+    position: a.position,
+    kind: a.kind,
+    mime_type: a.mime_type,
+    url: a.url ?? null,
+  }))
+}
+
 function mapReceipt(r: BackendReceipt): Receipt {
   return {
     id: String(r.id),
@@ -86,6 +117,7 @@ function mapReceipt(r: BackendReceipt): Receipt {
       price: it.price,
       qty: it.qty,
     })),
+    attachments: mapAttachments(r.attachments),
     file_url: r.file_url,
   }
 }
@@ -120,64 +152,70 @@ export const getReceiptStatus = (id: string): Promise<Receipt> =>
       status: r.data.status,
       bonus_amount: r.data.bonus_amount,
       rejection_reason: r.data.rejection_reason ?? undefined,
+      rejection_code: r.data.rejection_code ?? undefined,
+      attachments: mapAttachments(r.data.attachments),
       file_url: r.data.file_url ?? undefined,
       // /status doesn't carry the created_at — the page falls back gracefully.
       created_at: new Date().toISOString(),
     }))
 
-/**
- * Multipart upload — caller passes the file and the active brand_id (backend
- * requires it on `POST /receipts/upload`). Returns just the new id as a
- * string to slot back into the domain model.
- */
-export const uploadReceipt = (file: File, brandId: number): Promise<{ id: string }> => {
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('brand_id', String(brandId))
-  // The shared axios instance defaults Content-Type to application/json. Axios
-  // v1's transformRequest, seeing a JSON content-type on a FormData payload,
-  // SERIALIZES the FormData to JSON — so the multipart body never reaches the
-  // server and FastAPI returns 422 (file/brand_id "field required"). Null out
-  // the header so the browser sets `multipart/form-data; boundary=…` itself.
-  return api
-    .post<BackendReceiptUpload>('/receipts/upload', formData, {
-      headers: { 'Content-Type': null },
-    })
-    .then((r) => ({ id: String(r.data.receipt_id) }))
+export interface UploadReceiptPackageOptions {
+  brandId: number
+  /** Raw QR string from the Telegram in-app scanner (optional, additive). */
+  scannedQr?: string
+  /**
+   * Stable client-generated id for this submission. A retry of the SAME
+   * submission MUST reuse it so the backend returns the same receipt instead
+   * of creating a duplicate.
+   */
+  idempotencyKey: string
+  /** Called repeatedly during the upload with percentage 0-100. */
+  onProgress?: (pct: number) => void
 }
 
 /**
- * Submit a raw QR string scanned by the Telegram in-app QR reader.
- * Uses POST /receipts/qr-payload instead of wrapping the string in a file.
+ * Submit a single receipt package — 1..5 attachments (images and/or PDFs) plus
+ * an optional scanned QR — as ONE multipart request to `POST /receipts/upload`.
+ *
+ * One submission = one Receipt: every file is sent under the repeated `files`
+ * field in a single FormData, so the backend creates exactly one receipt (no
+ * per-file loop, no duplicate). Returns the new receipt id plus any non-blocking
+ * `warnings` (e.g. POSSIBLE_DUPLICATE) the backend attached to the 202.
  */
-export const submitQrPayload = (qrRaw: string, brandId: number): Promise<{ id: string }> =>
-  api
-    .post<BackendReceiptUpload>('/receipts/qr-payload', { qr_raw: qrRaw, brand_id: brandId })
-    .then((r) => ({ id: String(r.data.receipt_id) }))
+export const uploadReceiptPackage = (
+  files: File[],
+  opts: UploadReceiptPackageOptions,
+): Promise<{ id: string; warnings: UploadWarning[] }> => {
+  const formData = new FormData()
+  // Repeat the `files` field for every attachment (FastAPI reads them as a list).
+  for (const file of files) {
+    formData.append('files', file)
+  }
+  formData.append('brand_id', String(opts.brandId))
+  if (opts.scannedQr) {
+    formData.append('scanned_qr', opts.scannedQr)
+  }
+  formData.append('idempotency_key', opts.idempotencyKey)
 
-/**
- * Get a presigned S3 POST URL for direct browser-to-S3 upload.
- * Call this first, then upload the file directly to the returned upload_url,
- * then call finalizeUpload with the storage_uri.
- */
-export const getUploadUrl = (mime: string): Promise<PresignedUploadResponse> =>
-  api
-    .post<PresignedUploadResponse>('/receipts/upload-url', { mime })
-    .then((r) => r.data)
-
-/**
- * Finalize a direct-to-S3 upload — notify the backend of the uploaded file's
- * storage URI so it can create the receipt row and enqueue OCR processing.
- */
-export const finalizeUpload = (
-  storageUri: string,
-  mime: string,
-  brandId: number,
-): Promise<{ id: string }> =>
-  api
-    .post<BackendReceiptUpload>('/receipts/finalize', {
-      storage_uri: storageUri,
-      mime,
-      brand_id: brandId,
+  // The shared axios instance defaults Content-Type to application/json. Axios
+  // v1's transformRequest, seeing a JSON content-type on a FormData payload,
+  // SERIALIZES the FormData to JSON — so the multipart body never reaches the
+  // server and FastAPI returns 422. Null out the header so the browser sets
+  // `multipart/form-data; boundary=…` itself.
+  return api
+    .post<BackendReceiptUpload>('/receipts/upload', formData, {
+      headers: { 'Content-Type': null },
+      onUploadProgress: opts.onProgress
+        ? (e) => {
+            const total = e.total ?? 0
+            if (total > 0) {
+              opts.onProgress?.(Math.round((e.loaded / total) * 100))
+            }
+          }
+        : undefined,
     })
-    .then((r) => ({ id: String(r.data.receipt_id) }))
+    .then((r) => ({
+      id: String(r.data.receipt_id),
+      warnings: Array.isArray(r.data.warnings) ? r.data.warnings : [],
+    }))
+}

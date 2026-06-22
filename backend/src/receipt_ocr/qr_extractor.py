@@ -73,6 +73,45 @@ def extract_qr_from_image(data: bytes) -> str | None:
     return candidates[0]
 
 
+def extract_all_qr_from_image(data: bytes) -> list[str]:
+    """Decode **all** distinct QR/barcode texts from *data* (order-preserving).
+
+    Unlike :func:`extract_qr_from_image`, which returns a single preferred
+    candidate, this returns every distinct decoded string so the pipeline can
+    detect *multiple different fiscal receipts* inside one image. Duplicate
+    decodes of the same string are collapsed.
+
+    Returns an empty list if decoding deps are missing or no barcode is found.
+    """
+    try:
+        import zxingcpp  # noqa: PLC0415
+        from PIL import Image  # noqa: PLC0415
+    except ImportError:
+        logger.error("extract_all_qr_from_image: zxing-cpp or Pillow not installed")
+        return []
+
+    try:
+        image = Image.open(io.BytesIO(data))
+    except Exception as exc:
+        logger.warning("extract_all_qr_from_image.image_open_failed: %s", exc)
+        return []
+
+    try:
+        results = zxingcpp.read_barcodes(image)
+    except Exception as exc:
+        logger.warning("extract_all_qr_from_image.decode_failed: %s", exc)
+        return []
+
+    texts: list[str] = []
+    seen: set[str] = set()
+    for r in results:
+        text = r.text
+        if text and text not in seen:
+            seen.add(text)
+            texts.append(text)
+    return texts
+
+
 class QRExtractor:
     """Extract QR code text from raw image bytes.
 
@@ -93,3 +132,11 @@ class QRExtractor:
             Raw QR string or ``None`` if no QR is detected.
         """
         return await asyncio.to_thread(extract_qr_from_image, image_bytes)
+
+    async def extract_all(self, image_bytes: bytes) -> list[str]:
+        """Decode **all** distinct QR/barcode texts from *image_bytes* (off-loop).
+
+        Returns every distinct decoded string (order-preserving) so the pipeline
+        can detect multiple fiscal receipts in one image.
+        """
+        return await asyncio.to_thread(extract_all_qr_from_image, image_bytes)

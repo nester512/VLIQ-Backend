@@ -209,3 +209,27 @@ class FraudChecker:
             signal="no_sku_match",
             severity=SEVERITY_LOW,
         )
+
+    @staticmethod
+    def multiple_receipts_signal(identities: list[dict]) -> FraudSignal:
+        """Signal for MULTIPLE_RECEIPTS_DETECTED — >1 distinct confident fiscal
+        identity in a single submission. The machine code lives in ``signal``;
+        ``details.identities`` lists the detected (fn, fd, fp) triples as evidence."""
+        return FraudSignal(
+            signal="multiple_receipts_detected",
+            severity=SEVERITY_HIGH,
+            details={"identities": identities},
+        )
+
+    @staticmethod
+    def historical_duplicate_signal(existing_id: int, *, kind: str) -> FraudSignal:
+        """Signal that this receipt matches a *previous* one (historical duplicate).
+
+        ``kind`` is ``"file_hash"`` or ``"fn_fd_fp"``. Per spec S3/В-3 this is a
+        signal for the admin, never a hard block — the receipt is still saved.
+        """
+        return FraudSignal(
+            signal=f"historical_duplicate_{kind}",
+            severity=SEVERITY_MEDIUM,
+            duplicate_of_id=existing_id,
+        )

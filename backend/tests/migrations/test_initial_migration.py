@@ -14,6 +14,7 @@ Skip when Postgres is not available:
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -25,6 +26,9 @@ POSTGRES_URL: str = os.environ.get(
     "postgresql+asyncpg://vliq:vliq_dev@localhost:5432/vliq",
 )
 
+# Backend root (holds alembic.ini) — works both on the host and in the test image (/work).
+_BACKEND_ROOT = str(Path(__file__).resolve().parents[2])
+
 # Tables expected in schema 'vliq' after upgrade.
 EXPECTED_TABLES = {
     "brand",
@@ -33,14 +37,23 @@ EXPECTED_TABLES = {
     "sku",
     "promotion",
     "receipt",
+    "receipt_attachment",
     "bonus_transaction",
     "payout_request",
     "notification",
     "audit_log",
 }
 
-# Partial UNIQUE indexes expected on 'receipt'.
-EXPECTED_PARTIAL_UNIQ = {
+# After 0005 the hard duplicate UNIQUE indexes are replaced by non-unique partial
+# indexes (duplicates are fraud signals, not hard blocks). These must exist…
+EXPECTED_RECEIPT_INDEXES = {
+    "ix_receipt_file_hash_active",
+    "ix_receipt_qr_raw_active",
+    "ix_receipt_fn_fd_fp_active",
+    "uq_receipt_idem_key",
+}
+# …and the old UNIQUE indexes must be gone.
+REMOVED_UNIQUE_INDEXES = {
     "uq_receipt_fn_fd_fp",
     "uq_receipt_file_hash_active",
     "uq_receipt_qr_raw_active",
@@ -66,6 +79,7 @@ EXPECTED_ENUMS = {
     "notification_type_enum",
     "notification_delivery_status_enum",
     "audit_log_actor_type_enum",
+    "attachment_kind_enum",
 }
 
 
@@ -82,8 +96,8 @@ async def _run_alembic(command: str) -> None:
     import subprocess
     env = {**os.environ, "POSTGRES__POSTGRES_URL": POSTGRES_URL}
     result = subprocess.run(
-        ["poetry", "run", "alembic", "-c", "alembic.ini"] + command.split(),
-        cwd="/Users/kexibo/VLIQ-BOT/backend",
+        ["alembic", "-c", "alembic.ini"] + command.split(),
+        check=False, cwd=_BACKEND_ROOT,
         capture_output=True,
         text=True,
         env=env,
@@ -106,8 +120,8 @@ def apply_migration():
     # Downgrade after tests to leave DB clean.
     import subprocess
     subprocess.run(
-        ["poetry", "run", "alembic", "-c", "alembic.ini", "downgrade", "base"],
-        cwd="/Users/kexibo/VLIQ-BOT/backend",
+        ["alembic", "-c", "alembic.ini", "downgrade", "base"],
+        check=False, cwd=_BACKEND_ROOT,
         capture_output=True,
         env={**os.environ, "POSTGRES__POSTGRES_URL": POSTGRES_URL},
         timeout=60,
@@ -118,16 +132,16 @@ def _run_alembic_sync():
     import subprocess
     # First downgrade to ensure clean state.
     subprocess.run(
-        ["poetry", "run", "alembic", "-c", "alembic.ini", "downgrade", "base"],
-        cwd="/Users/kexibo/VLIQ-BOT/backend",
+        ["alembic", "-c", "alembic.ini", "downgrade", "base"],
+        check=False, cwd=_BACKEND_ROOT,
         capture_output=True,
         env={**os.environ, "POSTGRES__POSTGRES_URL": POSTGRES_URL},
         timeout=60,
     )
     # Then upgrade to head.
     result = subprocess.run(
-        ["poetry", "run", "alembic", "-c", "alembic.ini", "upgrade", "head"],
-        cwd="/Users/kexibo/VLIQ-BOT/backend",
+        ["alembic", "-c", "alembic.ini", "upgrade", "head"],
+        check=False, cwd=_BACKEND_ROOT,
         capture_output=True,
         text=True,
         env={**os.environ, "POSTGRES__POSTGRES_URL": POSTGRES_URL},
@@ -157,8 +171,10 @@ async def test_migration__all_10_tables_exist(pg_engine):
 
 
 @pytest.mark.asyncio
-async def test_migration__partial_unique_indexes_exist(pg_engine):
-    """Partial UNIQUE indexes B7/B8 must be present in pg_indexes."""
+async def test_migration__receipt_dup_indexes_after_attachments(pg_engine):
+    """After 0005 the hard duplicate UNIQUE indexes are gone, replaced by non-unique
+    partial indexes (+ the idempotency partial-unique). Duplicates must no longer be
+    hard-blocked at the DB level (they become fraud signals)."""
     async with pg_engine.connect() as conn:
         result = await conn.execute(
             text(
@@ -168,8 +184,11 @@ async def test_migration__partial_unique_indexes_exist(pg_engine):
         )
         index_names = {row[0] for row in result}
 
-    assert EXPECTED_PARTIAL_UNIQ.issubset(index_names), (
-        f"Missing partial UNIQUE indexes: {EXPECTED_PARTIAL_UNIQ - index_names}"
+    assert EXPECTED_RECEIPT_INDEXES.issubset(index_names), (
+        f"Missing post-0005 indexes: {EXPECTED_RECEIPT_INDEXES - index_names}"
+    )
+    assert not (REMOVED_UNIQUE_INDEXES & index_names), (
+        f"Hard duplicate UNIQUE indexes still present: {REMOVED_UNIQUE_INDEXES & index_names}"
     )
 
 
@@ -214,8 +233,8 @@ async def test_migration__downgrade_cleans_schema():
     import subprocess
 
     result = subprocess.run(
-        ["poetry", "run", "alembic", "-c", "alembic.ini", "downgrade", "base"],
-        cwd="/Users/kexibo/VLIQ-BOT/backend",
+        ["alembic", "-c", "alembic.ini", "downgrade", "base"],
+        check=False, cwd=_BACKEND_ROOT,
         capture_output=True,
         text=True,
         env={**os.environ, "POSTGRES__POSTGRES_URL": POSTGRES_URL},

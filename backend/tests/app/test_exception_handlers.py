@@ -90,9 +90,15 @@ async def test_validation_error__multipart_formdata__returns_422_not_500():
     assert body["code"] == "VALIDATION_ERROR"
     assert "user_message" in body
     assert "debug_id" in body
-    # Details survived serialization: a list of field errors, no FormData leak.
-    assert isinstance(body["extra"]["errors"], list)
-    assert body["extra"]["errors"], "expected at least one field error"
+    # Localized field errors only — no raw Pydantic English `msg`, no `body`/FormData leak.
+    assert isinstance(body["field_errors"], dict)
+    assert body["field_errors"], "expected at least one field error"
+    assert "brand_id" in body["field_errors"]
+    # No English / raw exception text leaks to the client.
+    joined = (response.text or "").lower()
+    assert "field required" not in joined
+    assert "traceback" not in body
+    assert "errors" not in body
 
 
 @pytest.mark.asyncio
@@ -115,8 +121,9 @@ async def test_unhandled_exception__prod_env__no_traceback():
 
 
 @pytest.mark.asyncio
-async def test_unhandled_exception__local_env__traceback_visible():
-    """In local env, internal 500 must include traceback field."""
+async def test_unhandled_exception__local_env__still_no_traceback():
+    """Even in local/dev env, an internal 500 must NOT leak a traceback or raw
+    exception text to the client (§12 security) — only the envelope + debug_id."""
     app = _build_bare_app(env="local")
 
     async with AsyncClient(
@@ -128,5 +135,8 @@ async def test_unhandled_exception__local_env__traceback_visible():
     assert response.status_code == 500
     body = response.json()
     assert body.get("code") == "INTERNAL_ERROR"
-    assert "traceback" in body
-    assert "RuntimeError" in body["traceback"]
+    assert "user_message" in body
+    assert "debug_id" in body
+    assert "traceback" not in body
+    assert "RuntimeError" not in response.text
+    assert "intentional test error" not in response.text

@@ -39,3 +39,8 @@ class PipelineResult:
     matched_items: list = field(default_factory=list)  # list[dict]
     bonus_amount: int = 0
     bonus_breakdown: list = field(default_factory=list)  # list[AppliedPromotion]
+    # Per-attachment extraction evidence (position → {qr_candidates, pdf_pages, warnings}),
+    # plus the distinct confident fiscal identities found across the whole package.
+    # Kept for admin diagnostics and attachment/page provenance.
+    extraction_evidence: dict = field(default_factory=dict)
+    detected_identities: list = field(default_factory=list)  # list[dict{fn,fd,fp}]

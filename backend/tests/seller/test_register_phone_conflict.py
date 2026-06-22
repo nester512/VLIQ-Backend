@@ -8,7 +8,6 @@ now return a clean 409 with the SELLER_PHONE_TAKEN envelope instead.
 
 from __future__ import annotations
 
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest

@@ -11,19 +11,28 @@ vi.mock('./client', () => ({
   api: { post: (...a: unknown[]) => post(...a) },
 }))
 
-import { uploadReceipt } from './receipts'
+import { uploadReceiptPackage } from './receipts'
 
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('uploadReceipt — multipart contract', () => {
-  it('posts FormData with file + brand_id and clears the JSON Content-Type', async () => {
-    const file = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], 'r.jpg', {
-      type: 'image/jpeg',
-    })
+function makeFile(name: string, type: string): File {
+  return new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], name, { type })
+}
 
-    const result = await uploadReceipt(file, 3)
+describe('uploadReceiptPackage — batch multipart contract', () => {
+  it('posts ONE FormData with the files field repeated + brand_id + idempotency_key', async () => {
+    const files = [
+      makeFile('a.jpg', 'image/jpeg'),
+      makeFile('b.pdf', 'application/pdf'),
+      makeFile('c.png', 'image/png'),
+    ]
+
+    const result = await uploadReceiptPackage(files, {
+      brandId: 3,
+      idempotencyKey: 'idem-123',
+    })
 
     expect(post).toHaveBeenCalledTimes(1)
     const [url, body, config] = post.mock.calls[0] as unknown as [
@@ -33,13 +42,64 @@ describe('uploadReceipt — multipart contract', () => {
     ]
     expect(url).toBe('/receipts/upload')
     expect(body).toBeInstanceOf(FormData)
+
+    // All three files travel under the repeated `files` field.
+    const sentFiles = body.getAll('files')
+    expect(sentFiles).toHaveLength(3)
+    for (const f of sentFiles) expect(f).toBeInstanceOf(File)
+
     expect(body.get('brand_id')).toBe('3')
-    expect(body.get('file')).toBeInstanceOf(File)
+    expect(body.get('idempotency_key')).toBe('idem-123')
+    // No QR was scanned → the field must be absent.
+    expect(body.get('scanned_qr')).toBeNull()
+
     // Critical: Content-Type must be nulled so the browser adds the multipart
-    // boundary. If it stays application/json, axios serializes FormData→JSON
-    // and the server 422s.
+    // boundary. If it stays application/json, axios serializes FormData→JSON.
     expect(config.headers['Content-Type']).toBeNull()
 
-    expect(result).toEqual({ id: '7' })
+    // receipt_id is mapped to a string id; warnings default to an empty list
+    // when the 202 carries none.
+    expect(result).toEqual({ id: '7', warnings: [] })
+  })
+
+  it('surfaces the 202 warnings (e.g. POSSIBLE_DUPLICATE) in the result', async () => {
+    post.mockResolvedValueOnce({
+      data: {
+        receipt_id: 88,
+        warnings: [
+          {
+            code: 'POSSIBLE_DUPLICATE',
+            message: 'Похожий чек уже загружался ранее. Вы всё равно можете отправить его на проверку.',
+          },
+        ],
+      },
+    } as unknown as { data: { receipt_id: number } })
+
+    const result = await uploadReceiptPackage([makeFile('a.jpg', 'image/jpeg')], {
+      brandId: 1,
+      idempotencyKey: 'idem-dup',
+    })
+
+    expect(result).toEqual({
+      id: '88',
+      warnings: [
+        {
+          code: 'POSSIBLE_DUPLICATE',
+          message: 'Похожий чек уже загружался ранее. Вы всё равно можете отправить его на проверку.',
+        },
+      ],
+    })
+  })
+
+  it('includes scanned_qr only when provided', async () => {
+    await uploadReceiptPackage([makeFile('a.jpg', 'image/jpeg')], {
+      brandId: 1,
+      scannedQr: 't=20240101&s=100',
+      idempotencyKey: 'idem-9',
+    })
+
+    const [, body] = post.mock.calls[0] as unknown as [string, FormData]
+    expect(body.get('scanned_qr')).toBe('t=20240101&s=100')
+    expect(body.getAll('files')).toHaveLength(1)
   })
 })
