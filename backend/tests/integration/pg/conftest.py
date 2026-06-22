@@ -16,6 +16,7 @@ cross-table foreign keys (Receipt.seller_id → Seller, …) resolve.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 from collections.abc import AsyncGenerator
@@ -67,10 +68,22 @@ def _alembic(*args: str) -> None:
         raise RuntimeError(f"alembic {args} failed:\n{result.stdout}\n{result.stderr}")
 
 
+async def _reset_schema() -> None:
+    """Drop the vliq schema + alembic version directly (a plain ``downgrade base``
+    can fail re-creating UNIQUE indexes on leftover duplicate rows from a prior run)."""
+    engine = create_async_engine(PG_URL, echo=False)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("DROP SCHEMA IF EXISTS vliq CASCADE"))
+            await conn.execute(text("DROP TABLE IF EXISTS public.alembic_version"))
+    finally:
+        await engine.dispose()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _pg_schema() -> None:
-    """Migrate vliq_test to head once for the whole PG test session."""
-    _alembic("downgrade", "base")
+    """Reset + migrate vliq_test to head once for the whole PG test session."""
+    asyncio.run(_reset_schema())
     _alembic("upgrade", "head")
 
 

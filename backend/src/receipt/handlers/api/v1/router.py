@@ -31,6 +31,7 @@ from src.receipt.models import (
     MAX_ATTACHMENT_SIZE_BYTES,
     MAX_ATTACHMENTS_PER_RECEIPT,
     Receipt,
+    ReceiptAttachment,
     ReceiptStatus,
 )
 from src.receipt.schemas.api import (
@@ -49,10 +50,13 @@ from src.receipt.schemas.api import (
     ReceiptStatusResponse,
     ReceiptUpdate,
     ReceiptUploadResponse,
+    UploadWarning,
 )
 from src.receipt.service import PackageValidationError, PreparedAttachment, create_receipt_package
 from src.receipt.upload_session import UploadSessionError, sign_upload_session, verify_upload_session
 from src.receipt_ocr.hasher import sha256_hash
+from src.receipt_ocr.mime import sniff_mime
+from src.receipt_ocr.qr_parser import QRParseError, parse_qr_string
 from src.receipt_ocr.storage import get_receipt_storage, to_viewable_url
 from src.receipt_pipeline.state_machine import ReceiptStateMachine
 from src.seller.models import Seller
@@ -99,56 +103,181 @@ async def upload_receipt(  # noqa: PLR0913
     seller_id: int = token["user_id"]
 
     if not files:
-        raise AppError("RECEIPT_NO_FILES", status_code=400, user_message="Приложите хотя бы один файл.")
+        raise AppError("RECEIPT_NO_FILES", status_code=400)
     if len(files) > MAX_ATTACHMENTS_PER_RECEIPT:
         raise AppError("RECEIPT_TOO_MANY_FILES", status_code=400)
 
+    # Save each file as we go; on ANY per-file validation failure, delete the
+    # already-saved temporary objects so a half-built package leaves no orphans.
     prepared: list[PreparedAttachment] = []
-    for position, file in enumerate(files):
-        mime = (file.content_type or "").split(";")[0].strip().lower()
-        _validate_attachment_mime(mime)
-        data = await file.read()
-        if not data:
-            raise AppError("RECEIPT_EMPTY_FILE", status_code=400)
-        if len(data) > MAX_ATTACHMENT_SIZE_BYTES:
-            raise AppError("RECEIPT_FILE_TOO_LARGE", status_code=413)
-        storage_uri = await _storage.save(data, mime, seller_id)
-        prepared.append(
-            PreparedAttachment(
-                position=position,
-                storage_uri=storage_uri,
-                mime=mime,
-                file_hash=sha256_hash(data),
-                size_bytes=len(data),
+    saved_uris: list[str] = []
+    try:
+        for position, file in enumerate(files):
+            data = await file.read()
+            if not data:
+                raise AppError("RECEIPT_EMPTY_FILE", status_code=400)
+            if len(data) > MAX_ATTACHMENT_SIZE_BYTES:
+                raise AppError("RECEIPT_FILE_TOO_LARGE", status_code=413)
+            # Server-side sniffing — the client Content-Type is untrusted.
+            mime = _sniff_or_415(data)
+            storage_uri = await _storage.save(data, mime, seller_id)
+            saved_uris.append(storage_uri)
+            prepared.append(
+                PreparedAttachment(
+                    position=position,
+                    storage_uri=storage_uri,
+                    mime=mime,
+                    file_hash=sha256_hash(data),
+                    size_bytes=len(data),
+                )
             )
+    except Exception:
+        await _cleanup_storage(saved_uris)
+        raise
+
+    try:
+        receipt, created = await _create_package_or_raise(
+            session,
+            seller_id=seller_id,
+            brand_id=brand_id,
+            attachments=prepared,
+            scanned_qr=scanned_qr,
+            idempotency_key=idempotency_key,
         )
+    except Exception:
+        # DB never created the Receipt — don't leave the saved files orphaned.
+        # (On an idempotent hit the service returns the existing receipt without
+        # raising, so this only fires on a genuine failure.)
+        await _cleanup_storage(saved_uris)
+        raise
 
-    receipt, created = await _create_package_or_raise(
-        session,
-        seller_id=seller_id,
-        brand_id=brand_id,
-        attachments=prepared,
-        scanned_qr=scanned_qr,
-        idempotency_key=idempotency_key,
+    return await _finalize_upload_response(
+        request, session, receipt=receipt, created=created, prepared=prepared, scanned_qr=scanned_qr, ctx="upload"
     )
-
-    if created:
-        await _enqueue_processing(request, receipt.id)
-    logger.info(
-        "receipt.upload_package, receipt_id=%d, seller_id=%d, brand_id=%d, files=%d, created=%s",
-        receipt.id,
-        seller_id,
-        brand_id,
-        len(prepared),
-        created,
-    )
-    return ReceiptUploadResponse(receipt_id=receipt.id)
 
 
 def _validate_attachment_mime(mime: str) -> None:
     """Reject unsupported MIME types (server-validated — client MIME is untrusted)."""
     if mime not in ALLOWED_ATTACHMENT_MIME_TYPES:
         raise AppError("RECEIPT_UNSUPPORTED_TYPE", status_code=415)
+
+
+def _sniff_or_415(data: bytes) -> str:
+    """Sniff the real MIME from magic bytes; reject anything not JPEG/PNG/WebP/PDF."""
+    mime = sniff_mime(data)
+    if mime is None or mime not in ALLOWED_ATTACHMENT_MIME_TYPES:
+        raise AppError("RECEIPT_UNSUPPORTED_TYPE", status_code=415)
+    return mime
+
+
+async def _cleanup_storage(uris: list[str]) -> None:
+    """Best-effort delete of temporary upload objects (cleanup never masks the real error)."""
+    for uri in uris:
+        try:
+            await _storage.delete(uri)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("receipt.cleanup_failed, uri=%s: %s", uri, exc)
+
+
+async def _finalize_upload_response(  # noqa: PLR0913
+    request: Request,
+    session: AsyncSession,
+    *,
+    receipt: Receipt,
+    created: bool,
+    prepared: list[PreparedAttachment],
+    scanned_qr: str | None,
+    ctx: str,
+) -> ReceiptUploadResponse:
+    """Shared tail for /upload and /finalize: reliably enqueue (with a fallback so
+    the receipt never stays stuck pending), then attach non-blocking warnings."""
+    job_id = f"receipt-{receipt.id}"
+    if created:
+        enqueued = await _enqueue_processing(request, receipt.id, job_id=job_id)
+        if not enqueued:
+            # The job could not be queued — don't strand the receipt in pending.
+            await _fallback_to_on_review_no_job(session, receipt.id)
+    elif receipt.status == ReceiptStatus.pending.value:
+        # Idempotent retry of a still-pending receipt — safe re-enqueue (the
+        # deterministic job id dedupes, so no parallel duplicate job).
+        await _enqueue_processing(request, receipt.id, job_id=job_id)
+
+    warnings = await _build_upload_warnings(
+        session, receipt_id=receipt.id, file_hashes=[a.file_hash for a in prepared], scanned_qr=scanned_qr
+    )
+    logger.info(
+        "receipt.%s_package, receipt_id=%d, attachments=%d, created=%s, warnings=%d",
+        ctx,
+        receipt.id,
+        len(prepared),
+        created,
+        len(warnings),
+    )
+    return ReceiptUploadResponse(receipt_id=receipt.id, warnings=warnings)
+
+
+async def _fallback_to_on_review_no_job(session: AsyncSession, receipt_id: int) -> None:
+    """Enqueue failed → move the receipt out of pending to on_review with a
+    diagnostic signal so an admin picks it up (KAN-16: never stuck pending)."""
+    signal = {
+        "signal": "pipeline_enqueue_failed",
+        "severity": "high",
+        "details": "Не удалось поставить чек в очередь обработки — требуется ручная проверка.",
+    }
+    await session.execute(
+        update(Receipt)
+        .where(Receipt.id == receipt_id, Receipt.status == ReceiptStatus.pending.value)
+        .values(status=ReceiptStatus.on_review.value, fraud_signals=[signal])
+    )
+    await session.commit()
+    logger.warning("receipt.enqueue_fallback_on_review, receipt_id=%d", receipt_id)
+
+
+async def _build_upload_warnings(
+    session: AsyncSession, *, receipt_id: int, file_hashes: list[str], scanned_qr: str | None
+) -> list[UploadWarning]:
+    """Cheap, data-only historical-duplicate check (NO synchronous OCR): match this
+    submission's file hashes / scanned-QR identity against prior receipts. Excludes
+    the just-created receipt. A match → a non-blocking POSSIBLE_DUPLICATE warning."""
+    dup = False
+    if file_hashes:
+        result = await session.execute(
+            select(ReceiptAttachment.id)
+            .join(Receipt, Receipt.id == ReceiptAttachment.receipt_id)
+            .where(
+                ReceiptAttachment.file_hash.in_(file_hashes),
+                ReceiptAttachment.receipt_id != receipt_id,
+                Receipt.is_deleted.is_(False),
+            )
+            .limit(1)
+        )
+        dup = result.scalar_one_or_none() is not None
+    if not dup and scanned_qr:
+        try:
+            pq = parse_qr_string(scanned_qr)
+        except QRParseError:
+            pq = None
+        if pq is not None:
+            result = await session.execute(
+                select(Receipt.id)
+                .where(
+                    Receipt.fn == pq.fn,
+                    Receipt.fd == pq.fd,
+                    Receipt.fp == pq.fp,
+                    Receipt.id != receipt_id,
+                    Receipt.is_deleted.is_(False),
+                )
+                .limit(1)
+            )
+            dup = result.scalar_one_or_none() is not None
+    if dup:
+        return [
+            UploadWarning(
+                code="POSSIBLE_DUPLICATE",
+                message="Похожий чек уже загружался ранее. Вы всё равно можете отправить его на проверку.",
+            )
+        ]
+    return []
 
 
 async def _create_package_or_raise(  # noqa: PLR0913
@@ -174,17 +303,27 @@ async def _create_package_or_raise(  # noqa: PLR0913
         raise AppError("RECEIPT_INVALID_PACKAGE", status_code=400, extra={"reason": str(exc)}) from exc
 
 
-async def _enqueue_processing(request: Request, receipt_id: int) -> None:
-    """Enqueue ``process_receipt_task`` via arq if pool is available."""
+async def _enqueue_processing(request: Request, receipt_id: int, *, job_id: str | None = None) -> bool:
+    """Enqueue ``process_receipt_task`` via arq. Returns ``True`` if a job is queued
+    (or already exists for *job_id*), ``False`` if it could not be queued.
+
+    The upload/finalize path passes a deterministic ``job_id`` (``receipt-<id>``) so a
+    retried/idempotent enqueue dedupes instead of spawning a parallel job. The admin
+    ``/retry`` endpoint passes ``None`` (a unique id) so it always reprocesses.
+    """
     pool = getattr(request.app.state, "arq_pool", None)
-    if pool is not None:
-        try:
-            await pool.enqueue_job("process_receipt_task", receipt_id)
-            logger.debug("receipt.enqueued, receipt_id=%d", receipt_id)
-        except Exception as exc:
-            logger.warning("receipt.enqueue_failed, receipt_id=%d: %s", receipt_id, exc)
-    else:
+    if pool is None:
         logger.warning("receipt.no_arq_pool, receipt_id=%d — worker not running?", receipt_id)
+        return False
+    try:
+        # enqueue_job returns None when a job with the same id already exists — that
+        # is NOT a failure (a job is queued), so both paths return True.
+        await pool.enqueue_job("process_receipt_task", receipt_id, _job_id=job_id)
+        logger.debug("receipt.enqueued, receipt_id=%d, job_id=%s", receipt_id, job_id)
+        return True
+    except Exception as exc:
+        logger.warning("receipt.enqueue_failed, receipt_id=%d: %s", receipt_id, exc)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -333,24 +472,26 @@ async def finalize_upload(
     """Verify the upload session, read each object from storage, create the package."""
     seller_id: int = token["user_id"]
 
-    # 1. Verify the signed session binds these storage keys to this seller.
+    # 1. Verify the signed session binds these storage keys to this seller. The
+    #    technical reason is logged with the debug_id, never returned to the client.
     try:
         granted_keys = set(verify_upload_session(body.upload_session, seller_id=seller_id))
     except UploadSessionError as exc:
-        raise AppError("RECEIPT_UPLOAD_SESSION_INVALID", status_code=403, extra={"reason": str(exc)}) from exc
+        logger.info("receipt.upload_session_invalid, seller_id=%d, reason=%s", seller_id, exc)
+        raise AppError("RECEIPT_UPLOAD_SESSION_INVALID", status_code=403) from exc
 
-    # 2. Build prepared attachments — validate MIME, ownership, existence; hash/size.
+    # 2. Build prepared attachments — validate ownership + existence, sniff the real
+    #    MIME from bytes (the request's `mime` is untrusted). Presigned objects that
+    #    are never finalized are reclaimed by the bucket's lifecycle/TTL.
     prepared: list[PreparedAttachment] = []
     for att in body.attachments:
-        mime = att.mime.strip().lower()
-        _validate_attachment_mime(mime)
         if att.storage_uri not in granted_keys:
             # The client may not finalize a key it was never granted (anti key-swap).
             raise AppError("RECEIPT_NOT_YOURS", status_code=403)
         try:
             file_bytes = await _storage.read(att.storage_uri)
         except FileNotFoundError:
-            raise AppError("RECEIPT_NOT_FOUND", status_code=404) from None
+            raise AppError("RECEIPT_OBJECT_MISSING", status_code=404) from None
         if not file_bytes:
             raise AppError("RECEIPT_EMPTY_FILE", status_code=400)
         if len(file_bytes) > MAX_ATTACHMENT_SIZE_BYTES:
@@ -359,7 +500,7 @@ async def finalize_upload(
             PreparedAttachment(
                 position=att.position,
                 storage_uri=att.storage_uri,
-                mime=mime,
+                mime=_sniff_or_415(file_bytes),
                 file_hash=sha256_hash(file_bytes),
                 size_bytes=len(file_bytes),
             )
@@ -373,17 +514,9 @@ async def finalize_upload(
         scanned_qr=body.scanned_qr,
         idempotency_key=body.idempotency_key,
     )
-
-    if created:
-        await _enqueue_processing(request, receipt.id)
-    logger.info(
-        "receipt.finalize_package, receipt_id=%d, seller_id=%d, attachments=%d, created=%s",
-        receipt.id,
-        seller_id,
-        len(prepared),
-        created,
+    return await _finalize_upload_response(
+        request, session, receipt=receipt, created=created, prepared=prepared, scanned_qr=body.scanned_qr, ctx="finalize"
     )
-    return ReceiptUploadResponse(receipt_id=receipt.id)
 
 
 # ---------------------------------------------------------------------------

@@ -93,6 +93,11 @@ class ReceiptStorage(Protocol):
         """
         ...
 
+    async def delete(self, uri: str) -> None:
+        """Best-effort delete of a stored object (used to clean up a half-built
+        package). Missing objects are a no-op; failures are logged, not raised."""
+        ...
+
 
 # ---------------------------------------------------------------------------
 # Legacy protocol (kept for backward compatibility — old callers use upload())
@@ -158,6 +163,15 @@ class LocalFileStorage:
         data: bytes = await asyncio.to_thread(path.read_bytes)
         logger.debug("local_storage.read", uri=uri, size=len(data))
         return data
+
+    async def delete(self, uri: str) -> None:
+        """Best-effort delete; missing file is a no-op, failures are swallowed (logged)."""
+        try:
+            path = self._resolve_uri(uri)
+            await asyncio.to_thread(path.unlink, True)  # missing_ok=True
+            logger.debug("local_storage.delete", uri=uri)
+        except Exception as exc:  # noqa: BLE001 — cleanup must not mask the real error
+            logger.warning("local_storage.delete_failed", uri=uri, error=str(exc))
 
     # Legacy FileStorage interface (upload) ----------------------------------
 
@@ -427,6 +441,19 @@ class S3FileStorage:
         logger.debug("s3_storage.read", uri=uri, size=len(body))
         return body
 
+    async def delete(self, uri: str) -> None:
+        """Best-effort delete of an S3 object (or delegate non-S3 URIs to local)."""
+        if not uri.startswith("s3://"):
+            await self._local_fallback().delete(uri)
+            return
+        try:
+            bucket, key = self._parse_s3_uri(uri)
+            async with self._make_client() as client:
+                await client.delete_object(Bucket=bucket, Key=key)
+            logger.debug("s3_storage.delete", uri=uri)
+        except Exception as exc:  # noqa: BLE001 — cleanup must not mask the real error
+            logger.warning("s3_storage.delete_failed", uri=uri, error=str(exc))
+
     # Legacy FileStorage interface (upload) ----------------------------------
 
     async def upload(self, file_bytes: bytes, filename: str, mime: str) -> str:
@@ -509,6 +536,9 @@ class TelegramFileStorage:
 
     async def read(self, uri: str) -> bytes:
         return await self._local.read(uri)
+
+    async def delete(self, uri: str) -> None:
+        await self._local.delete(uri)
 
 
 # ---------------------------------------------------------------------------

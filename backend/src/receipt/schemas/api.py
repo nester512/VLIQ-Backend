@@ -98,12 +98,24 @@ class ReceiptQrPayloadIn(BaseModel):
     brand_id: int = Field(..., description="Brand the seller is registering this receipt against")
 
 
+class UploadWarning(BaseModel):
+    """Non-blocking warning surfaced on a successful upload (e.g. possible duplicate)."""
+
+    code: str
+    message: str
+
+
 class ReceiptUploadResponse(BaseModel):
-    """202 response returned by POST /api/v1/receipts/upload."""
+    """202 response returned by POST /api/v1/receipts/upload.
+
+    ``warnings`` is non-blocking — the receipt is still accepted; the client shows
+    them as advisory toasts (e.g. POSSIBLE_DUPLICATE) without failing the flow.
+    """
 
     receipt_id: int
     status: str = "pending"
     message: str = "Receipt accepted for processing"
+    warnings: list[UploadWarning] = Field(default_factory=list)
 
 
 class ReceiptStatusResponse(BaseModel):
