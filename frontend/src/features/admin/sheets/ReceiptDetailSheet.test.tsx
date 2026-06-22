@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, within, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, within, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { AdminReceipt } from '@/api/admin'
@@ -16,7 +16,25 @@ vi.mock('@/store/uiStore', () => ({
 }))
 
 vi.mock('@/features/admin/hooks/useReviewQueue', () => ({
-  useSwipeAction: () => ({ mutate: vi.fn(), isPending: false }),
+  useSwipeAction: () => ({
+    // Invoke the per-call callbacks so handleAction's onSuccess (cache
+    // invalidation) and onSettled (closeSheet) actually run under test.
+    mutate: (_args: unknown, opts?: { onSuccess?: () => void; onSettled?: () => void }) => {
+      opts?.onSuccess?.()
+      opts?.onSettled?.()
+    },
+    isPending: false,
+  }),
+}))
+
+// The sheet's write actions call these — stub them as resolved no-ops so the
+// mutations' onSuccess (cache invalidation) runs without a real network call.
+vi.mock('@/api/admin', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/admin')>()),
+  editReceiptBonus: vi.fn(() => Promise.resolve()),
+  addReceiptComment: vi.fn(() => Promise.resolve()),
+  blockSeller: vi.fn(() => Promise.resolve()),
+  deleteReceipt: vi.fn(() => Promise.resolve()),
 }))
 
 import { ReceiptDetailSheet } from './ReceiptDetailSheet'
@@ -97,5 +115,28 @@ describe('ReceiptDetailSheet (KAN-15 Entity View)', () => {
     expect(screen.getByText('Фото чека недоступно — показан макет')).toBeInTheDocument()
     // The full info card below the viewer still renders.
     expect(screen.getByTestId('receipt-info-card')).toBeInTheDocument()
+  })
+})
+
+describe('ReceiptDetailSheet — actualizes views after a status change', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('reject refetches the review queue so the deck drops the actioned card', () => {
+    const spy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
+    renderSheet(receipt({ status: 'on_review' }))
+    fireEvent.click(screen.getByText('Отклонить'))
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['admin', 'review-queue'] })
+  })
+
+  it('delete refetches the seller-receipts list + review queue (not the dead key)', async () => {
+    const spy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
+    renderSheet(receipt({ status: 'rejected' }))
+    fireEvent.click(screen.getByText('Удалить чек'))
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith({ queryKey: ['admin', 'seller-receipts'] }),
+    )
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['admin', 'review-queue'] })
+    // The old ['admin','receipts'] key matched no query — must not be used.
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: ['admin', 'receipts'] })
   })
 })

@@ -230,6 +230,17 @@ export function AttachmentViewer({
   interactiveImage = true,
   className = '',
 }: AttachmentViewerProps) {
+  // The host may supply its own positioning (e.g. `absolute inset-0` to fill a
+  // sized box — see ReceiptDetailSheet / SwipeDeck). Only inject `relative` when
+  // no position class is present: a hardcoded `relative` here would OVERRIDE the
+  // host's `absolute` (Tailwind emits `.relative` after `.absolute`, so on equal
+  // specificity `relative` wins), dropping the root out of its absolute fill and
+  // back into normal flow at height 0 — every child is absolutely positioned, so
+  // the whole viewer collapses (blank image + nav controls bunched at the top).
+  const rootClassName = /(^|\s)(absolute|fixed|relative|sticky)(\s|$)/.test(className)
+    ? className
+    : `relative ${className}`.trim()
+
   const ordered = useMemo(
     () => [...attachments].sort((a, b) => (a.position - b.position) || (a.id - b.id)),
     [attachments],
@@ -248,7 +259,7 @@ export function AttachmentViewer({
   // No attachments and no final card → host-supplied fallback (or nothing).
   if (pageCount === 0) {
     return (
-      <div className={`relative ${className}`} data-testid="attachment-viewer">
+      <div className={rootClassName} data-testid="attachment-viewer">
         {emptyFallback ?? null}
       </div>
     )
@@ -264,7 +275,7 @@ export function AttachmentViewer({
 
   return (
     <div
-      className={`relative ${className}`}
+      className={rootClassName}
       data-testid="attachment-viewer"
       aria-roledescription="Просмотр вложений чека"
     >

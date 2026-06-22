@@ -39,7 +39,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     onSuccess: () => {
       setEditBonusOpen(false)
       queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'receipts'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
       pushToast('Сумма бонуса обновлена', 'ok')
     },
     onError: (err: unknown) => {
@@ -55,7 +55,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     onSuccess: () => {
       setAddCommentOpen(false)
       queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'receipts'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
       pushToast('Комментарий добавлен', 'ok')
     },
     onError: (err: unknown) => {
@@ -71,7 +71,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     onSuccess: () => {
       setBlockSellerOpen(false)
       queryClient.invalidateQueries({ queryKey: ['admin', 'sellers'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'receipts'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
       queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
       pushToast('Продавец заблокирован', 'dg')
       closeSheet()
@@ -86,7 +86,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
   const { mutate: doDelete, isPending: deletePending } = useMutation({
     mutationFn: (id: string) => deleteReceipt(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'receipts'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
       queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
       pushToast('Чек удалён', 'ok')
       closeSheet()
@@ -112,7 +112,16 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     swipe(
       { id: receiptId!, dir },
       {
-        onSettled: () => closeSheet(),
+        // Actualize regardless of outcome — success OR a 409 conflict from a
+        // stale-state race (e.g. an approve still in-flight, then a reject): refetch
+        // the deck + seller list so the UI shows the TRUE current status, then close.
+        // This is the detail-sheet path, NOT an in-deck swipe (deckIdx untouched), so
+        // refetching the review queue here is safe and never double-consumes a card.
+        onSettled: () => {
+          queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
+          queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
+          closeSheet()
+        },
       },
     )
   }
