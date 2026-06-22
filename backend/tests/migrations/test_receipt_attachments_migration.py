@@ -117,6 +117,24 @@ async def test_backfill__file_based_receipts_get_one_attachment(pg_engine):
 
 
 @pytest.mark.asyncio
+async def test_0006__rejection_code_nullable_and_no_data_loss(pg_engine):
+    """0006 adds receipt.rejection_code (nullable); existing receipts survive."""
+    async with pg_engine.connect() as conn:
+        col = (
+            await conn.execute(
+                text(
+                    "SELECT is_nullable, data_type FROM information_schema.columns "
+                    "WHERE table_schema='vliq' AND table_name='receipt' AND column_name='rejection_code'"
+                )
+            )
+        ).first()
+        total = (await conn.execute(text("SELECT count(*) FROM vliq.receipt"))).scalar_one()
+    assert col is not None, "rejection_code column missing after 0006"
+    assert col[0] == "YES"  # nullable
+    assert total == 3  # the three backfilled receipts are intact
+
+
+@pytest.mark.asyncio
 async def test_backfill__no_receipt_data_lost(pg_engine):
     async with pg_engine.connect() as conn:
         total = (

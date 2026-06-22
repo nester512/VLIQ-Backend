@@ -109,7 +109,8 @@ erDiagram
         bigint brand_id FK
         enum status "pending|on_review|approved|rejected|needs_revision|paid_out"
         int bonus_amount
-        string rejection_reason "user-facing; MULTIPLE_RECEIPTS_DETECTED reason here"
+        string rejection_reason "user-facing text"
+        string rejection_code "since 0006 — machine code (MULTIPLE_RECEIPTS_DETECTED); NULL for admin rejection"
         string upload_idempotency_key "since 0005 — partial-unique per (seller_id, key)"
         enum file_kind "photo|pdf|qr|screenshot — nullable since 0005 (mirror of attachments[0])"
         string file_url "nullable since 0005 — mirror of attachments[0]"

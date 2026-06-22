@@ -30,6 +30,8 @@ export interface Receipt {
   amount?: number
   bonus_amount?: number
   rejection_reason?: string
+  /** Machine code for a system rejection (e.g. MULTIPLE_RECEIPTS_DETECTED); NULL for admin rejections. */
+  rejection_code?: string
   created_at: string
   updated_at?: string
   items?: ReceiptItem[]

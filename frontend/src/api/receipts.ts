@@ -69,6 +69,7 @@ interface BackendReceiptStatus {
   status: ReceiptStatus
   bonus_amount?: number
   rejection_reason?: string | null
+  rejection_code?: string | null
   /** Browser-viewable URL of the uploaded photo/file (null for inline-QR). */
   file_url?: string | null
   /** Ordered package attachments (preferred over the legacy single file_url). */
@@ -143,6 +144,7 @@ export const getReceiptStatus = (id: string): Promise<Receipt> =>
       status: r.data.status,
       bonus_amount: r.data.bonus_amount,
       rejection_reason: r.data.rejection_reason ?? undefined,
+      rejection_code: r.data.rejection_code ?? undefined,
       attachments: mapAttachments(r.data.attachments),
       file_url: r.data.file_url ?? undefined,
       // /status doesn't carry the created_at — the page falls back gracefully.

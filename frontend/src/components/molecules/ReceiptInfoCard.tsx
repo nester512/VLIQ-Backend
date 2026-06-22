@@ -132,12 +132,19 @@ export function ReceiptInfoCard({ receipt, actions, className = '' }: ReceiptInf
         </Section>
       )}
 
-      {/* System rejection reason — present for system-rejected receipts. */}
-      {receipt.rejection_reason && (
+      {/* Rejection reason + machine code. The code is present only for SYSTEM
+          rejections (e.g. MULTIPLE_RECEIPTS_DETECTED) — it stays NULL for ordinary
+          admin rejections, which lets the admin tell the two apart. */}
+      {(receipt.rejection_reason || receipt.rejection_code) && (
         <div className="flex gap-2 items-start rounded-[14px] px-4 py-3 mb-3 text-[13px] font-medium bg-[var(--vliq-dg-bg)] text-[var(--vliq-dg-ink)]">
           <Icon name="alert" size={16} className="flex-none mt-0.5" />
           <span>
-            <b>Причина отклонения:</b> {receipt.rejection_reason}
+            <b>Причина отклонения:</b> {receipt.rejection_reason ?? '—'}
+            {receipt.rejection_code && (
+              <span className="block mt-1 opacity-70">
+                Системный код: <code>{receipt.rejection_code}</code>
+              </span>
+            )}
           </span>
         </div>
       )}

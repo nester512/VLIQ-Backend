@@ -166,6 +166,7 @@ interface BackendReceipt {
   status: ReceiptStatus
   bonus_amount?: number
   rejection_reason?: string | null
+  rejection_code?: string | null
   file_url?: string
   attachments?: BackendAttachment[] | null
   shop_name?: string | null
@@ -333,6 +334,7 @@ function mapAdminReceipt(r: BackendReceipt): AdminReceipt {
     purchase_date: r.purchase_date ?? undefined,
     bonus_amount: r.bonus_amount,
     rejection_reason: r.rejection_reason ?? undefined,
+    rejection_code: r.rejection_code ?? undefined,
     file_url: r.file_url ?? attachments[0]?.url ?? undefined,
     attachments,
     created_at: r.created_at,

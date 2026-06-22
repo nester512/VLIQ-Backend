@@ -370,6 +370,7 @@ class ReceiptPipelineOrchestrator:
             .values(
                 {
                     "status": ReceiptStatus.rejected.value,
+                    "rejection_code": MULTIPLE_RECEIPTS_CODE,
                     "rejection_reason": MULTIPLE_RECEIPTS_USER_REASON,
                     "fraud_signals": all_signals,
                     "bonus_amount": 0,

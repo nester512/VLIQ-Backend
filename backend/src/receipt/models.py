@@ -99,6 +99,9 @@ class Receipt(TimeStampedModel):
     )
     bonus_amount: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, default=None)
+    # Machine-readable rejection cause (e.g. MULTIPLE_RECEIPTS_DETECTED). NULL for
+    # ordinary admin rejections — lets the admin UI tell system vs manual rejection.
+    rejection_code: Mapped[str | None] = mapped_column(String(64), default=None)
 
     # Legacy single-file columns. Since 0005 they are a nullable *mirror* of
     # attachments[0] (kept for backward-compatible reads); the authoritative

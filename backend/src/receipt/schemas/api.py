@@ -118,6 +118,7 @@ class ReceiptStatusResponse(BaseModel):
     status: ReceiptStatus
     bonus_amount: int
     rejection_reason: str | None = None
+    rejection_code: str | None = None
     # Browser-viewable URL of the uploaded receipt photo/file (S4). None for
     # inline-QR submissions (no photo) or non-viewable storage URIs.
     # Legacy mirror of attachments[0].url — prefer `attachments`.
@@ -324,6 +325,7 @@ class ReceiptRead(BaseModel):
     status: ReceiptStatus
     bonus_amount: int
     rejection_reason: str | None = None
+    rejection_code: str | None = None
     # Legacy single-file fields — nullable since the package model (mirror of
     # attachments[0]); prefer `attachments` below.
     file_kind: ReceiptFileKind | None = None
