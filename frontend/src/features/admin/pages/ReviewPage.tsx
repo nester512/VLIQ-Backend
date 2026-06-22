@@ -1,8 +1,10 @@
 import { useCallback, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { SwipeDeck } from '@/components/organisms/SwipeDeck'
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
 import { RejectReasonSheet } from '@/components/molecules/RejectReasonSheet'
 import { useUiStore } from '@/store/uiStore'
+import { extractApiError } from '@/api/client'
 import {
   useReviewQueue,
   useSwipeAction,
@@ -12,6 +14,7 @@ import {
 import type { AdminReceipt } from '@/api/admin'
 
 function ReviewContent() {
+  const queryClient = useQueryClient()
   const { data, isLoading, isFetchingNextPage, fetchNextPage, hasNextPage } = useReviewQueue()
   const { mutate: swipeAction, isPending: isSwipePending } = useSwipeAction()
   const openSheet = useUiStore((s) => s.openSheet)
@@ -22,9 +25,11 @@ function ReviewContent() {
   // Local state for the reject reason sheet
   const [rejectingReceiptId, setRejectingReceiptId] = useState<string | null>(null)
   const [rejectError, setRejectError] = useState<string | null>(null)
-  // Bumped when the admin cancels the reject sheet → SwipeDeck rolls back the
-  // last optimistic advance and re-shows the card. Without this the card
-  // visually vanishes from the deck even though no mutation was sent.
+  // Bumped when the admin cancels the reject sheet OR a swipe action fails →
+  // SwipeDeck rolls back the last optimistic advance and re-shows the card.
+  // Without this the card visually vanishes from the deck even though the
+  // mutation was rejected (e.g. 409: the receipt changed status under the admin),
+  // leaving it gone in a false-success state.
   const [undoTrigger, setUndoTrigger] = useState(0)
 
   const handleSwipe = useCallback(
@@ -35,13 +40,31 @@ function ReviewContent() {
         setRejectError(null)
         return
       }
-      swipeAction({ id, dir })
+      swipeAction(
+        { id, dir },
+        {
+          // The localized toast is dispatched by useSwipeAction's mutation-level
+          // onError — this per-call handler only repairs the optimistic UI so we
+          // don't double-toast.
+          onError: (err: unknown) => {
+            const { status } = extractApiError(err)
+            // The SwipeDeck already advanced optimistically. The action failed,
+            // so roll that advance back and re-show the card. On a 409 the card's
+            // status changed under the admin — refetch the queue so the stale
+            // card is replaced with fresh data rather than re-shown indefinitely.
+            setUndoTrigger((t) => t + 1)
+            if (status === 409) {
+              void queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
+            }
+          },
+        },
+      )
       // Prefetch next page when approaching end
       if (receipts.length - receipts.findIndex((r) => r.id === id) < 5 && hasNextPage) {
         void fetchNextPage()
       }
     },
-    [swipeAction, receipts, hasNextPage, fetchNextPage],
+    [swipeAction, receipts, hasNextPage, fetchNextPage, queryClient],
   )
 
   const handleTap = useCallback(
@@ -67,12 +90,16 @@ function ReviewContent() {
           }
         },
         onError: (err: unknown) => {
-          const msg =
-            (err as { userMessage?: string })?.userMessage ??
-            (err instanceof Error ? err.message : null) ??
-            'Ошибка при отклонении чека'
-          setRejectError(msg)
-          pushToast(msg, 'dg')
+          const { userMessage, status } = extractApiError(err)
+          setRejectError(userMessage)
+          pushToast(userMessage, 'dg')
+          // On a 409 the receipt changed status under the admin (already
+          // actioned elsewhere) — roll back the optimistic deck advance and
+          // refetch so the stale card isn't left gone in a false-success state.
+          if (status === 409) {
+            setUndoTrigger((t) => t + 1)
+            void queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
+          }
         },
       },
     )

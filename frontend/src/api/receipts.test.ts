@@ -57,8 +57,38 @@ describe('uploadReceiptPackage — batch multipart contract', () => {
     // boundary. If it stays application/json, axios serializes FormData→JSON.
     expect(config.headers['Content-Type']).toBeNull()
 
-    // receipt_id is mapped to a string id.
-    expect(result).toEqual({ id: '7' })
+    // receipt_id is mapped to a string id; warnings default to an empty list
+    // when the 202 carries none.
+    expect(result).toEqual({ id: '7', warnings: [] })
+  })
+
+  it('surfaces the 202 warnings (e.g. POSSIBLE_DUPLICATE) in the result', async () => {
+    post.mockResolvedValueOnce({
+      data: {
+        receipt_id: 88,
+        warnings: [
+          {
+            code: 'POSSIBLE_DUPLICATE',
+            message: 'Похожий чек уже загружался ранее. Вы всё равно можете отправить его на проверку.',
+          },
+        ],
+      },
+    } as unknown as { data: { receipt_id: number } })
+
+    const result = await uploadReceiptPackage([makeFile('a.jpg', 'image/jpeg')], {
+      brandId: 1,
+      idempotencyKey: 'idem-dup',
+    })
+
+    expect(result).toEqual({
+      id: '88',
+      warnings: [
+        {
+          code: 'POSSIBLE_DUPLICATE',
+          message: 'Похожий чек уже загружался ранее. Вы всё равно можете отправить его на проверку.',
+        },
+      ],
+    })
   })
 
   it('includes scanned_qr only when provided', async () => {

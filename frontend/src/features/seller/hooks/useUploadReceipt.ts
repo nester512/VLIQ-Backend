@@ -48,13 +48,18 @@ export function useUploadReceipt() {
         onProgress: setProgress,
       })
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       setProgress(null)
       // Rotate the key so the NEXT submission is treated as a new package.
       idempotencyKeyRef.current = null
       void queryClient.invalidateQueries({ queryKey: ['receipts'] })
       void queryClient.invalidateQueries({ queryKey: ['balance'] })
       pushToast('Чек успешно загружен', 'ok')
+      // Non-blocking advisories (e.g. POSSIBLE_DUPLICATE): the submission still
+      // succeeded — show each as a warning toast; navigation proceeds upstream.
+      for (const warning of result.warnings) {
+        pushToast(warning.message, 'wn')
+      }
     },
     onError: (err: unknown) => {
       setProgress(null)

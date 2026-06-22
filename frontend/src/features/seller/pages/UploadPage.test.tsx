@@ -17,8 +17,8 @@ interface SubmitArgs {
   scannedQr?: string
   brandId?: number
 }
-const mutateAsync = vi.fn<(args: SubmitArgs) => Promise<{ id: string }>>(() =>
-  Promise.resolve({ id: '42' }),
+const mutateAsync = vi.fn<(args: SubmitArgs) => Promise<{ id: string; warnings?: unknown[] }>>(() =>
+  Promise.resolve({ id: '42', warnings: [] }),
 )
 vi.mock('../hooks/useUploadReceipt', () => ({
   useUploadReceipt: () => ({ mutateAsync, isPending: false, progress: null }),
@@ -289,5 +289,37 @@ describe('UploadPage — submit', () => {
     // Selection survives the failure.
     expect(screen.getAllByTestId('attachment-tile')).toHaveLength(2)
     expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('shows a file-specific error inline on a 413 and keeps the selection', async () => {
+    mutateAsync.mockRejectedValueOnce({
+      isAxiosError: true,
+      response: {
+        status: 413,
+        data: {
+          code: 'RECEIPT_FILE_TOO_LARGE',
+          user_message: 'Файл слишком большой. Максимальный размер — 10 МБ.',
+          debug_id: 'd-1',
+        },
+      },
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.upload(pdfFileInput(), makeImage('huge.jpg'))
+    await user.click(screen.getByRole('button', { name: 'Отправить чек' }))
+
+    // Inline, file-specific message surfaced next to the tiles.
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(
+        'Файл слишком большой. Максимальный размер — 10 МБ.',
+      ),
+    )
+    expect(screen.getAllByTestId('attachment-tile')).toHaveLength(1)
+    expect(navigate).not.toHaveBeenCalled()
+
+    // Editing the selection clears the stale inline error.
+    await user.upload(pdfFileInput(), makeImage('small.jpg'))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

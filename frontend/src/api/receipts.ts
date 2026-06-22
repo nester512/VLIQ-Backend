@@ -56,11 +56,19 @@ interface PagedResponse<T> {
   has_more: boolean
 }
 
+/** A non-blocking advisory returned alongside a successful 202 upload. */
+export interface UploadWarning {
+  code: string
+  message: string
+}
+
 /** 202 response from the batch `POST /receipts/upload`. */
 interface BackendReceiptUpload {
   receipt_id: number
   status?: string
   message?: string
+  /** e.g. [{ code: 'POSSIBLE_DUPLICATE', message: '…' }] — additive, optional. */
+  warnings?: UploadWarning[]
 }
 interface BackendReceiptStatus {
   // Backend uses `receipt_id` alias `id` via populate_by_name — accept either.
@@ -171,12 +179,13 @@ export interface UploadReceiptPackageOptions {
  *
  * One submission = one Receipt: every file is sent under the repeated `files`
  * field in a single FormData, so the backend creates exactly one receipt (no
- * per-file loop, no duplicate). Returns the new receipt id as a string.
+ * per-file loop, no duplicate). Returns the new receipt id plus any non-blocking
+ * `warnings` (e.g. POSSIBLE_DUPLICATE) the backend attached to the 202.
  */
 export const uploadReceiptPackage = (
   files: File[],
   opts: UploadReceiptPackageOptions,
-): Promise<{ id: string }> => {
+): Promise<{ id: string; warnings: UploadWarning[] }> => {
   const formData = new FormData()
   // Repeat the `files` field for every attachment (FastAPI reads them as a list).
   for (const file of files) {
@@ -205,5 +214,8 @@ export const uploadReceiptPackage = (
           }
         : undefined,
     })
-    .then((r) => ({ id: String(r.data.receipt_id) }))
+    .then((r) => ({
+      id: String(r.data.receipt_id),
+      warnings: Array.isArray(r.data.warnings) ? r.data.warnings : [],
+    }))
 }

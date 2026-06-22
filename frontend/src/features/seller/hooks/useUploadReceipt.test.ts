@@ -47,7 +47,7 @@ beforeEach(() => {
 
 describe('useUploadReceipt — batch submission', () => {
   it('submits files + scannedQr + brandId in ONE call with an idempotency key', async () => {
-    uploadReceiptPackage.mockResolvedValueOnce({ id: '42' })
+    uploadReceiptPackage.mockResolvedValueOnce({ id: '42', warnings: [] })
     const { result } = renderHook(() => useUploadReceipt(), { wrapper: makeWrapper() })
 
     const files = [makeFile('a.jpg'), makeFile('b.jpg')]
@@ -66,6 +66,31 @@ describe('useUploadReceipt — batch submission', () => {
     expect(typeof opts.idempotencyKey).toBe('string')
     expect(opts.idempotencyKey.length).toBeGreaterThan(0)
     expect(pushToast).toHaveBeenCalledWith('Чек успешно загружен', 'ok')
+  })
+
+  it('shows each POSSIBLE_DUPLICATE warning as a non-blocking toast on success', async () => {
+    uploadReceiptPackage.mockResolvedValueOnce({
+      id: '99',
+      warnings: [
+        {
+          code: 'POSSIBLE_DUPLICATE',
+          message: 'Похожий чек уже загружался ранее. Вы всё равно можете отправить его на проверку.',
+        },
+      ],
+    })
+    const { result } = renderHook(() => useUploadReceipt(), { wrapper: makeWrapper() })
+
+    result.current.mutate({ files: [makeFile('a.jpg')], brandId: 1 })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    // Success toast first, then the warning toast (non-blocking).
+    expect(pushToast).toHaveBeenCalledWith('Чек успешно загружен', 'ok')
+    expect(pushToast).toHaveBeenCalledWith(
+      'Похожий чек уже загружался ранее. Вы всё равно можете отправить его на проверку.',
+      'wn',
+    )
+    // The submission still resolves with the receipt id so the page navigates.
+    expect(result.current.data).toEqual({ id: '99', warnings: expect.any(Array) })
   })
 
   it('surfaces extractApiError.userMessage on failure (not a generic toast)', async () => {
@@ -90,7 +115,7 @@ describe('useUploadReceipt — batch submission', () => {
       .idempotencyKey
 
     // Retry succeeds.
-    uploadReceiptPackage.mockResolvedValueOnce({ id: '7' })
+    uploadReceiptPackage.mockResolvedValueOnce({ id: '7', warnings: [] })
     result.current.mutate({ files: [makeFile('a.jpg')], brandId: 1 })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     const secondKey = (uploadReceiptPackage.mock.calls[1]?.[1] as { idempotencyKey: string })
@@ -100,7 +125,7 @@ describe('useUploadReceipt — batch submission', () => {
   })
 
   it('rotates the idempotency_key for a NEW submission after success', async () => {
-    uploadReceiptPackage.mockResolvedValue({ id: '1' })
+    uploadReceiptPackage.mockResolvedValue({ id: '1', warnings: [] })
     const { result } = renderHook(() => useUploadReceipt(), { wrapper: makeWrapper() })
 
     result.current.mutate({ files: [makeFile('a.jpg')], brandId: 1 })

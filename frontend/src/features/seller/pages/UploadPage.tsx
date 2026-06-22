@@ -7,10 +7,27 @@ import { Btn } from '@/components/atoms/Btn'
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
 import { useUiStore } from '@/store/uiStore'
 import { useUploadReceipt } from '../hooks/useUploadReceipt'
+import { extractApiError } from '@/api/client'
 import { getMe } from '@/api/sellers'
 
 /** Spec cap: one submission = one Receipt with 1..5 attachments. */
 const MAX_FILES = 5
+
+/**
+ * Backend error codes / HTTP statuses that are clearly about the attached
+ * file(s) rather than the request as a whole. When one of these fires we show
+ * the localized message inline near the selected files (best-effort) in
+ * addition to the toast the hook already dispatched.
+ */
+const FILE_SPECIFIC_CODES = new Set([
+  'RECEIPT_FILE_TOO_LARGE',
+  'RECEIPT_UNSUPPORTED_MEDIA',
+  'RECEIPT_INVALID_FILE',
+  'RECEIPT_TOO_MANY_FILES',
+])
+function isFileSpecificError(code: string, status: number): boolean {
+  return FILE_SPECIFIC_CODES.has(code) || status === 413 || status === 415
+}
 
 interface OptionBtnProps {
   icon: ReactNode
@@ -110,6 +127,9 @@ function UploadContent() {
   const [attachments, setAttachments] = useState<SelectedAttachment[]>([])
   const [scannedQr, setScannedQr] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  // Inline message shown next to the file tiles when the LAST upload failed with
+  // a file-specific error (size/type). Cleared on a new send or selection edit.
+  const [fileError, setFileError] = useState<string | null>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -131,6 +151,8 @@ function UploadContent() {
 
   function addFiles(incoming: File[]) {
     if (incoming.length === 0) return
+    // Selection changed — a stale file-specific error no longer applies.
+    setFileError(null)
     setAttachments((prev) => {
       const room = MAX_FILES - prev.length
       if (room <= 0) {
@@ -154,6 +176,7 @@ function UploadContent() {
   }
 
   function removeAttachment(id: string) {
+    setFileError(null)
     setAttachments((prev) => {
       const target = prev.find((a) => a.id === id)
       if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl)
@@ -170,6 +193,7 @@ function UploadContent() {
     })
     setScannedQr(null)
     setUploadProgress(null)
+    setFileError(null)
     if (cameraRef.current) cameraRef.current.value = ''
     if (fileRef.current) fileRef.current.value = ''
   }
@@ -195,6 +219,7 @@ function UploadContent() {
     // At least one file is required — QR alone is NOT submittable.
     if (attachments.length === 0) return
     setUploadProgress(null)
+    setFileError(null)
     try {
       // ONE request for the whole package: all files + brand_id + optional QR.
       const receipt = await uploadReceipt({
@@ -205,10 +230,15 @@ function UploadContent() {
       setUploadProgress(null)
       clearAll()
       navigate(`/seller/status/${receipt.id}`)
-    } catch {
-      // Keep the selection so the user can retry (same idempotency key).
+    } catch (err) {
+      // Keep the selection + scanned QR so the user can retry (same idempotency
+      // key held in the hook ref). Error toast is dispatched inside the hook;
+      // for file-specific errors (size/type) also surface it inline.
       setUploadProgress(null)
-      // Error toast is dispatched inside the hook.
+      const { code, status, userMessage } = extractApiError(err)
+      if (isFileSpecificError(code, status)) {
+        setFileError(userMessage)
+      }
     }
   }
 
@@ -358,6 +388,20 @@ function UploadContent() {
             >
               {atCap ? `Максимум ${MAX_FILES} файлов` : '+ Добавить ещё'}
             </button>
+            {fileError && (
+              <p
+                role="alert"
+                style={{
+                  marginTop: 10,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  lineHeight: 1.35,
+                  color: 'var(--color-dg)',
+                }}
+              >
+                {fileError}
+              </p>
+            )}
           </div>
         ) : (
           <>
