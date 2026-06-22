@@ -49,8 +49,21 @@ if ! "${COMPOSE[@]}" up -d --remove-orphans --wait --wait-timeout 180; then
   exit 1
 fi
 
-if ! curl --fail --silent --show-error --max-time 15 "${HEALTH_URL}" >/dev/null; then
+# Caddy mounts Caddyfile from the checkout. Compose does not recreate a running
+# container when only the contents of a bind-mounted file change, so explicitly
+# recreate the proxy before probing public routes such as /health and /storage.
+if ! "${COMPOSE[@]}" up -d --force-recreate --no-deps caddy; then
+  "${COMPOSE[@]}" logs --tail=100 caddy >&2 || true
+  rollback || true
+  exit 1
+fi
+
+health_body=""
+if ! health_body="$(curl --fail --silent --show-error --max-time 5 \
+  --retry 10 --retry-connrefused --retry-delay 2 --retry-max-time 30 "${HEALTH_URL}")" \
+  || [[ "${health_body}" != '{"result":"ok"}' ]]; then
   echo "Public health-check failed: ${HEALTH_URL}" >&2
+  echo "Unexpected response: ${health_body:-<empty>}" >&2
   "${COMPOSE[@]}" logs --tail=100 backend caddy >&2 || true
   rollback || true
   exit 1
