@@ -15,7 +15,7 @@ import logging
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, Form, Query, Request, Response, UploadFile, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,6 +55,7 @@ from src.receipt.schemas.api import (
 from src.receipt.service import PackageValidationError, PreparedAttachment, create_receipt_package
 from src.receipt.upload_session import UploadSessionError, sign_upload_session, verify_upload_session
 from src.receipt_ocr.hasher import sha256_hash
+from src.receipt_ocr.image_token import ImageTokenError, verify_image_uri
 from src.receipt_ocr.mime import sniff_mime
 from src.receipt_ocr.qr_parser import QRParseError, parse_qr_string
 from src.receipt_ocr.storage import get_receipt_storage, to_viewable_url
@@ -67,6 +68,55 @@ router = APIRouter(prefix="/receipts", tags=["Receipt"])
 
 _state_machine = ReceiptStateMachine()
 _storage = get_receipt_storage()
+
+# Browser <img>-viewable media types, keyed by storage-URI extension.
+_VIEWABLE_MEDIA_TYPES = {
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+    "pdf": "application/pdf",
+}
+
+
+def _media_type_for_uri(uri: str) -> str:
+    ext = uri.rsplit(".", 1)[-1].lower() if "." in uri else ""
+    return _VIEWABLE_MEDIA_TYPES.get(ext, "application/octet-stream")
+
+
+# ---------------------------------------------------------------------------
+# Signed image proxy — streams a receipt file to the browser <img src>.
+# Declared early so the static ``/attachments/file`` path is matched cleanly.
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/attachments/file",
+    include_in_schema=False,
+    summary="Stream a receipt attachment via a signed URL (browser <img> src)",
+)
+async def get_attachment_file(sig: str = Query(..., description="Signed access token")) -> Response:
+    """Serve a stored receipt file to the browser.
+
+    Unauthenticated *by design*: a plain ``<img src>`` cannot send the JWT
+    header, so access is proven by the HMAC ``sig`` — which is minted only inside
+    authenticated API responses (see :func:`to_viewable_url`). Bytes are streamed
+    through the backend so MinIO stays private and everything stays on the HTTPS
+    origin Caddy already serves.
+    """
+    try:
+        uri = verify_image_uri(sig)
+    except ImageTokenError:
+        return Response(status_code=status.HTTP_403_FORBIDDEN)
+    try:
+        data = await _storage.read(uri)
+    except FileNotFoundError:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    return Response(
+        content=data,
+        media_type=_media_type_for_uri(uri),
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -657,6 +707,12 @@ async def reject_receipt(
 
         seller_id = receipt.seller_id
 
+        # If the receipt was already approved (accrual inserted), reverse that
+        # bonus now: an approved→rejected cancellation — including a stale-state
+        # double-action race — must not leave the seller credited for a rejected
+        # receipt. No-op when the receipt was not approved.
+        await _reverse_receipt_accrual(session, receipt=receipt, admin_id=token["user_id"])
+
         await session.execute(
             update(Receipt)
             .where(Receipt.id == receipt_id)
@@ -710,6 +766,12 @@ async def revise_receipt(
         _require_transition(receipt, ReceiptStatus.rejected.value, "admin")
 
         seller_id = receipt.seller_id
+
+        # If the receipt was already approved (accrual inserted), reverse that
+        # bonus now: an approved→rejected cancellation — including a stale-state
+        # double-action race — must not leave the seller credited for a rejected
+        # receipt. No-op when the receipt was not approved.
+        await _reverse_receipt_accrual(session, receipt=receipt, admin_id=token["user_id"])
 
         await session.execute(
             update(Receipt)
@@ -1003,7 +1065,10 @@ async def list_receipts(  # noqa: PLR0913
     for r in rows:
         item = ReceiptRead.model_validate(r, from_attributes=True)
         # Expose a browser-viewable photo URL so the admin review deck can show it.
-        item.file_url = to_viewable_url(r.file_url) or r.file_url
+        # NB: no ``or r.file_url`` fallback — to_viewable_url already returns None
+        # for non-viewable URIs (seed://, local://); leaking the raw URI here would
+        # make the frontend render a broken <img src="seed://…">.
+        item.file_url = to_viewable_url(r.file_url)
         items.append(item)
     await _attach_seller_info(session, items)
     return PagedResponse.build(items=items, total=total, page=page, limit=limit)
@@ -1021,7 +1086,7 @@ async def get_receipt(
 ) -> ReceiptRead:
     receipt = await _get_receipt_or_404(session, receipt_id)
     read = ReceiptRead.model_validate(receipt)
-    read.file_url = to_viewable_url(receipt.file_url) or receipt.file_url
+    read.file_url = to_viewable_url(receipt.file_url)
     await _attach_seller_info(session, [read])
     return read
 
@@ -1104,7 +1169,7 @@ async def _build_receipt_read(session: AsyncSession, receipt_id: int) -> Receipt
     """
     receipt = await _get_receipt_or_404(session, receipt_id)
     read = ReceiptRead.model_validate(receipt)
-    read.file_url = to_viewable_url(receipt.file_url) or receipt.file_url
+    read.file_url = to_viewable_url(receipt.file_url)
     return read
 
 
@@ -1123,6 +1188,47 @@ def _require_transition(receipt: Receipt, to_status: str, actor: str) -> None:
     """Raise 409 if the state machine does not allow this transition (T5)."""
     if not _state_machine.can_transition(from_status=receipt.status, to_status=to_status, actor=actor):
         raise AppError("RECEIPT_INVALID_STATE_TRANSITION", status_code=409)
+
+
+async def _reverse_receipt_accrual(session: AsyncSession, *, receipt: Receipt, admin_id: int) -> int:
+    """Reverse the bonus accrued for *receipt* when an APPROVED receipt is cancelled.
+
+    Approving inserts an ``accrual_receipt`` bonus_transaction. The state machine
+    lets an admin reject an already-approved receipt (explicit cancellation, or a
+    stale-state race: an approve still in-flight → page refresh → reject). Without
+    reversing the accrual the seller keeps a bonus for a *rejected* receipt. We
+    insert a compensating ``correction`` for the exact net amount this receipt
+    credited (sum of its ledger entries, so prior bonus edits are accounted for).
+
+    Caller must hold the receipt row lock (``_get_receipt_for_update``) and pass
+    the pre-update ORM object. No-op unless the receipt is currently ``approved``.
+    Returns the reversed amount (0 when nothing was reversed).
+    """
+    if receipt.status != ReceiptStatus.approved.value:
+        return 0
+    accrued: int = (
+        await session.execute(
+            select(func.coalesce(func.sum(BonusTransaction.amount), 0)).where(
+                BonusTransaction.source_type == "receipt",
+                BonusTransaction.source_id == receipt.id,
+            )
+        )
+    ).scalar_one()
+    if not accrued:
+        return 0
+    session.add(
+        BonusTransaction(
+            seller_id=receipt.seller_id,
+            brand_id=receipt.brand_id,
+            amount=-accrued,
+            kind=BonusTransactionKind.correction.value,
+            source_type="receipt",
+            source_id=receipt.id,
+            reason=f"Receipt #{receipt.id} cancelled by admin {admin_id}: accrued bonus reversed",
+            created_by=admin_id,
+        )
+    )
+    return accrued
 
 
 def _insert_audit_log(  # noqa: PLR0913
