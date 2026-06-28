@@ -60,9 +60,13 @@ export function useSwipeAction() {
       // list shrank by one WHILE deckIdx advanced by one — consuming two cards
       // per swipe and making the rest "disappear" as if the queue ended.
       // The local index already hides swiped cards; fresh receipts arrive via
-      // fetchNextPage / staleTime refetch on re-entry. Only the dashboard
-      // counters need refreshing.
+      // fetchNextPage / staleTime refetch on re-entry.
       queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] })
+      // The per-seller receipts list (['admin','seller-receipts',<id>]) is a
+      // SEPARATE query from the deck — it is NOT walked by deckIdx, so refreshing
+      // it after a status change is safe and keeps SellerReceiptsPage in sync
+      // (it would otherwise show the stale pre-action status).
+      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
 
       if (dir === 'approve') {
         impact('medium')

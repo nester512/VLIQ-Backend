@@ -202,3 +202,22 @@ describe('AttachmentViewer — final info card page', () => {
     expect(hostPointerDown).not.toHaveBeenCalled()
   })
 })
+
+describe('AttachmentViewer — root positioning (fills its host box)', () => {
+  it('uses the host position class verbatim, without injecting a `relative` clash', () => {
+    // Hosts (SwipeDeck / ReceiptDetailSheet) wrap the viewer in a sized,
+    // positioned box and pass `absolute inset-0` so it fills that box. The
+    // component must NOT also force `relative`: Tailwind emits `.relative` after
+    // `.absolute`, so the injected class would win and drop the all-absolute
+    // viewer back into flow at height 0 (blank image + controls bunched on top).
+    render(<AttachmentViewer attachments={[img()]} className="absolute inset-0" />)
+    const root = screen.getByTestId('attachment-viewer')
+    expect(root).toHaveClass('absolute', 'inset-0')
+    expect(root).not.toHaveClass('relative')
+  })
+
+  it('falls back to `relative` when the host supplies no positioning', () => {
+    render(<AttachmentViewer attachments={[img()]} />)
+    expect(screen.getByTestId('attachment-viewer')).toHaveClass('relative')
+  })
+})
