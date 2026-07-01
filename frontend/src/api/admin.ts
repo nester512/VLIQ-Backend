@@ -7,6 +7,12 @@ import type {
 
 export type ReviewAction = 'approve' | 'reject' | 'revise'
 
+export interface ReceiptReviewActionPayload {
+  comment?: string | null
+  /** Bonus amount in kopecks. Required by backend when approving a receipt with no recognized bonus. */
+  bonusAmountKopecks?: number | null
+}
+
 export interface AdminReceiptsFilters {
   status?: string[]
   seller_id?: number
@@ -114,6 +120,8 @@ interface BackendSeller {
 interface BackendPayoutRequest {
   id: number
   seller_id: number
+  seller_name?: string | null
+  seller_store?: string | null
   brand_id: number
   amount: number
   payout_kind: PayoutMethod
@@ -211,6 +219,8 @@ function mapPayout(p: BackendPayoutRequest): PayoutRequest {
   return {
     id: String(p.id),
     seller_id: p.seller_id,
+    seller_name: p.seller_name ?? undefined,
+    seller_store: p.seller_store ?? undefined,
     amount: p.amount,
     method: p.payout_kind,
     details: p.payout_masked,
@@ -223,6 +233,9 @@ function mapPayout(p: BackendPayoutRequest): PayoutRequest {
 const DUPLICATE_SIGNALS = new Set([
   'duplicate',
   'duplicate_qr',
+  'file_hash_duplicate',
+  'qr_raw_duplicate',
+  'fn_fd_fp_duplicate',
   'historical_duplicate_fn_fd_fp',
   'historical_duplicate_file_hash',
   'cross_seller_duplicate',
@@ -231,19 +244,48 @@ const DUPLICATE_SIGNALS = new Set([
 /** Human-readable Russian label per known fraud-signal slug. */
 const FRAUD_SIGNAL_LABEL: Record<string, string> = {
   multiple_receipts_detected: 'В одной загрузке обнаружено несколько разных чеков',
+  file_hash_duplicate: 'Дубль файла — такое изображение уже загружалось',
+  qr_raw_duplicate: 'Дубль QR-кода — этот чек уже загружался',
+  fn_fd_fp_duplicate: 'Дубль по ФН / ФД / ФП — чек уже загружался',
   historical_duplicate_fn_fd_fp: 'Дубль по ФН / ФД / ФП — чек уже загружался',
   historical_duplicate_file_hash: 'Дубль файла — идентичное изображение уже загружалось',
   cross_seller_duplicate: 'Дубль между продавцами — этот чек уже загрузил другой продавец',
   demo_mode: 'Демо-режим: проверка ФНС/ОFD не выполнялась',
   receipt_too_old: 'Чек слишком старый — вне допустимого периода',
   qr_ofd_sum_mismatch: 'Сумма из QR не совпала с данными ОФД',
+  no_sku_match: 'Не удалось сопоставить товары из чека',
+  pipeline_enqueue_failed: 'Автоматическая обработка не запустилась — требуется ручная проверка',
+}
+
+function formatRub(kop: unknown): string | null {
+  if (typeof kop !== 'number' || !Number.isFinite(kop)) return null
+  return new Intl.NumberFormat('ru-RU', {
+    style: 'currency',
+    currency: 'RUB',
+    maximumFractionDigits: 2,
+  }).format(kop / 100)
 }
 
 /** Stringify backend `details` into a readable Russian sentence. */
 function fraudDetailsText(slug: string, raw: BackendFraudSignal): string {
   const base = FRAUD_SIGNAL_LABEL[slug]
   const d = raw.details
-  if (typeof d === 'string' && d.trim()) return base ? `${base}: ${d}` : d
+  if (slug === 'qr_ofd_sum_mismatch' && d && typeof d === 'object') {
+    const qr = formatRub((d as Record<string, unknown>)['qr_sum_kop'])
+    const ofd = formatRub((d as Record<string, unknown>)['ofd_sum_kop'])
+    if (qr && ofd) return `${base}: QR ${qr}, ОФД ${ofd}`
+  }
+  if (slug === 'receipt_too_old' && d && typeof d === 'object') {
+    const details = d as Record<string, unknown>
+    const age = details['age_days']
+    const max = details['max_age_days']
+    if (typeof age === 'number' && typeof max === 'number') {
+      return `${base}: ${age} дн. при лимите ${max} дн.`
+    }
+  }
+  // Backend may still send English/debug text in details. Prefer the curated
+  // Russian label for known slugs; details stay available in DB/audit logs.
+  if (typeof d === 'string' && d.trim()) return base ?? d
   if (base) return base
   if (d && typeof d === 'object') return JSON.stringify(d)
   return slug
@@ -266,11 +308,19 @@ function identitiesFromSignal(s: BackendFraudSignal): FiscalIdentity[] {
 
 /** Collect every extraction warning across all positions in ocr_raw. */
 function extractionWarnings(ocr: BackendOcrRaw | null | undefined): string[] {
+  const label: Record<string, string> = {
+    file_unreadable: 'Файл не удалось прочитать',
+    pdf_not_rasterized: 'PDF не удалось преобразовать в изображение',
+    no_qr_found: 'QR-код не найден',
+    low_confidence: 'Низкая уверенность распознавания',
+  }
   const evidence = ocr?.extraction_evidence
   if (!evidence) return []
   const out: string[] = []
   for (const ev of Object.values(evidence)) {
-    if (ev?.warnings) out.push(...ev.warnings.filter((w): w is string => typeof w === 'string'))
+    if (ev?.warnings) {
+      out.push(...ev.warnings.filter((w): w is string => typeof w === 'string').map((w) => label[w] ?? w))
+    }
   }
   return out
 }
@@ -404,8 +454,11 @@ export const getAdminReceipts = async (
 
 // All three endpoints accept a `{ comment }` body (Pydantic ReceiptReviewAction).
 // Sending no body returns 422 — same regression class as the payout fix.
-export const approveReceipt = (id: string, comment?: string) =>
-  api.post<void>(`/receipts/${id}/approve`, { comment: comment ?? null }).then((r) => r.data)
+export const approveReceipt = (id: string, payload: ReceiptReviewActionPayload = {}) =>
+  api.post<void>(`/receipts/${id}/approve`, {
+    comment: payload.comment ?? null,
+    bonus_amount: payload.bonusAmountKopecks ?? null,
+  }).then((r) => r.data)
 
 export const rejectReceipt = (id: string, comment?: string) =>
   api.post<void>(`/receipts/${id}/reject`, { comment: comment ?? null }).then((r) => r.data)

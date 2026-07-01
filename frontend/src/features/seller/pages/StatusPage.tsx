@@ -46,14 +46,14 @@ function buildTimeline(status: ReceiptStatus, createdAt: string): TimelineStep[]
   }).format(new Date(createdAt))
   const isOk     = status === 'approved' || status === 'paid_out'
   const isDg     = status === 'rejected'
-  const isReview = status === 'on_review' || status === 'needs_revision'
+  const isReview = status === 'pending' || status === 'ocr_in_progress' || status === 'on_review' || status === 'needs_revision'
   const isProcessing = status === 'pending' || status === 'ocr_in_progress'
 
   return [
     { label: 'Чек получен',          subtitle: fmtDate, status: 'done' },
     { label: 'Данные распознаны',     subtitle: isProcessing ? 'Обрабатывается…' : undefined, status: isProcessing ? 'active' : 'done' },
     { label: 'Проверка администратором', subtitle: isReview ? 'Обычно до 24 часов' : undefined, status: isReview ? 'active' : (isOk || isDg ? 'done' : 'pending') },
-    { label: 'Начисление бонуса',     subtitle: isOk ? 'Завершено' : 'Ожидается', status: isOk ? 'done' : 'pending' },
+    { label: 'Начисление бонуса',     subtitle: isOk ? 'Завершено' : (isDg ? 'Не начисляется' : 'Ожидается'), status: isOk ? 'done' : (isDg ? 'failed' : 'pending') },
   ]
 }
 
@@ -275,19 +275,18 @@ export function StatusPage() {
       <ReceiptAttachments receipt={receipt} />
 
       {/* Bonus preview */}
-      {receipt.bonus_amount !== undefined && receipt.bonus_amount > 0 && (
+      {receipt.bonus_amount !== undefined
+        && receipt.bonus_amount > 0
+        && (receipt.status === 'approved' || receipt.status === 'paid_out') && (
         <div className="vliq-card" style={{ padding: 16, marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--vliq-hint)' }}>
-              {receipt.status === 'approved' || receipt.status === 'paid_out' ? 'Начислено' : 'Предварительный бонус'}
+              Начислено
             </div>
             <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--vliq-text)', fontVariantNumeric: 'tabular-nums' }}>
               +{fmtMoney(receipt.bonus_amount)}
             </div>
           </div>
-          {receipt.status !== 'approved' && receipt.status !== 'paid_out' && (
-            <Pill kind="muted">после одобрения</Pill>
-          )}
         </div>
       )}
     </div>

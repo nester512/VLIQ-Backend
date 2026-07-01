@@ -4,6 +4,11 @@ import { Icon } from '@/components/atoms/Icon'
 import { EmptyState } from '@/components/molecules/EmptyState'
 import { usePromotions } from '../hooks/usePromotions'
 
+// MVP decision: promotions are hidden, not deleted. Keep the screen/route and
+// old implementation below so the feature can be restored after product rules
+// and promotion mechanics are finalized.
+const PROMO_MVP_PLACEHOLDER = true
+
 /** Placeholder that mirrors a PromoCard's visual weight (gradient hero + rows). */
 function PromoCardSkeleton() {
   return (
@@ -14,6 +19,23 @@ function PromoCardSkeleton() {
 }
 
 export function PromoPage() {
+  return PROMO_MVP_PLACEHOLDER ? <PromoComingSoon /> : <PromoActualPage />
+}
+
+function PromoComingSoon() {
+  return (
+    <div className="vliq-pad" style={{ paddingTop: 14 }}>
+      <EmptyState
+        icon="gift"
+        tone="brand"
+        title="Акции скоро будут доступны"
+        description="В текущем MVP бонус не начисляется автоматически по акциям: администратор подтверждает сумму вручную при проверке чека."
+      />
+    </div>
+  )
+}
+
+function PromoActualPage() {
   const { data: promotions, isLoading } = usePromotions()
   const list = promotions ?? []
 

@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { SwipeDeck } from '@/components/organisms/SwipeDeck'
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
 import { RejectReasonSheet } from '@/components/molecules/RejectReasonSheet'
+import { EditBonusSheet } from '@/components/molecules/EditBonusSheet'
 import { useUiStore } from '@/store/uiStore'
 import { extractApiError } from '@/api/client'
 import {
@@ -25,6 +26,7 @@ function ReviewContent() {
   // Local state for the reject reason sheet
   const [rejectingReceiptId, setRejectingReceiptId] = useState<string | null>(null)
   const [rejectError, setRejectError] = useState<string | null>(null)
+  const [approvingReceiptId, setApprovingReceiptId] = useState<string | null>(null)
   // Bumped when the admin cancels the reject sheet OR a swipe action fails →
   // SwipeDeck rolls back the last optimistic advance and re-shows the card.
   // Without this the card visually vanishes from the deck even though the
@@ -34,10 +36,22 @@ function ReviewContent() {
 
   const handleSwipe = useCallback(
     (id: string, dir: SwipeDirection) => {
+      const receipt = receipts.find((r) => r.id === id)
+      if (receipt?.status !== 'on_review') {
+        pushToast('Чек ещё обрабатывается. Откройте карточку для просмотра данных.', 'wn')
+        setUndoTrigger((t) => t + 1)
+        return
+      }
       if (dir === 'reject') {
         // Intercept: open reason sheet instead of firing immediately
         setRejectingReceiptId(id)
         setRejectError(null)
+        return
+      }
+      if (dir === 'approve' && (receipt?.bonus_amount ?? 0) <= 0) {
+        // Per updated flow: if recognition didn't produce a bonus, admin must
+        // enter it before confirmation. Closing this sheet rolls the deck back.
+        setApprovingReceiptId(id)
         return
       }
       swipeAction(
@@ -64,7 +78,7 @@ function ReviewContent() {
         void fetchNextPage()
       }
     },
-    [swipeAction, receipts, hasNextPage, fetchNextPage, queryClient],
+    [swipeAction, receipts, hasNextPage, fetchNextPage, queryClient, pushToast],
   )
 
   const handleTap = useCallback(
@@ -112,6 +126,40 @@ function ReviewContent() {
     setUndoTrigger((t) => t + 1)
   }
 
+  function prefetchIfNearEnd(id: string) {
+    if (receipts.length - receipts.findIndex((r) => r.id === id) < 5 && hasNextPage) {
+      void fetchNextPage()
+    }
+  }
+
+  function handleApproveBonusConfirm(amountKopecks: number) {
+    if (!approvingReceiptId) return
+    const id = approvingReceiptId
+    swipeAction(
+      { id, dir: 'approve', bonusAmountKopecks: amountKopecks },
+      {
+        onSuccess: () => {
+          setApprovingReceiptId(null)
+          prefetchIfNearEnd(id)
+        },
+        onError: (err: unknown) => {
+          const { status } = extractApiError(err)
+          setApprovingReceiptId(null)
+          setUndoTrigger((t) => t + 1)
+          if (status === 409) {
+            void queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
+          }
+        },
+      },
+    )
+  }
+
+  function handleApproveBonusClose() {
+    setApprovingReceiptId(null)
+    // Roll back the SwipeDeck advance so the cancelled card reappears.
+    setUndoTrigger((t) => t + 1)
+  }
+
   return (
     // SwipeDeck uses position:absolute inset:0 internally — need relative container
     // vliq-review-wrap/vliq-review-deck center the card on desktop (≥1280px)
@@ -130,6 +178,16 @@ function ReviewContent() {
         onClose={handleRejectClose}
         onConfirm={handleRejectConfirm}
         isSubmitting={isSwipePending}
+      />
+      <EditBonusSheet
+        open={approvingReceiptId !== null}
+        onClose={handleApproveBonusClose}
+        onConfirm={handleApproveBonusConfirm}
+        isSubmitting={isSwipePending}
+        title="Укажите бонус"
+        confirmLabel="Подтвердить"
+        submittingLabel="Подтверждение…"
+        requirePositive
       />
       {rejectError && null /* error is surfaced via toast */}
     </div>

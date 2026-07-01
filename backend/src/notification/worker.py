@@ -52,6 +52,7 @@ _TEMPLATES: dict[str, str] = {
         "✅ Чек №{receipt_id} одобрен!\nНачислено: <b>+{bonus_amount} ₽</b>\nДоступно к выплате: {available} ₽"
     ),
     "receipt.rejected": "❌ Чек №{receipt_id} отклонён\nПричина: {reason}",
+    "receipt.bonus_changed": "✏️ Сумма бонуса по чеку №{receipt_id} изменена\nНовая сумма: <b>{bonus_amount} ₽</b>",
     "receipt.needs_revision": "✏️ Чек №{receipt_id} отправлен на доработку\nЧто исправить: {reason}",
     "payout.sent": "💸 Выплата {amount} ₽ отправлена на {payout_masked}",
 }

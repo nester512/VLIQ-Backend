@@ -1,11 +1,10 @@
 """Real-PostgreSQL integration tests for the receipt pipeline.
 
-Guards the P0 defect that mock-session tests hid: the orchestrator's terminal
-steps used ``session.begin()`` after earlier executes, raising "A transaction is
-already begun" — so an A+B package fell into the generic fallback and landed
-on_review instead of rejected. These run a REAL AsyncSession + real QR extraction
-(zxing) + real PDF rasterization (pypdfium2), in demo mode for determinism (the
-full OFD path was verified live).
+Guards the P0 defect that mock-session tests hid: late pipeline steps used
+``session.begin()`` after earlier executes, raising "A transaction is already
+begun". These run a REAL AsyncSession + real QR extraction (zxing) + real PDF
+rasterization (pypdfium2), in demo mode for determinism (the full OFD path was
+verified live).
 """
 
 from __future__ import annotations
@@ -119,64 +118,63 @@ _B_QR = "t=20260610T1015&s=350.00&fn=9876543210&i=54321&fp=22222&n=1"
 
 
 # ---------------------------------------------------------------------------
-# >1 identity → rejected (MULTIPLE_RECEIPTS_DETECTED)
+# >1 identity → on_review with admin fraud signal (no auto-reject)
 # ---------------------------------------------------------------------------
 
 
-async def test_pipeline__A_plus_B_two_files__rejected(session_factory, tmp_path) -> None:
+async def test_pipeline__A_plus_B_two_files__signals_for_review(session_factory, tmp_path) -> None:
     storage = LocalFileStorage(base_dir=tmp_path)
     rid = await _make_receipt(session_factory, storage, [(_A_PNG, "image/png"), (_B_PNG, "image/png")], key="ab-1234567")
     async with session_factory() as s:
         await _orchestrator(storage).process(rid, s)
 
     row = await _row(session_factory, rid)
-    assert row.status == "rejected"
-    assert row.rejection_code == "MULTIPLE_RECEIPTS_DETECTED"
-    assert row.rejection_reason is not None
-    assert "несколько разных чеков" in row.rejection_reason
+    assert row.status == "on_review"
+    assert row.rejection_code is None
+    assert row.rejection_reason is None
     assert await _count(session_factory, "SELECT count(*) FROM vliq.receipt_attachment WHERE receipt_id=:id", id=rid) == 2
-    # Exactly one rejection notification.
+    # No seller notification: the admin has not rejected the receipt yet.
     assert await _count(
         session_factory, "SELECT count(*) FROM vliq.notification_outbox WHERE recipient_id=:s", s=SEED_SELLER_ID
-    ) == 1
+    ) == 0
 
 
-async def test_pipeline__retry_rejected__no_second_notification(session_factory, tmp_path) -> None:
+async def test_pipeline__retry_multiple_signal__no_notification(session_factory, tmp_path) -> None:
     storage = LocalFileStorage(base_dir=tmp_path)
     rid = await _make_receipt(session_factory, storage, [(_A_PNG, "image/png"), (_B_PNG, "image/png")], key="ab-retry-1")
     async with session_factory() as s:
         await _orchestrator(storage).process(rid, s)
-    # Retry the now-terminal receipt — must be a no-op.
+    # Retry the now-reviewable receipt — still no seller rejection notification.
     async with session_factory() as s:
         await _orchestrator(storage).process(rid, s)
-    assert (await _row(session_factory, rid)).status == "rejected"
+    assert (await _row(session_factory, rid)).status == "on_review"
     assert await _count(
         session_factory, "SELECT count(*) FROM vliq.notification_outbox WHERE recipient_id=:s", s=SEED_SELLER_ID
-    ) == 1
+    ) == 0
 
 
-async def test_pipeline__A_and_B_one_image__rejected(session_factory, tmp_path) -> None:
+async def test_pipeline__A_and_B_one_image__signals_for_review(session_factory, tmp_path) -> None:
     storage = LocalFileStorage(base_dir=tmp_path)
     rid = await _make_receipt(session_factory, storage, [(_two_qr_one_image(), "image/png")], key="abimg-12345")
     async with session_factory() as s:
         await _orchestrator(storage).process(rid, s)
-    assert (await _row(session_factory, rid)).status == "rejected"
+    assert (await _row(session_factory, rid)).status == "on_review"
 
 
-async def test_pipeline__A_and_B_pdf_pages__rejected(session_factory, tmp_path) -> None:
+async def test_pipeline__A_and_B_pdf_pages__signals_for_review(session_factory, tmp_path) -> None:
     storage = LocalFileStorage(base_dir=tmp_path)
     rid = await _make_receipt(session_factory, storage, [(_two_page_pdf(), "application/pdf")], key="abpdf-12345")
     async with session_factory() as s:
         await _orchestrator(storage).process(rid, s)
-    assert (await _row(session_factory, rid)).status == "rejected"
+    assert (await _row(session_factory, rid)).status == "on_review"
 
 
-async def test_pipeline__scanned_A_plus_file_B__rejected(session_factory, tmp_path) -> None:
+async def test_pipeline__scanned_A_plus_file_B__signals_for_review(session_factory, tmp_path) -> None:
     storage = LocalFileStorage(base_dir=tmp_path)
     rid = await _make_receipt(session_factory, storage, [(_B_PNG, "image/png")], scanned_qr=_A_QR, key="sab-123456")
     async with session_factory() as s:
         await _orchestrator(storage).process(rid, s)
-    assert (await _row(session_factory, rid)).status == "rejected"
+    assert (await _row(session_factory, rid)).status == "on_review"
 
 
 # ---------------------------------------------------------------------------

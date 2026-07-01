@@ -143,6 +143,11 @@ class ReceiptReviewAction(BaseModel):
     """Request body for admin approve / reject / revise endpoints (H22)."""
 
     comment: str | None = Field(default=None, description="Optional moderator comment / rejection reason")
+    bonus_amount: int | None = Field(
+        default=None,
+        ge=0,
+        description="Bonus amount in kopecks. Required by the approve flow when the receipt has no bonus yet.",
+    )
 
 
 # ---------------------------------------------------------------------------

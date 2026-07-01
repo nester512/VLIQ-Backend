@@ -9,6 +9,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.auth.jwt import jwt_auth
+from src.bonus_transaction.models import BonusTransaction
+from src.notification.models import NotificationOutbox
 from src.receipt.models import Receipt, ReceiptFileKind
 from src.seller.models import Seller
 
@@ -119,7 +121,7 @@ async def test_valid_on_review(client: AsyncClient, app) -> None:
 
 @pytest.mark.asyncio
 async def test_valid_approved_creates_correction(client: AsyncClient, app) -> None:
-    """Admin edits bonus on approved receipt → 200, correction BonusTransaction added."""
+    """Admin edits bonus on approved receipt → correction and seller notification are recorded."""
     receipt = _make_receipt(status="approved", bonus_amount=100)
     session_mock = _make_session(receipt)
 
@@ -137,9 +139,15 @@ async def test_valid_approved_creates_correction(client: AsyncClient, app) -> No
     )
 
     assert resp.status_code == 200
-    # BonusTransaction (correction) and AuditLog should have been add()-ed.
-    # We verify add was called at least twice (correction + audit).
-    assert session_mock.add.call_count >= 2
+    added = [call.args[0] for call in session_mock.add.call_args_list]
+    corrections = [x for x in added if isinstance(x, BonusTransaction)]
+    outbox_rows = [x for x in added if isinstance(x, NotificationOutbox)]
+    assert len(corrections) == 1
+    assert corrections[0].amount == 150
+    assert len(outbox_rows) == 1
+    assert outbox_rows[0].recipient_id == receipt.seller_id
+    assert outbox_rows[0].template == "receipt.bonus_changed"
+    assert outbox_rows[0].payload == {"receipt_id": 1, "bonus_amount": 250}
 
 
 @pytest.mark.asyncio

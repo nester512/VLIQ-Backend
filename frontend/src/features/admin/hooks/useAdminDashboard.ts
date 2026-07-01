@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getAdminSellers, getAdminPayouts, getAdminReceipts } from '@/api/admin'
 import { isApprovedStatus } from '@/utils/receiptStatus'
+import { REVIEW_QUEUE_STATUSES } from './useReviewQueue'
 import type { AdminSellerRow } from '@/api/admin'
 
 export interface ChartData {
@@ -54,9 +55,7 @@ export function useAdminDashboard() {
         getAdminReceipts({ limit: 200 }),
         // Use the same status filter the review-queue uses so the dashboard
         // counter never disagrees with what /admin/review actually shows.
-        // (Pending = still in the pipeline worker. Needs_revision = terminal
-        // for seller to re-upload. Neither is actionable by admin.)
-        getAdminReceipts({ status: ['on_review'], limit: 1 }),
+        getAdminReceipts({ status: [...REVIEW_QUEUE_STATUSES], limit: 1 }),
       ])
 
       const sellers = sellersPage.items

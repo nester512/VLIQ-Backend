@@ -71,7 +71,7 @@ function HomeContent() {
           <QuickActionCard
             icon={<Icon name="gift" size={22} />}
             title="Акции"
-            subtitle="Действующие сейчас"
+            subtitle="Скоро"
             color="--color-ok"
             onClick={() => navigate('/seller/promo')}
           />

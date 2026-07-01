@@ -21,7 +21,7 @@ USER_MESSAGES: dict[str, str] = {
     "RECEIPT_UPLOAD_SESSION_INVALID": "Время загрузки истекло. Выберите файлы и отправьте чек ещё раз.",
     "RECEIPT_OBJECT_MISSING": "Не удалось найти загруженный файл. Загрузите его ещё раз.",
     "QR_ONLY_DEPRECATED": "QR-код можно отправить только вместе с фото или PDF чека.",
-    "MULTIPLE_RECEIPTS_DETECTED": "В одной загрузке обнаружено несколько разных чеков. Загрузите каждый чек отдельно.",
+    "MULTIPLE_RECEIPTS_DETECTED": "В одной загрузке обнаружены признаки нескольких разных чеков. Администратор проверит их вручную.",
     # --- Receipt (general / admin actions) ---
     "RECEIPT_NOT_FOUND": "Чек не найден или был удалён.",
     "RECEIPT_NOT_YOURS": "Этот чек принадлежит другому продавцу.",
@@ -29,6 +29,7 @@ USER_MESSAGES: dict[str, str] = {
     "RECEIPT_INVALID_STATE_TRANSITION": "Это действие недоступно для текущего статуса чека. Обновите очередь.",
     "RECEIPT_REASON_REQUIRED": "Укажите причину отклонения.",
     "RECEIPT_INVALID_BONUS": "Укажите корректную сумму бонуса.",
+    "RECEIPT_BONUS_REQUIRED": "Перед одобрением укажите сумму бонуса.",
     "RECEIPT_COMMENT_FAILED": "Не удалось сохранить комментарий. Попробуйте ещё раз.",
     # --- QR / OFD ---
     "QR_PARSE_FAILED": "Не удалось прочитать QR-код. Попробуйте ещё раз.",

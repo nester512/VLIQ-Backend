@@ -30,7 +30,6 @@ from src.bonus_engine.engine import calculate_bonus
 from src.bonus_engine.schemas import ReceiptItemContext, RuleContext
 from src.fraud.checks import FraudChecker
 from src.fraud.signals import FraudSignal
-from src.notification import outbox as notification_outbox
 from src.ofd_client.base import OFDClientProtocol
 from src.ofd_client.cache import OFDCache
 from src.ofd_client.exceptions import OFDBlockedError, OFDNotFoundError, OFDRateLimitError
@@ -63,9 +62,6 @@ _TERMINAL_STATUSES = frozenset(
 
 # System rejection: >1 distinct confident fiscal identity in one submission.
 MULTIPLE_RECEIPTS_CODE = "MULTIPLE_RECEIPTS_DETECTED"
-MULTIPLE_RECEIPTS_USER_REASON = (
-    "В одной загрузке обнаружено несколько разных чеков. Загрузите каждый чек отдельно."
-)
 
 # Default retry backoff delays (seconds): attempt 1→2: 1s, 2→3: 2s, 3→4: 4s.
 _RETRY_BACKOFF = (1.0, 2.0, 4.0)
@@ -125,8 +121,10 @@ class ReceiptPipelineOrchestrator:
         """Run the package pipeline for *receipt_id*.
 
         Called from an arq worker. All exceptions are caught internally — a
-        non-terminal receipt always ends at ``on_review`` (manual fallback) or, on
-        a confident multi-receipt detection, at ``rejected`` (MULTIPLE_RECEIPTS_DETECTED).
+        non-terminal receipt always ends at ``on_review`` (manual fallback).
+        Confident multi-receipt detection is persisted as a high-severity admin
+        signal, not as a system rejection: per the current FLOW, the system does
+        not auto-refuse receipts; the admin makes the final decision.
 
         Retry-safe: a receipt already in a terminal status is skipped, so a retried
         job never re-notifies, re-rejects, or re-creates anything.
@@ -168,10 +166,10 @@ class ReceiptPipelineOrchestrator:
             # multiple-receipts check is QR-based, not OFD-based.
             agg = await self._collect_candidates(receipt, result)
 
-            # Step 3: >1 distinct confident identity → terminal system rejection.
+            # Step 3: >1 distinct confident identity → admin signal, still on_review.
             if agg.decision == "multiple":
-                await self._system_reject_multiple(session, receipt, result)
-                self._log_complete(receipt_id, ReceiptStatus.rejected.value, t_start)
+                await self._finalize_multiple_for_review(session, receipt, result)
+                self._log_complete(receipt_id, ReceiptStatus.on_review.value, t_start)
                 return
 
             # 0 or 1 identity. Demo mode → manual review (no OFD/bonus).
@@ -330,11 +328,17 @@ class ReceiptPipelineOrchestrator:
         receipt.status = ReceiptStatus.on_review.value
         logger.info("pipeline.demo_on_review, receipt_id=%d (no auto bonus — admin assigns)", receipt.id)
 
-    async def _system_reject_multiple(self, session: AsyncSession, receipt: Receipt, result: PipelineResult) -> None:
-        """MULTIPLE_RECEIPTS_DETECTED — >1 distinct confident fiscal identity in one
-        submission. Keep the Receipt + all attachments, mark it rejected with the
-        machine code + detected identities as evidence, and notify the seller. Atomic;
-        idempotent via the terminal-status guard (a retried job is a no-op).
+    async def _finalize_multiple_for_review(
+        self, session: AsyncSession, receipt: Receipt, result: PipelineResult
+    ) -> None:
+        """Multiple fiscal identities in one submission → admin review signal.
+
+        Current Confluence FLOW says the system performs no auto-refusals:
+        duplicate/mismatch/multi-receipt findings are signals for the admin,
+        while the receipt remains ``on_review`` until a human approves/rejects.
+        We therefore keep the Receipt + all attachments, store the detected
+        identities in evidence, add a high-severity fraud signal, and do NOT
+        enqueue a seller rejection notification.
 
         Single, centralized future-work marker — do NOT scatter copies:
 
@@ -346,12 +350,12 @@ class ReceiptPipelineOrchestrator:
         all_signals = [s.to_dict() if isinstance(s, FraudSignal) else s for s in (*result.fraud_signals, signal)]
 
         if not _SM.can_transition(
-            from_status=receipt.status, to_status=ReceiptStatus.rejected.value, actor="system"
+            from_status=receipt.status, to_status=ReceiptStatus.on_review.value, actor="system"
         ):
-            # Defensive: ocr_in_progress → rejected is a valid system transition; if
-            # we somehow aren't there, fall back to on_review rather than forcing it.
+            # Defensive: ocr_in_progress → on_review is valid; if we somehow
+            # aren't there, still avoid forcing a terminal state.
             logger.error(
-                "pipeline.multiple_reject_blocked",
+                "pipeline.multiple_review_blocked",
                 extra={"receipt_id": receipt.id, "status": receipt.status},
             )
             await self._set_status_with_signals(
@@ -361,17 +365,16 @@ class ReceiptPipelineOrchestrator:
             return
 
         # Explicit commit on the session's auto-begun transaction (begin() would raise
-        # "already begun" — earlier steps already issued an execute). The status
-        # update, attachment evidence and the outbox notification all commit together,
-        # so there is no phantom send on rollback.
+        # "already begun" — earlier steps already issued an execute). There is no
+        # outbox notification here: the seller has not been rejected yet.
         await session.execute(
             update(Receipt)
             .where(Receipt.id == receipt.id)
             .values(
                 {
-                    "status": ReceiptStatus.rejected.value,
-                    "rejection_code": MULTIPLE_RECEIPTS_CODE,
-                    "rejection_reason": MULTIPLE_RECEIPTS_USER_REASON,
+                    "status": ReceiptStatus.on_review.value,
+                    "rejection_code": None,
+                    "rejection_reason": None,
                     "fraud_signals": all_signals,
                     "bonus_amount": 0,
                     "ocr_raw": self._evidence_payload(result),
@@ -379,17 +382,10 @@ class ReceiptPipelineOrchestrator:
             )
         )
         await self._persist_attachment_evidence(session, receipt, result)
-        await notification_outbox.enqueue(
-            session,
-            recipient_id=receipt.seller_id,
-            channel="telegram",
-            template="receipt.rejected",
-            payload={"receipt_id": receipt.id, "reason": MULTIPLE_RECEIPTS_USER_REASON},
-        )
         await session.commit()
-        receipt.status = ReceiptStatus.rejected.value
+        receipt.status = ReceiptStatus.on_review.value
         logger.info(
-            "pipeline.multiple_receipts_rejected",
+            "pipeline.multiple_receipts_review_signal",
             extra={
                 "receipt_id": receipt.id,
                 "code": MULTIPLE_RECEIPTS_CODE,

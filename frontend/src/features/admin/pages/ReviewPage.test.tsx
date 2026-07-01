@@ -12,7 +12,7 @@ import { createElement, type ReactNode } from 'react'
 // ---------------------------------------------------------------------------
 
 // One reviewable card sits in the queue.
-const QUEUE = [{ id: '1', status: 'on_review', seller_name: 'Иван' }]
+const QUEUE = [{ id: '1', status: 'on_review', seller_name: 'Иван', bonus_amount: 1000 }]
 
 // approveReceipt rejects with a 409 envelope: the card changed status under the
 // admin (RECEIPT_INVALID_STATE_TRANSITION) — the classic false-success case.
@@ -44,6 +44,19 @@ vi.mock('@/components/atoms/ErrorBoundary', () => ({
 
 vi.mock('@/components/molecules/RejectReasonSheet', () => ({
   RejectReasonSheet: () => null,
+}))
+
+vi.mock('@/components/molecules/EditBonusSheet', () => ({
+  EditBonusSheet: ({
+    open,
+    onConfirm,
+  }: {
+    open: boolean
+    onConfirm: (amountKopecks: number) => void
+  }) =>
+    open
+      ? createElement('button', { type: 'button', onClick: () => onConfirm(12_300) }, 'confirm-bonus')
+      : null,
 }))
 
 // Stand-in SwipeDeck: a button that fires onSwipe('1','approve') and a live
@@ -81,6 +94,7 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  QUEUE[0] = { id: '1', status: 'on_review', seller_name: 'Иван', bonus_amount: 1000 }
   cleanup()
 })
 
@@ -122,6 +136,45 @@ describe('ReviewPage — 409 rollback', () => {
     const toastMessages = pushToast.mock.calls.map((c) => c[0])
     expect(toastMessages.some((m) => String(m).includes('RECEIPT_INVALID_STATE_TRANSITION'))).toBe(
       false,
+    )
+  })
+
+  it('opens a bonus popup before approving a receipt with no bonus', async () => {
+    QUEUE[0] = { id: '1', status: 'on_review', seller_name: 'Иван', bonus_amount: 0 }
+    approveReceipt.mockResolvedValueOnce({})
+
+    renderPage()
+
+    const swipeBtn = await screen.findByText('approve')
+    await userEvent.click(swipeBtn)
+
+    expect(approveReceipt).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByText('confirm-bonus'))
+
+    await waitFor(() =>
+      expect(approveReceipt).toHaveBeenCalledWith('1', {
+        comment: undefined,
+        bonusAmountKopecks: 12_300,
+      }),
+    )
+  })
+
+  it('does not send approve for transitional pending receipts', async () => {
+    QUEUE[0] = { id: '1', status: 'pending', seller_name: 'Иван', bonus_amount: 1000 }
+
+    renderPage()
+
+    const swipeBtn = await screen.findByText('approve')
+    await userEvent.click(swipeBtn)
+
+    expect(approveReceipt).not.toHaveBeenCalled()
+    expect(pushToast).toHaveBeenCalledWith(
+      'Чек ещё обрабатывается. Откройте карточку для просмотра данных.',
+      'wn',
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('undo-trigger').textContent).toBe('1'),
     )
   })
 })

@@ -7,15 +7,15 @@ import type { PayoutRequest } from '@/types/models'
 
 const PAYOUT_STATUS_LABEL: Record<string, string> = {
   new: 'Новая',
-  processing: 'В обработке',
+  in_progress: 'В обработке',
   paid: 'Выплачена',
   rejected: 'Отклонена',
 }
 
 const METHOD_LABEL: Record<string, string> = {
-  sbp: 'СБП',
+  sbp_phone: 'СБП · телефон',
+  sbp_bank: 'СБП · банк',
   card: 'Карта',
-  other: 'Другой',
 }
 
 interface PayoutDetailSheetProps {
@@ -36,6 +36,7 @@ export function PayoutDetailSheet({ payoutId, payout }: PayoutDetailSheetProps) 
 
   const statusLabel = PAYOUT_STATUS_LABEL[payout.status] ?? payout.status
   const methodLabel = METHOD_LABEL[payout.method] ?? payout.method
+  const sellerLabel = payout.seller_name?.trim() || `Продавец #${payout.seller_id}`
   const isAnyPending = approve.isPending || reject.isPending
   // Only `new` and `in_progress` are actionable — `paid` and `rejected` are
   // terminal. Hide the buttons rather than gracefully 422-ing on the backend.
@@ -48,7 +49,8 @@ export function PayoutDetailSheet({ payoutId, payout }: PayoutDetailSheetProps) 
       </h2>
 
       <div className="vliq-card" style={{ padding: '0 16px', marginBottom: 16 }}>
-        <KVRow label="Продавец"  value={`Продавец #${payout.seller_id}`} />
+        <KVRow label="Продавец"  value={sellerLabel} />
+        {payout.seller_store && <KVRow label="Точка" value={payout.seller_store} />}
         <KVRow label="Сумма"     value={fmtMoney(payout.amount)} valueStyle={{ fontSize: 15 }} />
         <KVRow label="Способ"    value={methodLabel} />
         <KVRow label="Реквизиты" value={payout.details ?? '—'} />

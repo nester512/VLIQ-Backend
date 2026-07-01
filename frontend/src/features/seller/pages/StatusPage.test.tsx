@@ -87,4 +87,18 @@ describe('StatusPage — attachment rendering', () => {
     await screen.findByText('Статус обработки')
     expect(screen.queryByText('Загруженный чек')).not.toBeInTheDocument()
   })
+
+  it('shows rejected receipt bonus step as not accrued', async () => {
+    getReceiptStatus.mockResolvedValue(
+      baseReceipt({
+        status: 'rejected',
+        rejection_reason: 'Фото нечитаемое',
+      }),
+    )
+    renderPage()
+
+    await screen.findByText('Чек отклонён')
+    expect(screen.getByText('Начисление бонуса')).toBeInTheDocument()
+    expect(screen.getByText('Не начисляется')).toBeInTheDocument()
+  })
 })
