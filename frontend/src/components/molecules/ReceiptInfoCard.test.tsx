@@ -40,6 +40,11 @@ describe('ReceiptInfoCard — fiscal data', () => {
     expect(screen.getByText('Отклонён')).toBeInTheDocument()
   })
 
+  it('uses warning color for receipts waiting for review', () => {
+    render(<ReceiptInfoCard receipt={base({ status: 'on_review', duplicate_status: 'ok' })} />)
+    expect(screen.getByText('На проверке').closest('.vliq-pill')).toHaveClass('vliq-pill--wn')
+  })
+
   it('renders a host-supplied actions slot', () => {
     render(<ReceiptInfoCard receipt={base()} actions={<button>Одобрить</button>} />)
     expect(screen.getByRole('button', { name: 'Одобрить' })).toBeInTheDocument()
@@ -90,6 +95,30 @@ describe('ReceiptInfoCard — duplicate / fraud signals', () => {
     )
     expect(screen.getByText(/Дубль по ФН/)).toBeInTheDocument()
     expect(screen.getByText(/#77/)).toBeInTheDocument()
+  })
+
+  it('translates technical duplicate rejection reasons for admins', () => {
+    render(
+      <ReceiptInfoCard
+        receipt={base({
+          status: 'rejected',
+          rejection_reason: 'QR already used in receipt #227',
+          fraud_signal: [
+            {
+              type: 'qr_raw_duplicate',
+              details: 'qr_raw_duplicate',
+              duplicate_of_id: 227,
+              severity: 'high',
+            },
+          ],
+        })}
+      />,
+    )
+
+    expect(screen.getByText(/Дубль QR-кода/)).toBeInTheDocument()
+    expect(screen.getByText(/QR-код уже использован в чеке #227/)).toBeInTheDocument()
+    expect(screen.queryByText(/QR already used/)).toBeNull()
+    expect(screen.queryByText(/qr_raw_duplicate/)).toBeNull()
   })
 
   it('reassures when there are no signals at all', () => {

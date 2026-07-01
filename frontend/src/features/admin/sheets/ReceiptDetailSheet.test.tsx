@@ -12,7 +12,7 @@ import type { Attachment } from '@/types/models'
 // ---------------------------------------------------------------------------
 vi.mock('@/store/uiStore', () => ({
   useUiStore: (selector: (s: Record<string, unknown>) => unknown) =>
-    selector({ closeSheet: vi.fn(), pushToast: vi.fn() }),
+    selector({ closeSheet: vi.fn(), openSheet: vi.fn(), pushToast: vi.fn() }),
 }))
 
 vi.mock('@/features/admin/hooks/useReviewQueue', () => ({
@@ -35,6 +35,19 @@ vi.mock('@/api/admin', async (importOriginal) => ({
   addReceiptComment: vi.fn(() => Promise.resolve()),
   blockSeller: vi.fn(() => Promise.resolve()),
   deleteReceipt: vi.fn(() => Promise.resolve()),
+}))
+
+vi.mock('@/components/molecules/RejectReasonSheet', () => ({
+  RejectReasonSheet: ({
+    open,
+    onConfirm,
+  }: {
+    open: boolean
+    onConfirm: (reason: string) => void
+  }) =>
+    open
+      ? <button type="button" onClick={() => onConfirm('Некорректный чек')}>confirm-reject</button>
+      : null,
 }))
 
 import { ReceiptDetailSheet } from './ReceiptDetailSheet'
@@ -125,6 +138,7 @@ describe('ReceiptDetailSheet — actualizes views after a status change', () => 
     const spy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
     renderSheet(receipt({ status: 'on_review' }))
     fireEvent.click(screen.getByText('Отклонить'))
+    fireEvent.click(screen.getByText('confirm-reject'))
     expect(spy).toHaveBeenCalledWith({ queryKey: ['admin', 'review-queue'] })
   })
 

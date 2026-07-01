@@ -8,6 +8,10 @@ export interface EditBonusSheetProps {
   onConfirm: (amountKopecks: number) => void
   isSubmitting?: boolean
   currentBonusKopecks?: number
+  title?: string
+  confirmLabel?: string
+  submittingLabel?: string
+  requirePositive?: boolean
 }
 
 function EditBonusForm({
@@ -15,11 +19,19 @@ function EditBonusForm({
   onConfirm,
   isSubmitting,
   currentBonusKopecks,
+  title,
+  confirmLabel,
+  submittingLabel,
+  requirePositive,
 }: {
   onClose: () => void
   onConfirm: (amountKopecks: number) => void
   isSubmitting: boolean
   currentBonusKopecks?: number
+  title: string
+  confirmLabel: string
+  submittingLabel: string
+  requirePositive: boolean
 }) {
   const defaultRubles =
     currentBonusKopecks != null ? String(currentBonusKopecks / 100) : ''
@@ -27,7 +39,8 @@ function EditBonusForm({
   const inputRef = useRef<HTMLInputElement>(null)
 
   const parsed = parseFloat(value.replace(',', '.'))
-  const isValid = !isNaN(parsed) && parsed >= 0 && parsed <= 999_999
+  const minAmount = requirePositive ? 0.01 : 0
+  const isValid = !isNaN(parsed) && parsed >= minAmount && parsed <= 999_999
 
   useEffect(() => {
     const t = setTimeout(() => inputRef.current?.focus(), 120)
@@ -57,7 +70,7 @@ function EditBonusForm({
           letterSpacing: '-0.3px',
         }}
       >
-        Изменить бонус
+        {title}
       </h2>
 
       <input
@@ -125,7 +138,7 @@ function EditBonusForm({
             transition: 'opacity 0.15s',
           }}
         >
-          {isSubmitting ? 'Сохранение…' : 'Сохранить'}
+          {isSubmitting ? submittingLabel : confirmLabel}
         </button>
       </div>
     </div>
@@ -138,13 +151,17 @@ export function EditBonusSheet({
   onConfirm,
   isSubmitting = false,
   currentBonusKopecks,
+  title = 'Изменить бонус',
+  confirmLabel = 'Сохранить',
+  submittingLabel = 'Сохранение…',
+  requirePositive = false,
 }: EditBonusSheetProps) {
   return (
     <Drawer.Root open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <Drawer.Portal>
         <Drawer.Overlay
           className="fixed inset-0 z-[70]"
-          style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }}
+          style={{ background: 'rgba(0,0,0,0.5)' }}
         />
         <Drawer.Content
           aria-describedby={undefined}
@@ -159,7 +176,7 @@ export function EditBonusSheet({
             overflow: 'hidden',
           }}
         >
-          <Drawer.Title className="sr-only">Изменить бонус</Drawer.Title>
+          <Drawer.Title className="sr-only">{title}</Drawer.Title>
           <div
             aria-hidden
             style={{
@@ -177,6 +194,10 @@ export function EditBonusSheet({
               onConfirm={onConfirm}
               isSubmitting={isSubmitting}
               currentBonusKopecks={currentBonusKopecks}
+              title={title}
+              confirmLabel={confirmLabel}
+              submittingLabel={submittingLabel}
+              requirePositive={requirePositive}
             />
           )}
         </Drawer.Content>

@@ -259,10 +259,9 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
         </div>
       </div>
 
-      {/* Meta — prototype: .swmeta{padding:14px 16px 16px}. Extra +4px on the
-          right so the trailing pill ("Уникален" / "Возможный дубль") stays
-          inside the card's 24px corner radius instead of clipping. */}
-      <div style={{ padding: '14px 20px 16px 16px', flex: 'none', minWidth: 0 }}>
+      {/* Meta — extra right padding keeps the duplicate badge away from the
+          rounded card corner and from the attachment nav overlay. */}
+      <div style={{ padding: '14px 24px 16px 16px', flex: 'none', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <Avatar initials={getInitials(sellerName)} size={38} className="rounded-[12px]" />
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -279,13 +278,11 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
               {sellerStore}
             </span>
           </div>
-          {/* Pill wrapper — flex:none + max-width keep the pill inside the 24px card radius */}
-          <span style={{ flex: 'none', maxWidth: 140, minWidth: 0, overflow: 'hidden', display: 'block' }}>
+          {/* Do not truncate "Возможный дубль": the admin needs the full signal. */}
+          <span style={{ flex: 'none', minWidth: 0, display: 'block' }}>
             <Pill kind={dupStatus === 'ok' ? 'ok' : 'dg'}>
               <Icon name={dupStatus === 'ok' ? 'shield' : 'alert'} size={11} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-                {dupLabel}
-              </span>
+              <span style={{ whiteSpace: 'nowrap' }}>{dupLabel}</span>
             </Pill>
           </span>
         </div>
@@ -295,7 +292,6 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
           {[
             { k: 'Бонус',  v: receipt.bonus_amount != null && receipt.bonus_amount > 0 ? fmtMoneyDelta(receipt.bonus_amount) : '—', color: 'var(--vliq-ok-ink)' },
             { k: 'Сумма',  v: fmtMoney(receipt.amount), color: 'var(--vliq-text)' },
-            { k: 'Товары', v: receipt.items?.length ? String(receipt.items.length) : '—', color: 'var(--vliq-text)' },
           ].map(({ k, v, color }) => (
             <div
               key={k}

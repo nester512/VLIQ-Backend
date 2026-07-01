@@ -112,8 +112,6 @@
 /* ===== Base reset ===== */
 *, *::before, *::after {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -715,7 +713,6 @@ button.vliq-btn:focus-visible,
 .vliq-tabbar {
   display: flex;
   background: var(--vliq-nav);
-  backdrop-filter: blur(16px);
   border-top: 1px solid var(--vliq-sep);
   z-index: 20;
   transition: background-color 0.25s ease, border-color 0.25s ease;

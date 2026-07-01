@@ -1,19 +1,10 @@
 import type { ReactNode } from 'react'
 import { Icon } from '@/components/atoms/Icon'
 import { Pill } from '@/components/atoms/Pill'
+import { RECEIPT_STATUS } from '@/utils/receiptStatus'
 import { fmtMoney, fmtMoneyDelta } from '@/utils/formatMoney'
 import { formatDate, formatDateTime } from '@/utils/formatDate'
 import type { AdminReceipt, FiscalIdentity } from '@/api/admin'
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: 'Ожидает',
-  ocr_in_progress: 'OCR',
-  on_review: 'На проверке',
-  approved: 'Одобрен',
-  rejected: 'Отклонён',
-  needs_revision: 'Доработка',
-  paid_out: 'Выплачен',
-}
 
 function fiscalLine(idn: FiscalIdentity): string {
   const fn = idn.fn ? idn.fn.slice(-6) : '—'
@@ -25,9 +16,9 @@ function fiscalLine(idn: FiscalIdentity): string {
 /** One label/value cell in the recognised-data grid. */
 function Field({ label, value, wide }: { label: string; value: ReactNode; wide?: boolean }) {
   return (
-    <div className={wide ? 'col-span-2 min-w-0' : 'min-w-0'}>
-      <div className="text-[11.5px] font-medium text-[var(--vliq-hint)] mb-0.5">{label}</div>
-      <div className="text-[14px] font-semibold text-[var(--vliq-text)] leading-snug break-words">
+    <div className={wide ? 'sm:col-span-2 min-w-0 p-2' : 'min-w-0 p-2'}>
+      <div className="text-[12px] font-semibold text-[var(--vliq-hint)] mb-1.5 leading-tight">{label}</div>
+      <div className="text-[14px] font-bold text-[var(--vliq-text)] leading-snug break-words">
         {value}
       </div>
     </div>
@@ -36,12 +27,49 @@ function Field({ label, value, wide }: { label: string; value: ReactNode; wide?:
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="mb-3">
-      <b className="text-[14px] font-bold block mb-1.5">{title}</b>
+    <div className="mx-4 mb-4">
+      <b className="text-[15px] font-extrabold block mb-2.5 leading-tight px-1">{title}</b>
       {children}
     </div>
   )
 }
+
+function translateAdminText(text?: string | null): string {
+  if (!text) return '—'
+  const trimmed = text.trim()
+  const slugLabel: Record<string, string> = {
+    qr_raw_duplicate: 'Дубль QR-кода — этот чек уже загружался',
+    file_hash_duplicate: 'Дубль файла — такое изображение уже загружалось',
+    fn_fd_fp_duplicate: 'Дубль по ФН / ФД / ФП — чек уже загружался',
+    historical_duplicate_fn_fd_fp: 'Дубль по ФН / ФД / ФП — чек уже загружался',
+    historical_duplicate_file_hash: 'Дубль файла — идентичное изображение уже загружалось',
+    cross_seller_duplicate: 'Дубль между продавцами — этот чек уже загрузил другой продавец',
+    multiple_receipts_detected: 'В одной загрузке обнаружено несколько разных чеков',
+    no_sku_match: 'Не удалось сопоставить товары из чека',
+    pipeline_enqueue_failed: 'Автоматическая обработка не запустилась — требуется ручная проверка',
+  }
+  if (slugLabel[trimmed]) return slugLabel[trimmed]
+  const duplicateQr = trimmed.match(/QR already used in receipt #(\d+)/i)
+  if (duplicateQr) return `QR-код уже использован в чеке #${duplicateQr[1]}`
+  const notFound = trimmed.match(/Receipt not found in OFD/i)
+  if (notFound) return 'Чек не найден в базе ОФД. Требуется ручная проверка.'
+  if (trimmed === 'OFD_UPSTREAM_UNAVAILABLE') {
+    return 'Сервис проверки чеков временно недоступен. Требуется ручная проверка.'
+  }
+  if (trimmed === 'No SKUs matched from OFD items') {
+    return 'Не удалось сопоставить товары из чека. Требуется ручная проверка.'
+  }
+  return trimmed
+}
+
+function signalTone(severity?: string): 'dg' | 'wn' {
+  return severity === 'critical' || severity === 'high' || severity === 'danger' ? 'dg' : 'wn'
+}
+
+const signalToneClass = {
+  dg: 'bg-[var(--vliq-dg-bg)] text-[var(--vliq-dg-ink)]',
+  wn: 'bg-[var(--vliq-wn-bg)] text-[var(--vliq-wn-ink)]',
+} as const
 
 export interface ReceiptInfoCardProps {
   receipt: AdminReceipt
@@ -59,8 +87,9 @@ export interface ReceiptInfoCardProps {
 export function ReceiptInfoCard({ receipt, actions, className = '' }: ReceiptInfoCardProps) {
   const sellerName = receipt.seller_name ?? `Продавец #${receipt.seller_id}`
   const sellerStore = receipt.seller_store ?? '—'
-  const dupStatus = receipt.duplicate_status ?? 'ok'
-  const statusLabel = STATUS_LABEL[receipt.status] ?? receipt.status
+  const status = RECEIPT_STATUS[receipt.status]
+  const statusLabel = status?.label ?? receipt.status
+  const statusKind = status?.kind ?? 'muted'
 
   const fnTriple =
     receipt.fn && receipt.fd && receipt.fp
@@ -78,21 +107,21 @@ export function ReceiptInfoCard({ receipt, actions, className = '' }: ReceiptInf
   const warnings = receipt.extraction_warnings ?? []
 
   return (
-    <div className={className} data-testid="receipt-info-card">
+    <div className={`min-w-0 ${className}`} data-testid="receipt-info-card">
       {/* Header */}
-      <div className="flex items-center gap-2.5 mb-3">
+      <div className="flex items-start gap-3 mx-4 mt-4 mb-4">
         <div className="flex-1 min-w-0">
-          <div className="font-extrabold text-[16px] leading-tight">Чек #{receipt.id}</div>
-          <div className="text-[12.5px] text-[var(--vliq-hint)] font-medium truncate">
+          <div className="font-extrabold text-[17px] leading-tight mb-1.5">Чек #{receipt.id}</div>
+          <div className="text-[13px] text-[var(--vliq-hint)] font-semibold leading-snug break-words">
             {sellerName} · {sellerStore}
           </div>
         </div>
-        <Pill kind={dupStatus === 'ok' ? 'ok' : 'wn'}>{statusLabel}</Pill>
+        <Pill kind={statusKind} className="flex-none mt-1">{statusLabel}</Pill>
       </div>
 
       {/* Recognised fiscal data */}
       <Section title="Распознанные данные">
-        <div className="bg-[var(--vliq-field)] rounded-[16px] p-4 grid grid-cols-2 gap-x-6 gap-y-4">
+        <div className="bg-[var(--vliq-field)] rounded-[20px] p-4 grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
           <Field label="Пользователь" value={sellerName} />
           <Field label="Торговая точка" value={sellerStore} />
           <Field
@@ -118,7 +147,7 @@ export function ReceiptInfoCard({ receipt, actions, className = '' }: ReceiptInf
       {/* Multiple distinct fiscal identities (MULTIPLE_RECEIPTS_DETECTED) */}
       {multiIdentities.length > 0 && (
         <Section title={`Найдено разных чеков: ${multiIdentities.length}`}>
-          <div className="bg-[var(--vliq-dg-bg)] rounded-[14px] p-3.5 flex flex-col gap-1.5">
+          <div className="bg-[var(--vliq-dg-bg)] rounded-[16px] p-4 flex flex-col gap-2">
             {multiIdentities.map((idn, i) => (
               <div
                 key={i}
@@ -136,10 +165,10 @@ export function ReceiptInfoCard({ receipt, actions, className = '' }: ReceiptInf
           rejections (e.g. MULTIPLE_RECEIPTS_DETECTED) — it stays NULL for ordinary
           admin rejections, which lets the admin tell the two apart. */}
       {(receipt.rejection_reason || receipt.rejection_code) && (
-        <div className="flex gap-2 items-start rounded-[14px] px-4 py-3 mb-3 text-[13px] font-medium bg-[var(--vliq-dg-bg)] text-[var(--vliq-dg-ink)]">
+        <div className="mx-4 flex gap-2.5 items-start rounded-[16px] p-4 mb-4 text-[13px] font-semibold leading-snug bg-[var(--vliq-dg-bg)] text-[var(--vliq-dg-ink)] break-words">
           <Icon name="alert" size={16} className="flex-none mt-0.5" />
-          <span>
-            <b>Причина отклонения:</b> {receipt.rejection_reason ?? '—'}
+          <span className="min-w-0">
+            <b>Причина отклонения:</b> {translateAdminText(receipt.rejection_reason)}
             {receipt.rejection_code && (
               <span className="block mt-1 opacity-70">
                 Системный код: <code>{receipt.rejection_code}</code>
@@ -156,11 +185,11 @@ export function ReceiptInfoCard({ receipt, actions, className = '' }: ReceiptInf
             {fraudSignals.map((s, i) => (
               <div
                 key={`${s.type}-${i}`}
-                className="flex gap-2 items-start rounded-[14px] px-4 py-3 text-[13px] font-medium bg-[var(--vliq-wn-bg)] text-[var(--vliq-wn-ink)]"
+                className={`flex gap-2.5 items-start rounded-[16px] p-4 text-[13px] font-semibold leading-snug break-words ${signalToneClass[signalTone(s.severity)]}`}
               >
                 <Icon name="alert" size={16} className="flex-none mt-0.5" />
-                <span>
-                  {s.details}
+                <span className="min-w-0">
+                  {translateAdminText(s.details)}
                   {s.duplicate_of_id != null && (
                     <span className="opacity-80"> (чек #{s.duplicate_of_id})</span>
                   )}
@@ -174,11 +203,11 @@ export function ReceiptInfoCard({ receipt, actions, className = '' }: ReceiptInf
       {/* OCR extraction warnings. */}
       {warnings.length > 0 && (
         <Section title="Предупреждения распознавания">
-          <ul className="bg-[var(--vliq-field)] rounded-[14px] p-3.5 flex flex-col gap-1.5 list-none">
+          <ul className="bg-[var(--vliq-field)] rounded-[16px] p-4 flex flex-col gap-2 list-none">
             {warnings.map((w, i) => (
-              <li key={i} className="text-[12.5px] text-[var(--vliq-hint)] flex gap-2">
+              <li key={i} className="text-[13px] text-[var(--vliq-hint)] font-semibold flex gap-2 leading-snug">
                 <Icon name="alert" size={14} className="flex-none mt-0.5 text-[var(--vliq-wn-ink)]" />
-                <span>{w}</span>
+                <span className="min-w-0 break-words">{translateAdminText(w)}</span>
               </li>
             ))}
           </ul>
@@ -187,7 +216,7 @@ export function ReceiptInfoCard({ receipt, actions, className = '' }: ReceiptInf
 
       {/* When everything is clean, reassure the admin explicitly. */}
       {fraudSignals.length === 0 && !receipt.rejection_reason && warnings.length === 0 && (
-        <div className="flex gap-2 items-center rounded-[14px] px-4 py-3 mb-3 text-[13px] font-medium bg-[var(--vliq-ok-bg)] text-[var(--vliq-ok-ink)]">
+        <div className="mx-4 flex gap-2 items-center rounded-[16px] p-4 mb-4 text-[13px] font-semibold bg-[var(--vliq-ok-bg)] text-[var(--vliq-ok-ink)]">
           <Icon name="shield" size={16} className="flex-none" />
           <span>Подозрительной активности не выявлено</span>
         </div>

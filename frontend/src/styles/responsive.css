@@ -68,8 +68,6 @@
   display: flex;
   flex-direction: column;
   background: var(--vliq-nav);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border-right: 1px solid var(--vliq-sep);
   overflow: hidden;
   z-index: 20;
@@ -96,8 +94,6 @@
   bottom: 0;
   display: flex;
   background: var(--vliq-nav);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid var(--vliq-sep);
   z-index: 20;
 }
