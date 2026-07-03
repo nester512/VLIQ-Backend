@@ -579,9 +579,12 @@ def get_receipt_storage() -> LocalFileStorage | S3FileStorage:
 def to_viewable_url(file_url: str | None) -> str | None:
     """Rewrite a stored receipt URI into a browser-viewable URL.
 
-    - ``s3://<bucket>/<key>`` → ``<S3_PUBLIC_ENDPOINT or S3_ENDPOINT_URL>/<bucket>/<key>``
-      (the dev MinIO bucket is public-read; for a private prod bucket swap this
-      to a presigned GET URL via ``S3FileStorage.generate_presigned_get_url``).
+    - ``s3://<bucket>/<key>`` → a signed, same-origin proxy URL
+      (``<PATH_PREFIX>/receipts/attachments/file?sig=…``) that streams the object
+      through our own API. The browser never talks to MinIO directly — the
+      internal ``minio:9000`` host is unreachable from a browser, is plain HTTP
+      inside an HTTPS page, and has no public Caddy route — and the bucket stays
+      private. See :mod:`src.receipt_ocr.image_token`.
     - ``http(s)://…`` → returned unchanged.
     - ``local://…`` / ``qr://inline`` / ``seed://…`` → ``None`` (not a viewable photo).
     """
@@ -590,10 +593,9 @@ def to_viewable_url(file_url: str | None) -> str | None:
     if file_url.startswith(("http://", "https://")):
         return file_url
     if file_url.startswith("s3://"):
-        base = (
-            os.environ.get("S3_PUBLIC_ENDPOINT")
-            or os.environ.get("S3_ENDPOINT_URL")
-            or "http://localhost:9000"
-        ).rstrip("/")
-        return f"{base}/{file_url[len('s3://') :]}"
+        # Lazy import: keeps this low-level module free of a load-time dependency
+        # on app settings (image_token reads JWT_SECRET_SALT at import).
+        from src.receipt_ocr.image_token import build_image_proxy_url  # noqa: PLC0415
+
+        return build_image_proxy_url(file_url)
     return None
