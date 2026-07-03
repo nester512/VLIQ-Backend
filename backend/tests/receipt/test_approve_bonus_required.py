@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.app.auth.jwt import jwt_auth
 from src.bonus_transaction.models import BonusTransaction, BonusTransactionKind
 from src.receipt.models import Receipt, ReceiptFileKind

@@ -15,9 +15,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.auth.jwt import jwt_auth
 from src.receipt.models import Receipt, ReceiptFileKind
-from sqlalchemy.ext.asyncio import AsyncSession
 
 PREFIX = "/api/v1/receipts"
 
