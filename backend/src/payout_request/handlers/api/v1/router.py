@@ -35,10 +35,36 @@ from src.payout_request.service import (
     create_payout_request,
     reject_payout_request,
 )
+from src.seller.models import Seller
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/payout-requests", tags=["Payout Requests"])
+
+
+async def _attach_seller_info(
+    session: AsyncSession,
+    items: list[PayoutRequestRead],
+) -> list[PayoutRequestRead]:
+    """Decorate admin payout DTOs with seller display data for the review UI."""
+    seller_ids = {item.seller_id for item in items}
+    if not seller_ids:
+        return items
+
+    sellers = (
+        (await session.execute(select(Seller).where(Seller.telegram_id.in_(seller_ids))))
+        .scalars()
+        .all()
+    )
+    seller_by_id = {s.telegram_id: s for s in sellers}
+    for item in items:
+        seller = seller_by_id.get(item.seller_id)
+        if seller is None:
+            continue
+        name = " ".join(p for p in [seller.first_name, seller.last_name] if p).strip()
+        item.seller_name = name or seller.phone_e164 or f"Продавец #{item.seller_id}"
+        item.seller_store = seller.outlet_name
+    return items
 
 
 @router.post(
@@ -170,6 +196,7 @@ async def list_payout_requests(  # noqa: PLR0913
     rows = (await session.execute(stmt)).scalars().all()
 
     items = [PayoutRequestRead.model_validate(r, from_attributes=True) for r in rows]
+    await _attach_seller_info(session, items)
     return PagedResponse.build(items=items, total=total, page=page, limit=limit)
 
 
@@ -210,7 +237,10 @@ async def get_payout_request(
     if token.get("role") == "seller" and row.seller_id != token["user_id"]:
         raise AppError("AUTH_FORBIDDEN", status_code=403)
 
-    return PayoutRequestRead.model_validate(row, from_attributes=True)
+    item = PayoutRequestRead.model_validate(row, from_attributes=True)
+    if token.get("role") != "seller":
+        await _attach_seller_info(session, [item])
+    return item
 
 
 @router.patch("/{payout_request_id}", response_model=PayoutRequestRead, include_in_schema=False)

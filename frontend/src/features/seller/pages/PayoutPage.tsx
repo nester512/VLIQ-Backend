@@ -59,7 +59,7 @@ export function PayoutPage() {
         label="Сумма выплаты, ₽"
         inputMode="numeric"
         value={amountStr}
-        placeholder={String(available)}
+        placeholder={String(Math.floor(available / 100))}
         error={amountError}
         hint={`Доступно ${fmtMoney(available)} · можно вывести часть`}
         onChange={(e) => setAmountStr(e.target.value.replace(/[^\d]/g, ''))}

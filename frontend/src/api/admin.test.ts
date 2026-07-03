@@ -109,6 +109,21 @@ describe('mapAdminReceipt — fraud / duplicate signals', () => {
     expect(r.fraud_signal![0]!.details).toContain('Дубль')
   })
 
+  it('translates raw QR duplicate signals instead of exposing backend slugs/details', async () => {
+    const r = await mapOne({
+      id: 55,
+      seller_id: 9,
+      status: 'on_review',
+      fraud_signals: [
+        { signal: 'qr_raw_duplicate', severity: 'high', duplicate_of_id: 227 },
+      ],
+    })
+
+    expect(r.duplicate_status).toBe('danger')
+    expect(r.fraud_signal![0]!.details).toBe('Дубль QR-кода — этот чек уже загружался')
+    expect(r.fraud_signal![0]!.details).not.toContain('qr_raw_duplicate')
+  })
+
   it('marks a clean receipt as unique', async () => {
     const r = await mapOne({ id: 6, seller_id: 9, status: 'on_review' })
     expect(r.duplicate_status).toBe('ok')
@@ -124,13 +139,17 @@ describe('mapAdminReceipt — extraction warnings + identities from ocr_raw', ()
       status: 'on_review',
       ocr_raw: {
         extraction_evidence: {
-          '0': { kind: 'image', qr_candidates: 0, warnings: ['QR не найден'] },
-          '1': { kind: 'pdf', pdf_pages: 2, warnings: ['Низкая чёткость'] },
+          '0': { kind: 'image', qr_candidates: 0, warnings: ['file_unreadable'] },
+          '1': { kind: 'pdf', pdf_pages: 2, warnings: ['pdf_not_rasterized', 'Низкая чёткость'] },
         },
         detected_identities: [{ fn: '900', fd: '5', fp: '5050' }],
       },
     })
-    expect(r.extraction_warnings).toEqual(['QR не найден', 'Низкая чёткость'])
+    expect(r.extraction_warnings).toEqual([
+      'Файл не удалось прочитать',
+      'PDF не удалось преобразовать в изображение',
+      'Низкая чёткость',
+    ])
     expect(r.detected_identities).toEqual([{ fn: '900', fd: '5', fp: '5050' }])
   })
 })

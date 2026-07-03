@@ -16,6 +16,10 @@ import { fmtMoney } from '@/utils/formatMoney'
 
 // Single brand for now (matches the seller default and the single-brand spec).
 const BRAND_ID = 1
+// MVP decision: product catalog management stays in the codebase and route tree,
+// but is hidden behind a placeholder until the product/bonus model is finalized.
+// Remove this flag when returning the SKU screen to production.
+const PRODUCTS_MVP_PLACEHOLDER = true
 
 interface ProductFormState {
   name: string
@@ -25,7 +29,20 @@ interface ProductFormState {
 }
 const EMPTY_FORM: ProductFormState = { name: '', category: '', code: '', bonus: '' }
 
-function ProductsContent() {
+function ProductsComingSoon() {
+  return (
+    <div className="vliq-pad" style={{ paddingTop: 16 }}>
+      <EmptyState
+        icon="list"
+        tone="brand"
+        title="Раздел товаров скоро будет доступен"
+        description="Экран сохранён для будущей доработки. В текущем MVP бонус по чеку подтверждает администратор вручную."
+      />
+    </div>
+  )
+}
+
+function ProductsCatalogContent() {
   const queryClient = useQueryClient()
   const pushToast = useUiStore((s) => s.pushToast)
   const [search, setSearch] = useState('')
@@ -167,6 +184,10 @@ function ProductsContent() {
       )}
     </div>
   )
+}
+
+function ProductsContent() {
+  return PRODUCTS_MVP_PLACEHOLDER ? <ProductsComingSoon /> : <ProductsCatalogContent />
 }
 
 export function ProductsPage() {

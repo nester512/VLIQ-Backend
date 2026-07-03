@@ -90,4 +90,28 @@ describe('listMyBonusTransactions — mapping', () => {
     expect(tx.description).toBe('Бонус за чек')
     expect(tx.receipt_id).toBe('5')
   })
+
+  it('hides internal receipt-accrual audit reasons from sellers', async () => {
+    get.mockResolvedValueOnce(
+      paged([
+        {
+          id: 4,
+          seller_id: 9,
+          brand_id: 1,
+          amount: 900,
+          kind: 'accrual_receipt',
+          source_type: 'receipt',
+          source_id: 359,
+          reason: 'Receipt #359 approved by admin 809296638',
+          created_at: '2026-06-17T00:00:00Z',
+        },
+      ]),
+    )
+
+    const tx = (await listMyBonusTransactions())[0]!
+
+    expect(tx.description).toBe('Бонус за чек')
+    expect(tx.description).not.toContain('admin')
+    expect(tx.description).not.toContain('809296638')
+  })
 })

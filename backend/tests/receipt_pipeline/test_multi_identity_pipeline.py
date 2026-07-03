@@ -1,7 +1,7 @@
-"""Pipeline tests for multi-file fiscal-identity aggregation and system rejection.
+"""Pipeline tests for multi-file fiscal-identity aggregation and admin review signals.
 
-Covers the frozen decision table (spec §6): 0 identities → on_review, 1 → normal
-flow, >1 → MULTIPLE_RECEIPTS_DETECTED (terminal system rejection). Uses a fake QR
+Covers the current Confluence decision table: 0 identities → on_review, 1 → normal
+flow, >1 → multiple_receipts_detected signal while staying on_review. Uses a fake QR
 extractor + fake storage so the orchestrator's decision logic is tested without
 real images, and a mock session so no DB is required.
 """
@@ -151,46 +151,40 @@ async def test_no_identities__on_review() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_and_b__multiple_receipts_rejected() -> None:
+async def test_a_and_b__multiple_receipts_signaled_for_review() -> None:
     atts = [_att(0, "u0"), _att(1, "u1")]
     storage = {"u0": b"0", "u1": b"1"}
-    extractor = {b"0": [_A], b"1": [_B]}  # [A, B] → reject
+    extractor = {b"0": [_A], b"1": [_B]}  # [A, B] → admin signal, no auto-reject
     orch = _make_orchestrator(extractor, storage)
     receipt = _receipt(atts)
     session = _make_session()
-    with patch("src.receipt_pipeline.orchestrator.notification_outbox.enqueue", new=AsyncMock()) as enq:
-        await _run(orch, receipt, session)
-    assert receipt.status == ReceiptStatus.rejected.value
-    enq.assert_awaited_once()
+    await _run(orch, receipt, session)
+    assert receipt.status == ReceiptStatus.on_review.value
 
 
 @pytest.mark.asyncio
-async def test_a_and_b_in_one_image__rejected() -> None:
+async def test_a_and_b_in_one_image__signaled_for_review() -> None:
     atts = [_att(0, "u0")]
     storage = {"u0": b"0"}
-    extractor = {b"0": [_A, _B]}  # both QR in one image
+    extractor = {b"0": [_A, _B]}  # both QR in one image → admin signal
     orch = _make_orchestrator(extractor, storage)
     receipt = _receipt(atts)
     session = _make_session()
-    with patch("src.receipt_pipeline.orchestrator.notification_outbox.enqueue", new=AsyncMock()):
-        await _run(orch, receipt, session)
-    assert receipt.status == ReceiptStatus.rejected.value
+    await _run(orch, receipt, session)
+    assert receipt.status == ReceiptStatus.on_review.value
 
 
 @pytest.mark.asyncio
-async def test_a_and_b_on_pdf_pages__rejected() -> None:
+async def test_a_and_b_on_pdf_pages__signaled_for_review() -> None:
     atts = [_att(0, "u0", kind="pdf", mime="application/pdf")]
     storage = {"u0": b"pdfdoc"}
     extractor = {b"pageA": [_A], b"pageB": [_B]}
     orch = _make_orchestrator(extractor, storage)
     receipt = _receipt(atts)
     session = _make_session()
-    with (
-        patch("src.receipt_pipeline.orchestrator.render_pdf_pages", return_value=[b"pageA", b"pageB"]),
-        patch("src.receipt_pipeline.orchestrator.notification_outbox.enqueue", new=AsyncMock()),
-    ):
+    with patch("src.receipt_pipeline.orchestrator.render_pdf_pages", return_value=[b"pageA", b"pageB"]):
         await _run(orch, receipt, session)
-    assert receipt.status == ReceiptStatus.rejected.value
+    assert receipt.status == ReceiptStatus.on_review.value
 
 
 @pytest.mark.asyncio
@@ -206,16 +200,15 @@ async def test_scanned_a_plus_files_a__not_rejected() -> None:
 
 
 @pytest.mark.asyncio
-async def test_scanned_a_plus_file_b__rejected() -> None:
+async def test_scanned_a_plus_file_b__signaled_for_review() -> None:
     atts = [_att(0, "u0")]
     storage = {"u0": b"0"}
     extractor = {b"0": [_B]}
     orch = _make_orchestrator(extractor, storage)
-    receipt = _receipt(atts, qr_raw=_A)  # scanned A + file B → reject
+    receipt = _receipt(atts, qr_raw=_A)  # scanned A + file B → admin signal
     session = _make_session()
-    with patch("src.receipt_pipeline.orchestrator.notification_outbox.enqueue", new=AsyncMock()):
-        await _run(orch, receipt, session)
-    assert receipt.status == ReceiptStatus.rejected.value
+    await _run(orch, receipt, session)
+    assert receipt.status == ReceiptStatus.on_review.value
 
 
 @pytest.mark.asyncio
@@ -241,12 +234,12 @@ async def test_no_scanned_files_a__not_rejected() -> None:
 
 
 # ---------------------------------------------------------------------------
-# System rejection invariants
+# Multiple-receipt signal invariants
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_system_rejection__preserves_attachments_and_skips_ofd() -> None:
+async def test_multiple_signal__preserves_attachments_and_skips_ofd() -> None:
     atts = [_att(0, "u0"), _att(1, "u1")]
     storage = {"u0": b"0", "u1": b"1"}
     extractor = {b"0": [_A], b"1": [_B]}
@@ -255,28 +248,23 @@ async def test_system_rejection__preserves_attachments_and_skips_ofd() -> None:
     orch = _make_orchestrator(extractor, storage, ocr_mode="full", ofd_client=ofd)
     receipt = _receipt(atts)
     session = _make_session()
-    with patch("src.receipt_pipeline.orchestrator.notification_outbox.enqueue", new=AsyncMock()):
-        await _run(orch, receipt, session)
-    assert receipt.status == ReceiptStatus.rejected.value
+    await _run(orch, receipt, session)
+    assert receipt.status == ReceiptStatus.on_review.value
     assert receipt.attachments == atts  # nothing dropped
-    ofd.get_receipt.assert_not_called()  # no OFD on system rejection
+    ofd.get_receipt.assert_not_called()  # no OFD before admin decision on multi-receipt signal
 
 
 @pytest.mark.asyncio
-async def test_system_rejection__one_notification_and_retry_is_noop() -> None:
+async def test_multiple_signal__commits_without_seller_notification() -> None:
     atts = [_att(0, "u0"), _att(1, "u1")]
     storage = {"u0": b"0", "u1": b"1"}
     extractor = {b"0": [_A], b"1": [_B]}
     orch = _make_orchestrator(extractor, storage)
     receipt = _receipt(atts)
     session = _make_session()
-    with patch("src.receipt_pipeline.orchestrator.notification_outbox.enqueue", new=AsyncMock()) as enq:
-        await _run(orch, receipt, session)
-        assert receipt.status == ReceiptStatus.rejected.value
-        assert enq.await_count == 1
-        # Retry the (now terminal) receipt — must be a no-op (no second notification).
-        await _run(orch, receipt, session)
-        assert enq.await_count == 1
+    await _run(orch, receipt, session)
+    assert receipt.status == ReceiptStatus.on_review.value
+    session.commit.assert_awaited()
 
 
 @pytest.mark.asyncio

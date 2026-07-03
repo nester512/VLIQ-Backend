@@ -10,8 +10,11 @@ import { createElement, type ReactNode } from 'react'
 const approveReceipt = vi.fn<(...a: unknown[]) => Promise<unknown>>(() => Promise.resolve({}))
 const rejectReceipt = vi.fn<(...a: unknown[]) => Promise<unknown>>(() => Promise.resolve({}))
 const reviseReceipt = vi.fn<(...a: unknown[]) => Promise<unknown>>(() => Promise.resolve({}))
+const getAdminReceipts = vi.fn<(...a: unknown[]) => Promise<unknown>>(() =>
+  Promise.resolve({ items: [], page: 1, has_more: false }),
+)
 vi.mock('@/api/admin', () => ({
-  getAdminReceipts: vi.fn(() => Promise.resolve({ items: [], page: 1, has_more: false })),
+  getAdminReceipts: (...a: unknown[]) => getAdminReceipts(...a),
   approveReceipt: (...a: unknown[]) => approveReceipt(...a),
   rejectReceipt: (...a: unknown[]) => rejectReceipt(...a),
   reviseReceipt: (...a: unknown[]) => reviseReceipt(...a),
@@ -31,7 +34,7 @@ vi.mock('@/api/client', () => ({
   extractApiError: () => ({ code: 'X', userMessage: 'err', debugId: '', status: 0 }),
 }))
 
-import { useSwipeAction } from './useReviewQueue'
+import { REVIEW_QUEUE_STATUSES, useReviewQueue, useSwipeAction } from './useReviewQueue'
 
 function makeWrapper() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -50,6 +53,21 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+describe('useReviewQueue', () => {
+  it('fetches every pre-decision status visible as На проверке', async () => {
+    const { Wrapper } = makeWrapper()
+    const { result } = renderHook(() => useReviewQueue(), { wrapper: Wrapper })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(getAdminReceipts).toHaveBeenCalledWith({
+      status: [...REVIEW_QUEUE_STATUSES],
+      page: 1,
+      limit: 20,
+    })
+  })
+})
+
 describe('useSwipeAction — review-queue is NOT invalidated on success', () => {
   // Regression guard: invalidating ['admin','review-queue'] after each swipe
   // refetched the queue and dropped the just-actioned receipt while SwipeDeck's
@@ -62,9 +80,26 @@ describe('useSwipeAction — review-queue is NOT invalidated on success', () => 
     result.current.mutate({ id: '1', dir: 'approve' })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
+    expect(approveReceipt).toHaveBeenCalledWith('1', {
+      comment: undefined,
+      bonusAmountKopecks: undefined,
+    })
     const keys = invalidatedKeys(invalidateSpy)
     expect(keys).toContainEqual(['admin', 'dashboard'])
     expect(keys).not.toContainEqual(['admin', 'review-queue'])
+  })
+
+  it('approve: forwards admin-entered bonus amount to the backend', async () => {
+    const { Wrapper } = makeWrapper()
+    const { result } = renderHook(() => useSwipeAction(), { wrapper: Wrapper })
+
+    result.current.mutate({ id: '1', dir: 'approve', bonusAmountKopecks: 12_300 })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(approveReceipt).toHaveBeenCalledWith('1', {
+      comment: undefined,
+      bonusAmountKopecks: 12_300,
+    })
   })
 
   it('revise: invalidates dashboard but not review-queue', async () => {

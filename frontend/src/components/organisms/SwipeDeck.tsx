@@ -37,9 +37,10 @@ interface SwipeCardProps {
   onSwipe: (dir: SwipeDirection) => void
   onTap: () => void
   isTop: boolean
+  canSwipe: boolean
 }
 
-function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProps) {
+function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop, canSwipe }: SwipeCardProps) {
   const x = useMotionValue(0)
   const y = useMotionValue(0)
 
@@ -64,13 +65,13 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
   const dragRef = useRef({ startX: 0, startY: 0, moved: false, active: false })
 
   function onPtrDown(e: React.PointerEvent) {
-    if (!isTop || flyDir) return
+    if (!isTop || !canSwipe || flyDir) return
     dragRef.current = { startX: e.clientX, startY: e.clientY, moved: false, active: true }
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) } catch {/* */}
   }
 
   function onPtrMove(e: React.PointerEvent) {
-    if (!isTop || flyDir || !dragRef.current.active) return
+    if (!isTop || !canSwipe || flyDir || !dragRef.current.active) return
     const dx = e.clientX - dragRef.current.startX
     const dy = e.clientY - dragRef.current.startY
     if (Math.abs(dx) + Math.abs(dy) > 6) dragRef.current.moved = true
@@ -82,7 +83,7 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
   }
 
   function onPtrUp(e: React.PointerEvent) {
-    if (!isTop || !dragRef.current.active) return
+    if (!isTop || !canSwipe || !dragRef.current.active) return
     const dx = e.clientX - dragRef.current.startX
     const wasMoved = dragRef.current.moved
     dragRef.current.active = false
@@ -146,11 +147,11 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
         translateY: offsetY,
         zIndex: 10 - stackIndex,
         touchAction: 'none',
-        cursor: isTop ? 'grab' : 'default',
+        cursor: isTop ? (canSwipe ? 'grab' : 'pointer') : 'default',
       }}
       onPointerDown={isTop ? onPtrDown : undefined}
       onPointerMove={isTop ? onPtrMove : undefined}
-      onPointerUp={isTop ? onPtrUp : undefined}
+      onPointerUp={isTop ? (canSwipe ? onPtrUp : () => onTap()) : undefined}
       onPointerCancel={isTop ? onPtrCancel : undefined}
       exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
     >
@@ -161,7 +162,7 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
 
       {/* Decision stamps — prototype: font-size 30px, padding 8px 18px, border 4px, border-radius 14px, top 26px
           Uses .vliq-swipe-stamp so the stable CSS class (not Tailwind arbitrary values) controls geometry. */}
-      {isTop && (
+      {isTop && canSwipe && (
         <>
           <motion.div
             className="vliq-swipe-stamp vliq-swipe-stamp--ok"
@@ -259,10 +260,9 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
         </div>
       </div>
 
-      {/* Meta — prototype: .swmeta{padding:14px 16px 16px}. Extra +4px on the
-          right so the trailing pill ("Уникален" / "Возможный дубль") stays
-          inside the card's 24px corner radius instead of clipping. */}
-      <div style={{ padding: '14px 20px 16px 16px', flex: 'none', minWidth: 0 }}>
+      {/* Meta — extra right padding keeps the duplicate badge away from the
+          rounded card corner and from the attachment nav overlay. */}
+      <div style={{ padding: '14px 24px 16px 16px', flex: 'none', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <Avatar initials={getInitials(sellerName)} size={38} className="rounded-[12px]" />
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -279,13 +279,11 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
               {sellerStore}
             </span>
           </div>
-          {/* Pill wrapper — flex:none + max-width keep the pill inside the 24px card radius */}
-          <span style={{ flex: 'none', maxWidth: 140, minWidth: 0, overflow: 'hidden', display: 'block' }}>
+          {/* Do not truncate "Возможный дубль": the admin needs the full signal. */}
+          <span style={{ flex: 'none', minWidth: 0, display: 'block' }}>
             <Pill kind={dupStatus === 'ok' ? 'ok' : 'dg'}>
               <Icon name={dupStatus === 'ok' ? 'shield' : 'alert'} size={11} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-                {dupLabel}
-              </span>
+              <span style={{ whiteSpace: 'nowrap' }}>{dupLabel}</span>
             </Pill>
           </span>
         </div>
@@ -295,7 +293,6 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop }: SwipeCardProp
           {[
             { k: 'Бонус',  v: receipt.bonus_amount != null && receipt.bonus_amount > 0 ? fmtMoneyDelta(receipt.bonus_amount) : '—', color: 'var(--vliq-ok-ink)' },
             { k: 'Сумма',  v: fmtMoney(receipt.amount), color: 'var(--vliq-text)' },
-            { k: 'Товары', v: receipt.items?.length ? String(receipt.items.length) : '—', color: 'var(--vliq-text)' },
           ].map(({ k, v, color }) => (
             <div
               key={k}
@@ -539,7 +536,9 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
             Проверка чеков
           </h1>
           <p style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--vliq-hint)', marginTop: 2 }}>
-            Свайпните карточку или нажмите для деталей
+            {currentReceipt?.status === 'on_review'
+              ? 'Свайпните карточку или нажмите для деталей'
+              : 'Чек ещё обрабатывается · нажмите для деталей'}
           </p>
         </div>
         <span style={{ flex: 'none', fontSize: 13, fontWeight: 700, color: 'var(--vliq-hint)', marginTop: 4 }}>
@@ -595,12 +594,14 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
           {[...visibleReceipts].reverse().map((receipt, rIdx) => {
             const stackIndex = visibleCount - 1 - rIdx
             const isTop = stackIndex === 0
+            const canSwipe = isTop && receipt.status === 'on_review'
             return (
               <SwipeCard
                 key={receipt.id}
                 receipt={receipt}
                 stackIndex={stackIndex}
                 isTop={isTop}
+                canSwipe={canSwipe}
                 onSwipe={handleSwipe}
                 onTap={() => { if (isTop && currentReceipt) onTap(currentReceipt.id) }}
               />

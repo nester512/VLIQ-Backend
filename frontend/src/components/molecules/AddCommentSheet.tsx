@@ -149,7 +149,7 @@ export function AddCommentSheet({
       <Drawer.Portal>
         <Drawer.Overlay
           className="fixed inset-0 z-[70]"
-          style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }}
+          style={{ background: 'rgba(0,0,0,0.5)' }}
         />
         <Drawer.Content
           aria-describedby={undefined}

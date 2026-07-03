@@ -68,6 +68,8 @@ function PayoutRow({ payout, onClick }: PayoutRowProps) {
   const methodLabel = METHOD_LABEL[payout.method] ?? payout.method
   const details = payout.details ? `${methodLabel} ${payout.details}` : methodLabel
   const ic = ICON_BG[kind]
+  const sellerLabel = payout.seller_name?.trim() || `Продавец #${payout.seller_id}`
+  const sellerMeta = payout.seller_store ? `${payout.seller_store} · ${details}` : details
 
   return (
     <button type="button" onClick={onClick} className="vliq-row">
@@ -75,8 +77,8 @@ function PayoutRow({ payout, onClick }: PayoutRowProps) {
         <Icon name="cashout" size={21} />
       </div>
       <div className="vliq-row-tx">
-        <b>Продавец #{payout.seller_id}</b>
-        <span>{details}</span>
+        <b>{sellerLabel}</b>
+        <span>{sellerMeta}</span>
       </div>
       <div style={{ flex: 'none', textAlign: 'right', maxWidth: 120 }}>
         <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>

@@ -63,6 +63,8 @@ class PayoutRequestRead(BaseModel):
 
     id: int
     seller_id: int
+    seller_name: str | None = None
+    seller_store: str | None = None
     brand_id: int
     amount: int
     payout_kind: PayoutKind

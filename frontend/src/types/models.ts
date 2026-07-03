@@ -74,6 +74,8 @@ export type PayoutMethod = 'card' | 'sbp_phone' | 'sbp_bank'
 export interface PayoutRequest {
   id: string
   seller_id: number
+  seller_name?: string
+  seller_store?: string
   amount: number
   method: PayoutMethod
   details?: string

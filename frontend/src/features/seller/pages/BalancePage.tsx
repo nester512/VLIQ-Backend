@@ -71,9 +71,8 @@ function BalanceContent() {
           <>
             <MetricCard
               title="На проверке"
-              value={fmtMoney(balance?.pending)}
-              delta={receiptsPending > 0 ? `${fmtInt(receiptsPending)} ожидают` : 'нет в очереди'}
-              deltaColor={receiptsPending > 0 ? 'wn' : 'hint'}
+              value={receipts === undefined ? '—' : fmtInt(receiptsPending)}
+              deltaColor="wn"
             />
             <MetricCard
               title="Всего начислено"

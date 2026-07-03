@@ -39,17 +39,22 @@ function defaultDescription(k: BackendBonusTx['kind']): string {
   }
 }
 
+function displayDescription(tx: BackendBonusTx): string {
+  // Backend `reason` is an audit field and may contain internal text like
+  // "Receipt #359 approved by admin 809296638". Seller history must stay
+  // product-facing and localized. Only manual accruals may carry a curated
+  // human text entered by an operator.
+  if (tx.kind === 'accrual_manual' && tx.reason?.trim()) return tx.reason.trim()
+  return defaultDescription(tx.kind)
+}
+
 function map(tx: BackendBonusTx): BonusTransaction {
   return {
     id: String(tx.id),
     seller_id: tx.seller_id,
     type: mapKind(tx.kind),
     amount: tx.amount,
-    // Corrections carry an internal, English, admin-facing audit reason
-    // ("Bonus correction on receipt #N by admin …: 0 → 2000") — not meant for
-    // sellers. Show the localized default for those; keep curated reasons
-    // (e.g. manual accruals) otherwise.
-    description: tx.kind === 'correction' ? defaultDescription(tx.kind) : (tx.reason ?? defaultDescription(tx.kind)),
+    description: displayDescription(tx),
     receipt_id: tx.source_type === 'receipt' && tx.source_id ? String(tx.source_id) : undefined,
     created_at: tx.created_at,
   }

@@ -618,12 +618,14 @@ async def approve_receipt(  # noqa: PLR0913
     Atomically:
     1. SELECT receipt FOR UPDATE (prevents concurrent modifications).
     2. Validate state machine transition: current_status → approved.
-    3. UPDATE receipt status=approved.
-    4. INSERT bonus_transaction(kind=accrual_receipt, amount=receipt.bonus_amount).
-    5. INSERT notification_outbox row (same transaction — fault-tolerant delivery).
-    6. INSERT audit_log record.
+    3. Resolve bonus amount: existing recognition result or admin-provided value.
+    4. Validate that a positive bonus exists before confirmation.
+    5. UPDATE receipt status=approved and persist the confirmed bonus amount.
+    6. INSERT bonus_transaction(kind=accrual_receipt, amount=confirmed bonus).
+    7. INSERT notification_outbox row (same transaction — fault-tolerant delivery).
+    8. INSERT audit_log record.
 
-    H12: Steps 1-6 all in one ``async with session.begin()`` block.
+    H12: Steps 1-8 all in one ``async with session.begin()`` block.
     The outbox worker handles actual Telegram delivery with retries.
     """
     seller_id: int
@@ -634,27 +636,31 @@ async def approve_receipt(  # noqa: PLR0913
         _require_transition(receipt, ReceiptStatus.approved.value, "admin")
 
         seller_id = receipt.seller_id
-        bonus_amount = receipt.bonus_amount or 0
+        bonus_amount = body.bonus_amount if body.bonus_amount is not None else (receipt.bonus_amount or 0)
+        if bonus_amount <= 0:
+            raise AppError("RECEIPT_BONUS_REQUIRED", status_code=422)
 
         await session.execute(
             update(Receipt)
             .where(Receipt.id == receipt_id)
-            .values(status=ReceiptStatus.approved.value, updated_by=token["user_id"])
+            .values(
+                status=ReceiptStatus.approved.value,
+                bonus_amount=bonus_amount,
+                updated_by=token["user_id"],
+            )
         )
 
-        # Insert bonus transaction only if bonus > 0.
-        if bonus_amount > 0:
-            bt = BonusTransaction(
-                seller_id=receipt.seller_id,
-                brand_id=receipt.brand_id,
-                amount=bonus_amount,
-                kind=BonusTransactionKind.accrual_receipt.value,
-                source_type="receipt",
-                source_id=receipt.id,
-                reason=f"Receipt #{receipt_id} approved by admin {token['user_id']}",
-                created_by=token["user_id"],
-            )
-            session.add(bt)
+        bt = BonusTransaction(
+            seller_id=receipt.seller_id,
+            brand_id=receipt.brand_id,
+            amount=bonus_amount,
+            kind=BonusTransactionKind.accrual_receipt.value,
+            source_type="receipt",
+            source_id=receipt.id,
+            reason=f"Бонус за чек #{receipt_id}",
+            created_by=token["user_id"],
+        )
+        session.add(bt)
 
         # Enqueue Telegram notification via outbox — same transaction as status update.
         # The outbox worker delivers the message with retries; no risk of lost send on crash.
@@ -885,10 +891,20 @@ async def edit_receipt_bonus(
                 kind=BonusTransactionKind.correction.value,
                 source_type="receipt",
                 source_id=receipt_id,
-                reason=f"Bonus correction on receipt #{receipt_id} by admin {token['user_id']}: {old_bonus} → {new_bonus}",
+                reason=f"Корректировка бонуса по чеку #{receipt_id}",
                 created_by=token["user_id"],
             )
             session.add(correction)
+            await notification_outbox.enqueue(
+                session,
+                recipient_id=receipt.seller_id,
+                channel="telegram",
+                template="receipt.bonus_changed",
+                payload={
+                    "receipt_id": receipt_id,
+                    "bonus_amount": new_bonus,
+                },
+            )
 
         log = AuditLog(
             actor_id=token["user_id"],
@@ -1224,7 +1240,7 @@ async def _reverse_receipt_accrual(session: AsyncSession, *, receipt: Receipt, a
             kind=BonusTransactionKind.correction.value,
             source_type="receipt",
             source_id=receipt.id,
-            reason=f"Receipt #{receipt.id} cancelled by admin {admin_id}: accrued bonus reversed",
+            reason=f"Отмена бонуса по чеку #{receipt.id}",
             created_by=admin_id,
         )
     )

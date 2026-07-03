@@ -10,12 +10,12 @@ import { useUiStore } from '@/store/uiStore'
 import { useHaptic } from '@/hooks/useHaptic'
 import { extractApiError } from '@/api/client'
 
-// Only `on_review` is *actionable*. `pending` receipts are still inside the
-// pipeline worker (no decision possible yet). `needs_revision` is a terminal
-// state for the seller to re-upload — admin can't approve from here.
-// Including them in the queue led to 409 RECEIPT_INVALID_STATE_TRANSITION
-// when admins swiped on cards that weren't actually reviewable.
-const REVIEW_STATUSES = ['on_review']
+// Confluence FLOW invariant: until the admin makes a final decision, the seller
+// sees one state — «На проверке» — and the admin must be able to find the check.
+// Internally the backend may still be in `pending` / `ocr_in_progress`, so the
+// queue includes all pre-decision states. Only `on_review` is actionable; the
+// page/deck guard swipes for the transitional states to avoid 409s.
+export const REVIEW_QUEUE_STATUSES = ['pending', 'ocr_in_progress', 'on_review'] as const
 const PAGE_LIMIT = 20
 
 export function useReviewQueue() {
@@ -23,7 +23,7 @@ export function useReviewQueue() {
     queryKey: ['admin', 'review-queue'],
     queryFn: ({ pageParam = 1 }) =>
       getAdminReceipts({
-        status: REVIEW_STATUSES,
+        status: [...REVIEW_QUEUE_STATUSES],
         page: pageParam as number,
         limit: PAGE_LIMIT,
       }),
@@ -40,6 +40,7 @@ interface SwipeActionArgs {
   id: string
   dir: SwipeDirection
   comment?: string
+  bonusAmountKopecks?: number
 }
 
 export function useSwipeAction() {
@@ -48,8 +49,8 @@ export function useSwipeAction() {
   const { impact, notification } = useHaptic()
 
   return useMutation({
-    mutationFn: ({ id, dir, comment }: SwipeActionArgs) => {
-      if (dir === 'approve') return approveReceipt(id)
+    mutationFn: ({ id, dir, comment, bonusAmountKopecks }: SwipeActionArgs) => {
+      if (dir === 'approve') return approveReceipt(id, { comment, bonusAmountKopecks })
       if (dir === 'reject') return rejectReceipt(id, comment)
       return reviseReceipt(id, comment ?? '')
     },

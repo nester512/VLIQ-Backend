@@ -7,9 +7,9 @@ import { ReceiptGraphic } from '@/components/molecules/ReceiptGraphic'
 import { ReceiptInfoCard } from '@/components/molecules/ReceiptInfoCard'
 import { AttachmentViewer } from '@/components/organisms/AttachmentViewer'
 import { EditBonusSheet } from '@/components/molecules/EditBonusSheet'
+import { RejectReasonSheet } from '@/components/molecules/RejectReasonSheet'
 import { AddCommentSheet } from '@/components/molecules/AddCommentSheet'
 import { BlockSellerSheet } from '@/components/molecules/BlockSellerSheet'
-import { fmtMoney, fmtMoneyDelta } from '@/utils/formatMoney'
 import { useUiStore } from '@/store/uiStore'
 import { useSwipeAction } from '@/features/admin/hooks/useReviewQueue'
 import { editReceiptBonus, addReceiptComment, blockSeller, deleteReceipt } from '@/api/admin'
@@ -23,12 +23,15 @@ interface ReceiptDetailSheetProps {
 
 export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetProps) {
   const closeSheet = useUiStore((s) => s.closeSheet)
+  const openSheet = useUiStore((s) => s.openSheet)
   const pushToast = useUiStore((s) => s.pushToast)
   const { mutate: swipe, isPending } = useSwipeAction()
   const queryClient = useQueryClient()
 
   // Sub-sheet visibility state
   const [editBonusOpen, setEditBonusOpen] = useState(false)
+  const [approveBonusOpen, setApproveBonusOpen] = useState(false)
+  const [rejectReasonOpen, setRejectReasonOpen] = useState(false)
   const [addCommentOpen, setAddCommentOpen] = useState(false)
   const [blockSellerOpen, setBlockSellerOpen] = useState(false)
 
@@ -109,8 +112,20 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
   const sellerName = receipt.seller_name ?? `Продавец #${receipt.seller_id}`
 
   function handleAction(dir: 'approve' | 'reject') {
+    if (dir === 'reject') {
+      setRejectReasonOpen(true)
+      return
+    }
+    if ((receipt?.bonus_amount ?? 0) <= 0) {
+      setApproveBonusOpen(true)
+      return
+    }
+    submitReviewAction(dir)
+  }
+
+  function submitReviewAction(dir: 'approve' | 'reject', comment?: string, bonusAmountKopecks?: number) {
     swipe(
-      { id: receiptId!, dir },
+      { id: receiptId!, dir, comment, bonusAmountKopecks },
       {
         // Actualize regardless of outcome — success OR a 409 conflict from a
         // stale-state race (e.g. an approve still in-flight, then a reject): refetch
@@ -118,6 +133,8 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
         // This is the detail-sheet path, NOT an in-deck swipe (deckIdx untouched), so
         // refetching the review queue here is safe and never double-consumes a card.
         onSettled: () => {
+          setApproveBonusOpen(false)
+          setRejectReasonOpen(false)
           queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
           queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
           closeSheet()
@@ -131,13 +148,13 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
   return (
     <>
       {/* Sheet sc: padding 6px 16px 16px (prototype: .sc) */}
-      <div className="pt-[6px] vliq-pad pb-4">
+      <div className="pt-[6px] vliq-pad pb-5">
         {/* Attachments — ALL files (images / PDFs) in one reusable viewer.
             Image tap opens a fullscreen lightbox; PDF opens externally; nav is
             via tap-zones / arrows (no nested horizontal swipe). When there are
             no attachments we fall back to the skeuomorphic ReceiptGraphic. */}
         <div
-          className="relative h-[330px] rounded-[18px] overflow-hidden mb-3.5"
+          className="relative h-[330px] rounded-[18px] overflow-hidden mb-4"
           style={{ background: 'linear-gradient(160deg, #5a6172, #3d4350)' }}
         >
           <AttachmentViewer
@@ -172,56 +189,34 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
         {/* Reusable info card — fiscal data, seller, duplicate/fraud signals,
             system rejection reason, OCR extraction warnings. Shared with the
             swipe-deck viewer. */}
-        <ReceiptInfoCard receipt={receipt} className="mb-1" />
+        <ReceiptInfoCard receipt={receipt} className="mb-4" />
 
-        {receipt.fn && receipt.fd && receipt.fp && (
+        <div className="grid grid-cols-2 gap-3 mx-4 mt-1 mb-4">
+          {receipt.fn && receipt.fd && receipt.fp && (
+            <button
+              type="button"
+              onClick={() => {
+                const text = `${receipt.fn} / ${receipt.fd} / ${receipt.fp}`
+                navigator.clipboard?.writeText(text)
+                  .then(() => pushToast('Номер скопирован', 'ok'))
+                  .catch(() => pushToast('Не удалось скопировать', 'dg'))
+              }}
+              className="min-w-0 flex items-center justify-center gap-2 rounded-[14px] px-3 py-3 text-[13px] font-extrabold leading-tight bg-[var(--vliq-field)] text-[var(--vliq-brand)] border-0 cursor-pointer active:opacity-80 transition-opacity"
+            >
+              <Icon name="cmt" size={17} className="flex-none" />
+              <span className="min-w-0 leading-tight">Скопировать ФН / ФД / ФП</span>
+            </button>
+          )}
+
           <button
             type="button"
-            onClick={() => {
-              const text = `${receipt.fn} / ${receipt.fd} / ${receipt.fp}`
-              navigator.clipboard?.writeText(text)
-                .then(() => pushToast('Номер скопирован', 'ok'))
-                .catch(() => pushToast('Не удалось скопировать', 'dg'))
-            }}
-            className="flex items-center gap-2 mb-4 -mt-2 text-[var(--vliq-brand)] text-[13px] font-semibold bg-transparent border-0 cursor-pointer"
+            onClick={() => openSheet('seller', { telegram_id: receipt.seller_id })}
+            className="min-w-0 flex items-center justify-center gap-2 rounded-[14px] px-3 py-3 text-[13px] font-extrabold leading-tight bg-[var(--vliq-field)] text-[var(--vliq-brand)] border-0 cursor-pointer active:opacity-80 transition-opacity"
           >
-            <Icon name="cmt" size={15} /> Скопировать ФН / ФД / ФП
+            <Icon name="user" size={17} className="flex-none" />
+            <span className="min-w-0 leading-tight">К продавцу</span>
           </button>
-        )}
-
-        {/* Items */}
-        {receipt.items && receipt.items.length > 0 && (
-          <>
-            <b className="text-[14px] font-bold block mb-1.5">Товары</b>
-            <div className="bg-[var(--vliq-field)] rounded-[16px] p-4 sm:p-5 shadow-[var(--vliq-shadow-sm)] mb-3">
-              {/* Items reflow into 2 columns on wide screens instead of one tall list */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8">
-                {receipt.items.map((item, i) => (
-                  <div key={i} className="flex items-start justify-between gap-3 py-2.5">
-                    <span className="flex-1 min-w-0 text-[13px] text-[var(--vliq-text)] font-medium leading-snug break-words">
-                      {item.name}
-                    </span>
-                    <span
-                      className="flex-none text-[13px] font-semibold whitespace-nowrap"
-                      style={{ fontVariantNumeric: 'tabular-nums' }}
-                    >
-                      {fmtMoney(item.price)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center justify-between gap-3 pt-3 mt-2 border-t border-[var(--vliq-sep)]">
-                <span className="text-[13px] font-bold">Сумма бонуса</span>
-                <span
-                  className="text-[14px] font-extrabold text-[var(--vliq-ok-ink)] whitespace-nowrap"
-                  style={{ fontVariantNumeric: 'tabular-nums' }}
-                >
-                  {receipt.bonus_amount != null ? fmtMoneyDelta(receipt.bonus_amount) : '—'}
-                </span>
-              </div>
-            </div>
-          </>
-        )}
+        </div>
 
         {/* State machine gate: approve/revise/reject ONLY when receipt is in_review.
             For terminal/non-actionable statuses we render a compact status badge
@@ -346,6 +341,26 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
         }}
         isSubmitting={editBonusPending}
         currentBonusKopecks={receipt.bonus_amount}
+      />
+
+      <EditBonusSheet
+        open={approveBonusOpen}
+        onClose={() => setApproveBonusOpen(false)}
+        onConfirm={(amountKopecks) => {
+          submitReviewAction('approve', undefined, amountKopecks)
+        }}
+        isSubmitting={isPending}
+        title="Укажите бонус"
+        confirmLabel="Подтвердить"
+        submittingLabel="Подтверждение…"
+        requirePositive
+      />
+
+      <RejectReasonSheet
+        open={rejectReasonOpen}
+        onClose={() => setRejectReasonOpen(false)}
+        onConfirm={(reason) => submitReviewAction('reject', reason)}
+        isSubmitting={isPending}
       />
 
       <AddCommentSheet

@@ -31,7 +31,7 @@ export function ReceiptRow({ receipt, onClick }: ReceiptRowProps) {
   const label = cfg?.short ?? receipt.status
   const kind: StatusKind = cfg?.kind ?? 'muted'
   const bonusOk = isApprovedStatus(receipt.status) && (receipt.bonus_amount ?? 0) > 0
-  const bonusText = receipt.bonus_amount ? fmtMoneyDelta(receipt.bonus_amount) : '—'
+  const bonusText = bonusOk ? fmtMoneyDelta(receipt.bonus_amount ?? 0) : '—'
 
   return (
     <button type="button" onClick={onClick} className="vliq-row">

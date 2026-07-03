@@ -1,4 +1,4 @@
-type StepStatus = 'done' | 'active' | 'pending'
+type StepStatus = 'done' | 'active' | 'pending' | 'failed'
 
 export interface TimelineStep {
   label: string
@@ -11,6 +11,13 @@ interface TimelineProps {
 }
 
 function DotIcon({ status }: { status: StepStatus }) {
+  if (status === 'failed') {
+    return (
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round">
+        <path d="M7 7 17 17M17 7 7 17" />
+      </svg>
+    )
+  }
   if (status === 'done' || status === 'active') {
     return (
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
@@ -29,6 +36,7 @@ const dotStyle: Record<StepStatus, string> = {
   done: 'bg-[var(--vliq-ok-bg)] text-[var(--vliq-ok-ink)]',
   active: 'bg-[var(--vliq-wn-bg)] text-[var(--vliq-wn-ink)]',
   pending: 'bg-[var(--vliq-field)] text-[var(--vliq-hint)]',
+  failed: 'bg-[var(--vliq-dg-bg)] text-[var(--vliq-dg-ink)]',
 }
 
 export function Timeline({ steps }: TimelineProps) {
