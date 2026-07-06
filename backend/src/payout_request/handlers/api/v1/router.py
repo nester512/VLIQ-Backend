@@ -34,6 +34,7 @@ from src.payout_request.service import (
     approve_payout_request,
     create_payout_request,
     reject_payout_request,
+    update_payout_request,
 )
 from src.seller.models import Seller
 
@@ -243,10 +244,30 @@ async def get_payout_request(
     return item
 
 
-@router.patch("/{payout_request_id}", response_model=PayoutRequestRead, include_in_schema=False)
-async def update_payout_request(payout_request_id: int, payload: PayoutRequestUpdate) -> PayoutRequestRead:
-    """Direct PATCH — prefer /approve or /reject action endpoints for state transitions."""
-    raise AppError("NOT_IMPLEMENTED", status_code=501)
+@router.patch(
+    "/{payout_request_id}",
+    response_model=PayoutRequestRead,
+    summary="Изменить заявку (admin): сумма / комментарий — KAN-22",
+    description=(
+        "Правка заявки в статусе new/in_progress. При изменении суммы hold корректируется "
+        "дельта-транзакцией, продавцу уходит уведомление с новой суммой. "
+        "Смена статуса — только через /approve и /reject."
+    ),
+)
+async def update_payout_request_endpoint(
+    payout_request_id: int,
+    payload: PayoutRequestUpdate,
+    token: Annotated[JwtTokenT, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_pg_session)],
+) -> PayoutRequestRead:
+    return await update_payout_request(
+        payout_id=payout_request_id,
+        admin_id=token["user_id"],
+        amount=payload.amount,
+        admin_comment=payload.admin_comment,
+        external_txn_id=payload.external_txn_id,
+        session=session,
+    )
 
 
 @router.delete("/{payout_request_id}", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False)

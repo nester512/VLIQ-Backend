@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Icon } from '@/components/atoms/Icon'
 import { Pill } from '@/components/atoms/Pill'
 import { RECEIPT_STATUS } from '@/utils/receiptStatus'
+import { receiptCheckUrl } from '@/utils/receiptCheckUrl'
 import { fmtMoney, fmtMoneyDelta } from '@/utils/formatMoney'
 import { formatDate, formatDateTime } from '@/utils/formatDate'
 import type { AdminReceipt, FiscalIdentity } from '@/api/admin'
@@ -95,6 +96,7 @@ export function ReceiptInfoCard({ receipt, actions, className = '' }: ReceiptInf
     receipt.fn && receipt.fd && receipt.fp
       ? `${receipt.fn.slice(-6)} / ${receipt.fd} / ${receipt.fp.slice(-4)}`
       : '—'
+  const checkUrl = receiptCheckUrl(receipt)
 
   // Distinct identities are only worth showing when there is more than one
   // (the single-identity case is already covered by the ФН/ФД/ФП field).
@@ -142,6 +144,19 @@ export function ReceiptInfoCard({ receipt, actions, className = '' }: ReceiptInf
           <Field label="Адрес" value={receipt.shop_address ?? '—'} wide />
           <Field label="ФН / ФД / ФП" value={fnTriple} wide />
         </div>
+        {/* KAN-12: лупа ведёт на реальный чек, когда фискальные данные найдены. */}
+        {checkUrl && (
+          <a
+            href={checkUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="receipt-check-link"
+            className="mt-2 flex items-center justify-center gap-2 rounded-[14px] px-3 py-3 text-[13px] font-extrabold leading-tight bg-[var(--vliq-field)] text-[var(--vliq-brand)] no-underline active:opacity-80 transition-opacity"
+          >
+            <Icon name="zoom" size={17} className="flex-none" />
+            <span className="min-w-0 leading-tight">Проверить чек на check.ofd.ru</span>
+          </a>
+        )}
       </Section>
 
       {/* Multiple distinct fiscal identities (MULTIPLE_RECEIPTS_DETECTED) */}

@@ -127,6 +127,24 @@ describe('ReceiptInfoCard — duplicate / fraud signals', () => {
   })
 })
 
+describe('ReceiptInfoCard — external check link (KAN-12)', () => {
+  it('renders the check.ofd.ru link when the fiscal triple is recognised', () => {
+    render(<ReceiptInfoCard receipt={base()} />)
+
+    const link = screen.getByTestId('receipt-check-link')
+    expect(link.getAttribute('href')).toBe(
+      'https://check.ofd.ru/rec/9999078900001234/12345/987654321',
+    )
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toContain('noopener')
+  })
+
+  it('hides the link when fiscal data was not recognised', () => {
+    render(<ReceiptInfoCard receipt={base({ fp: undefined })} />)
+    expect(screen.queryByTestId('receipt-check-link')).toBeNull()
+  })
+})
+
 describe('ReceiptInfoCard — extraction warnings', () => {
   it('lists OCR extraction warnings', () => {
     render(
