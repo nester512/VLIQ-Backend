@@ -8,6 +8,12 @@ interface MetricCardProps {
   className?: string
   /** When true and value is a parseable number, animate count-up on mount. */
   tween?: boolean
+  /**
+   * When provided, the whole card becomes an actionable button (e.g. the
+   * "На проверке" tile links to the receipt-review flow). Left unset the card
+   * stays a plain, non-interactive `<div>`.
+   */
+  onClick?: () => void
 }
 
 const deltaColorVar: Record<NonNullable<MetricCardProps['deltaColor']>, string> = {
@@ -37,14 +43,14 @@ function TweenedValue({ raw, style, title }: { raw: number; style: React.CSSProp
  * `clamp()` keeps values inside the rounded corners on narrow screens.
  */
 export function MetricCard({
-  title, value, delta, deltaColor: tone = 'hint', className = '', tween = false,
+  title, value, delta, deltaColor: tone = 'hint', className = '', tween = false, onClick,
 }: MetricCardProps) {
   const valueStyle: React.CSSProperties = { fontSize: 'clamp(18px, 6.4vw, 23px)' }
   const parsedNum = parseFloat(value.replace(/[^0-9.-]/g, ''))
   const canTween = tween && !isNaN(parsedNum)
 
-  return (
-    <div className={`vliq-card vliq-metric-card vliq-themed ${className}`}>
+  const body = (
+    <>
       <div className="vliq-metric-card__title">{title}</div>
       {canTween ? (
         <TweenedValue raw={parsedNum} style={valueStyle} title={value} />
@@ -61,6 +67,25 @@ export function MetricCard({
           {delta}
         </div>
       )}
-    </div>
+    </>
   )
+
+  const cardClass = `vliq-card vliq-metric-card vliq-themed ${className}`
+
+  // Actionable variant — render a real <button> for keyboard/screen-reader
+  // support, resetting the UA button styles the card CSS does not own.
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={cardClass}
+        style={{ font: 'inherit', textAlign: 'left', width: '100%', cursor: 'pointer' }}
+      >
+        {body}
+      </button>
+    )
+  }
+
+  return <div className={cardClass}>{body}</div>
 }
