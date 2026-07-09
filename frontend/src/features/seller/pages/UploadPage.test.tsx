@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, waitFor, within, cleanup } from '@testing-library/react'
+import { render, screen, waitFor, within, cleanup, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -55,6 +55,12 @@ function makeImage(name: string): File {
 function makePdf(name: string): File {
   return new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], name, { type: 'application/pdf' })
 }
+function makeText(name: string): File {
+  return new File(['plain'], name, { type: 'text/plain' })
+}
+function makeHugeImage(name: string): File {
+  return new File([new Uint8Array(11 * 1024 * 1024)], name, { type: 'image/jpeg' })
+}
 
 /** The hidden "PDF / файл" picker accepts both images and PDFs. */
 function pdfFileInput(): HTMLInputElement {
@@ -88,6 +94,14 @@ afterEach(() => {
 })
 
 describe('UploadPage — file selection', () => {
+  it('explains the required files and optional QR before upload', () => {
+    renderPage()
+
+    expect(screen.getByText('Как загрузить чек')).toBeInTheDocument()
+    expect(screen.getByText(/Добавьте от 1 до 5 файлов/)).toBeInTheDocument()
+    expect(screen.getByText(/QR-код необязателен/)).toBeInTheDocument()
+  })
+
   it('selects one image and shows a tile + counter', async () => {
     const user = userEvent.setup()
     renderPage()
@@ -153,6 +167,27 @@ describe('UploadPage — file selection', () => {
     expect(pushToast).toHaveBeenCalledWith(expect.stringContaining('не более 5'), 'wn')
   })
 
+  it('rejects unsupported file types before submit', () => {
+    renderPage()
+
+    fireEvent.change(pdfFileInput(), { target: { files: [makeText('notes.txt')] } })
+
+    expect(screen.queryAllByTestId('attachment-tile')).toHaveLength(0)
+    expect(screen.getByRole('alert')).toHaveTextContent('notes.txt: поддерживаются только фото или PDF')
+    expect(pushToast).toHaveBeenCalledWith(expect.stringContaining('notes.txt'), 'dg')
+  })
+
+  it('rejects files larger than 10 MB before submit', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.upload(pdfFileInput(), makeHugeImage('huge.jpg'))
+
+    expect(screen.queryAllByTestId('attachment-tile')).toHaveLength(0)
+    expect(screen.getByRole('alert')).toHaveTextContent('huge.jpg: файл больше 10.0 МБ')
+    expect(pushToast).toHaveBeenCalledWith(expect.stringContaining('huge.jpg'), 'dg')
+  })
+
   it('removing one tile keeps the rest', async () => {
     const user = userEvent.setup()
     renderPage()
@@ -186,6 +221,9 @@ describe('UploadPage — QR is additive and independent', () => {
     await screen.findByText('QR-код отсканирован')
 
     expect(screen.getByRole('button', { name: 'Выберите файл' })).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'QR-код добавлен. Теперь прикрепите фото или PDF чека — один QR без файла не отправляется.',
+    )
   })
 
   it('scanning a QR does NOT clear selected files', async () => {

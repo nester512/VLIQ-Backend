@@ -17,8 +17,12 @@
 Стек поднимается из корня репо: `docker compose up -d`.
 Порядок: `postgres`/`redis`/`minio` healthy → `createbuckets` (бакет `vliq-receipts`)
 → **backend boot:** `alembic upgrade head && python -m src.scripts.seed_dev && uvicorn`.
-- `src/scripts/seed_dev.py` **прогоняет `backend/seed_dev.sql` на каждом старте** (идемпотентно):
-  сидит бренд, админов (`809296638, 99999, 99998` + owner `997459169`) и демо-данные.
+- `src/scripts/seed_dev.py` на каждом старте прогоняет **core-сид `backend/seed_dev.sql`**
+  (бренд, админы `809296638, 99999, 99998` + owner `997459169`, города — идемпотентно).
+  **Демо-данные** (продавцы/чеки/выплаты/акции) вынесены в `backend/seed_demo.sql` и
+  применяются **только при `SEED_DEMO=true`** (env; в `docker-compose.yml` дефолт `false`,
+  на тест-стенде `docker-compose.test.yml` — `true`). Разовая чистка уже насеянного демо
+  на живой БД: `ops/cleanup_demo_seed.sql`.
   → Чтобы добавить админа: строка в `seed_dev.sql` (переживёт ребилд) или разовый SQL (ниже).
 - Сервисы: `backend, bot, notifications-worker, receipt-pipeline-worker, frontend, caddy,
   postgres, redis, minio, prometheus, loki, promtail, grafana`.

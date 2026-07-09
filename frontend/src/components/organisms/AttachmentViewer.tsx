@@ -48,6 +48,7 @@ function ZoomButton({ url, onZoom }: { url: string; onZoom: (url: string) => voi
       type="button"
       aria-label="Открыть фото на весь экран"
       data-testid="attachment-zoom-button"
+      data-swipe-deck-control="true"
       onPointerDown={stopAll}
       onClick={(e) => {
         stopAll(e)
@@ -95,6 +96,7 @@ function AttachmentSlide({
         <div className="text-[13.5px] font-semibold text-[var(--vliq-text)]">PDF-документ</div>
         <button
           type="button"
+          data-swipe-deck-control="true"
           onClick={(e) => {
             stopAll(e)
             openExternal(url)
@@ -290,6 +292,7 @@ export function AttachmentViewer({
           // approve/reject swipe nor the detail-sheet tap.
           style={{ background: 'var(--vliq-card)', touchAction: 'pan-y' }}
           onPointerDown={stopAll}
+          data-swipe-deck-control="true"
           data-testid="attachment-final-card"
         >
           {finalCard}
@@ -321,7 +324,7 @@ export function AttachmentViewer({
             <button
               type="button"
               aria-label="Предыдущее вложение"
-              onPointerDown={stopAll}
+              data-swipe-deck-control="true"
               onClick={(e) => {
                 stopAll(e)
                 goPrev()
@@ -340,7 +343,7 @@ export function AttachmentViewer({
             <button
               type="button"
               aria-label="Следующее вложение"
-              onPointerDown={stopAll}
+              data-swipe-deck-control="true"
               onClick={(e) => {
                 stopAll(e)
                 goNext()

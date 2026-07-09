@@ -10,12 +10,11 @@ import { useUiStore } from '@/store/uiStore'
 import { useHaptic } from '@/hooks/useHaptic'
 import { extractApiError } from '@/api/client'
 
-// Confluence FLOW invariant: until the admin makes a final decision, the seller
-// sees one state — «На проверке» — and the admin must be able to find the check.
-// Internally the backend may still be in `pending` / `ocr_in_progress`, so the
-// queue includes all pre-decision states. Only `on_review` is actionable; the
-// page/deck guard swipes for the transitional states to avoid 409s.
-export const REVIEW_QUEUE_STATUSES = ['pending', 'ocr_in_progress', 'on_review'] as const
+// Confluence A2 invariant: the active dating-style review feed contains only
+// actionable receipts. Seller-facing `pending` / `ocr_in_progress` still render
+// as «На проверке», but they must not enter this deck: they are not swipeable
+// and would block older `on_review` receipts behind them.
+export const REVIEW_QUEUE_STATUSES = ['on_review'] as const
 const PAGE_LIMIT = 20
 
 export function useReviewQueue() {

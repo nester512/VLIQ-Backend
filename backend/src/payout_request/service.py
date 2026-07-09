@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.errors import AppError
 from src.bonus_transaction.models import BonusTransaction, BonusTransactionKind
+from src.notification import outbox as notification_outbox
 from src.notification.formatting import format_kopecks
 from src.payout_request.models import PayoutRequest, PayoutRequestStatus
 from src.payout_request.schemas.api import PayoutRequestRead
@@ -181,6 +182,102 @@ async def approve_payout_request(
 
     await session.refresh(payout)
     logger.info("payout.approved payout_id=%s admin_id=%s", payout_id, admin_id)
+    return PayoutRequestRead.model_validate(payout, from_attributes=True)
+
+
+async def update_payout_request(  # noqa: PLR0913
+    *,
+    payout_id: int,
+    admin_id: int,
+    amount: int | None = None,
+    admin_comment: str | None = None,
+    external_txn_id: str | None = None,
+    session: AsyncSession,
+) -> PayoutRequestRead:
+    """Atomically edit a pending payout request (admin) — KAN-22.
+
+    Only ``new`` / ``in_progress`` requests are editable; state transitions go
+    through :func:`approve_payout_request` / :func:`reject_payout_request`.
+
+    When the amount changes, a delta ``payout_hold`` transaction keeps the
+    ledger invariant (total hold for the payout == -amount), so a later
+    approve/reject with the NEW amount stays balanced. The seller is notified
+    with the new amount via the outbox (same transaction — no phantom sends).
+    """
+    async with session.begin():
+        payout = (
+            await session.execute(select(PayoutRequest).where(PayoutRequest.id == payout_id).with_for_update())
+        ).scalar_one_or_none()
+
+        if payout is None:
+            raise AppError("PAYOUT_NOT_FOUND", status_code=404)
+
+        if payout.status not in (PayoutRequestStatus.new.value, PayoutRequestStatus.in_progress.value):
+            raise AppError("PAYOUT_INVALID_STATE", status_code=409)
+
+        old_amount = payout.amount
+        if amount is not None and amount != old_amount:
+            delta = amount - old_amount
+            if delta > 0:
+                # Lock the seller row (same serialization point as create) so a
+                # concurrent payout creation cannot over-spend the balance.
+                seller_row = (
+                    await session.execute(
+                        select(Seller).where(Seller.telegram_id == payout.seller_id).with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if seller_row is None:
+                    raise AppError("SELLER_NOT_FOUND", status_code=404)
+
+                balance = await get_seller_balance(seller_id=payout.seller_id, session=session)
+                if balance.available < delta:
+                    raise AppError(
+                        "PAYOUT_INSUFFICIENT_BALANCE",
+                        user_message=f"Недостаточно средств. Доступно: {format_kopecks(balance.available)} ₽.",
+                        status_code=422,
+                    )
+
+            hold_delta = BonusTransaction(
+                seller_id=payout.seller_id,
+                brand_id=payout.brand_id,
+                amount=-delta,  # increase → extra hold; decrease → partial release
+                kind=BonusTransactionKind.payout_hold.value,
+                source_type="payout",
+                source_id=payout.id,
+                reason=f"Изменение суммы заявки #{payout.id} админом",
+                created_by=admin_id,
+            )
+            session.add(hold_delta)
+
+            payout.amount = amount
+            payout.updated_by = admin_id
+
+            await notification_outbox.enqueue(
+                session,
+                recipient_id=payout.seller_id,
+                channel="telegram",
+                template="payout.amount_changed",
+                payload={
+                    "amount": amount,
+                    "old_amount": old_amount,
+                    "payout_masked": payout.payout_masked,
+                },
+            )
+
+        if admin_comment is not None:
+            payout.admin_comment = admin_comment
+            payout.updated_by = admin_id
+        if external_txn_id is not None:
+            payout.external_txn_id = external_txn_id
+            payout.updated_by = admin_id
+
+    await session.refresh(payout)
+    logger.info(
+        "payout.updated payout_id=%s admin_id=%s amount=%s",
+        payout_id,
+        admin_id,
+        payout.amount,
+    )
     return PayoutRequestRead.model_validate(payout, from_attributes=True)
 
 

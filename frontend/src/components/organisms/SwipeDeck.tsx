@@ -30,6 +30,10 @@ function getInitials(name: string) {
     .toUpperCase()
 }
 
+function isSwipeDeckControl(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('[data-swipe-deck-control="true"]') != null
+}
+
 // ---- SwipeCard ----
 interface SwipeCardProps {
   receipt: AdminReceipt
@@ -83,12 +87,20 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop, canSwipe }: Swi
   }
 
   function onPtrUp(e: React.PointerEvent) {
-    if (!isTop || !canSwipe || !dragRef.current.active) return
+    if (!isTop) return
+    if (!canSwipe) {
+      if (!isSwipeDeckControl(e.target)) onTap()
+      return
+    }
+    if (!dragRef.current.active) return
     const dx = e.clientX - dragRef.current.startX
     const wasMoved = dragRef.current.moved
     dragRef.current.active = false
 
-    if (!wasMoved) { onTap(); return }
+    if (!wasMoved) {
+      if (!isSwipeDeckControl(e.target)) onTap()
+      return
+    }
 
     // Up-swipe «Доработка» (revise) DISABLED per spec — revise is out of scope
     // (a bad receipt is simply rejected). Kept commented so it can be restored:
@@ -151,7 +163,7 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop, canSwipe }: Swi
       }}
       onPointerDown={isTop ? onPtrDown : undefined}
       onPointerMove={isTop ? onPtrMove : undefined}
-      onPointerUp={isTop ? (canSwipe ? onPtrUp : () => onTap()) : undefined}
+      onPointerUp={isTop ? onPtrUp : undefined}
       onPointerCancel={isTop ? onPtrCancel : undefined}
       exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
     >

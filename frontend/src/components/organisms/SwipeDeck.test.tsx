@@ -83,6 +83,39 @@ describe('SwipeDeck — outer approve/reject swipe still works with the Attachme
     expect(onSwipe).not.toHaveBeenCalled()
   })
 
+  it('still fires approve when a horizontal drag starts on the right attachment tap-zone', () => {
+    vi.useFakeTimers()
+    const onSwipe = vi.fn()
+    const onTap = vi.fn()
+    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={onTap} />)
+
+    const next = screen.getAllByLabelText('Следующее вложение')[0]!
+    fireEvent.pointerDown(next, { clientX: 260, clientY: 200, pointerId: 12 })
+    fireEvent.pointerMove(next, { clientX: 390, clientY: 200, pointerId: 12 })
+    fireEvent.pointerUp(next, { clientX: 390, clientY: 200, pointerId: 12 })
+
+    act(() => {
+      vi.advanceTimersByTime(400)
+    })
+    expect(onSwipe).toHaveBeenCalledWith('1', 'approve')
+    expect(onTap).not.toHaveBeenCalled()
+  })
+
+  it('tapping an attachment nav zone on a non-actionable card does not open details', () => {
+    const onSwipe = vi.fn()
+    const onTap = vi.fn()
+    render(<SwipeDeck receipts={[receipt({ status: 'pending' })]} onSwipe={onSwipe} onTap={onTap} />)
+
+    const next = screen.getAllByLabelText('Следующее вложение')[0]!
+    fireEvent.pointerDown(next, { clientX: 260, clientY: 200, pointerId: 13 })
+    fireEvent.pointerUp(next, { clientX: 260, clientY: 200, pointerId: 13 })
+    fireEvent.click(next)
+
+    expect(screen.getByTestId('attachment-counter')).toHaveTextContent('2 / 2')
+    expect(onTap).not.toHaveBeenCalled()
+    expect(onSwipe).not.toHaveBeenCalled()
+  })
+
   it('exposes the 2 attachment pages + a final info-card page showing seller/store', () => {
     const onSwipe = vi.fn()
     const onTap = vi.fn()
