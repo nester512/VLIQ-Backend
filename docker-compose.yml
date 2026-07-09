@@ -73,6 +73,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       S3_ENDPOINT_URL: http://minio:9000
       RECEIPT_STORAGE: s3
+      # Demo sellers/receipts seed (seed_demo.sql). OFF by default: a restart
+      # must not re-create demo data. Set SEED_DEMO=true in .env for local dev.
+      SEED_DEMO: ${SEED_DEMO:-false}
     expose:
       - "8000"
     depends_on:

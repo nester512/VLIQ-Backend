@@ -11,7 +11,7 @@ raw kopecks as if they were rubles (e.g. 25000 kopecks → "25000 ₽" instead o
 from __future__ import annotations
 
 # Payload keys that carry a kopecks amount and are rendered next to ``₽``.
-MONEY_PAYLOAD_KEYS = frozenset({"bonus_amount", "available", "amount"})
+MONEY_PAYLOAD_KEYS = frozenset({"bonus_amount", "available", "amount", "old_amount"})
 
 
 def format_kopecks(value: object) -> str:

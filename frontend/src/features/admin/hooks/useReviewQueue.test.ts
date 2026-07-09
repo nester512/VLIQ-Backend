@@ -54,7 +54,7 @@ beforeEach(() => {
 })
 
 describe('useReviewQueue', () => {
-  it('fetches every pre-decision status visible as На проверке', async () => {
+  it('fetches only actionable on_review receipts for the swipe deck', async () => {
     const { Wrapper } = makeWrapper()
     const { result } = renderHook(() => useReviewQueue(), { wrapper: Wrapper })
 

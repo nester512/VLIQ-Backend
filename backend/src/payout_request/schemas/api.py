@@ -51,9 +51,13 @@ class PayoutRequestReject(BaseModel):
 
 
 class PayoutRequestUpdate(BaseModel):
-    """Generic update schema (admin-only direct patch — prefer approve/reject actions)."""
+    """Admin edit of a pending payout — amount / comment / txn id (KAN-22).
 
-    status: PayoutRequestStatus | None = None
+    Status is intentionally NOT editable here — state transitions must go
+    through the /approve and /reject action endpoints.
+    """
+
+    amount: int | None = Field(default=None, gt=0, description="New payout amount in kopecks")
     admin_comment: str | None = None
     external_txn_id: str | None = Field(default=None, max_length=128)
 

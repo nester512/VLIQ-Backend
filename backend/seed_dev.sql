@@ -4,7 +4,12 @@
 -- notifications are created here — those were removed on purpose so the DB stays
 -- clean. The city dictionary is seeded by Alembic migration 0007, not here.
 --
--- Usage:
+-- Demo data (sellers / receipts / payouts / promotions / notifications) lives
+-- in seed_demo.sql and is applied by src/scripts/seed_dev.py ONLY when the
+-- SEED_DEMO env flag is truthy — so a production restart never re-creates
+-- demo sellers or unverifiable seed:// receipts in the admin review queue.
+--
+-- Manual usage:
 --   docker compose exec -T postgres psql -U vliq -d vliq < backend/seed_dev.sql
 
 -- ---------------------------------------------------------------------------
