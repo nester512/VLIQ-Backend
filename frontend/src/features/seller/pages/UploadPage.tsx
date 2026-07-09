@@ -12,6 +12,8 @@ import { getMe } from '@/api/sellers'
 
 /** Spec cap: one submission = one Receipt with 1..5 attachments. */
 const MAX_FILES = 5
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+const ACCEPTED_FILE_TYPES = new Set(['application/pdf'])
 
 /**
  * Backend error codes / HTTP statuses that are clearly about the attached
@@ -25,6 +27,11 @@ const FILE_SPECIFIC_CODES = new Set([
   'RECEIPT_INVALID_FILE',
   'RECEIPT_TOO_MANY_FILES',
 ])
+
+function isAcceptedReceiptFile(file: File): boolean {
+  return file.type.startsWith('image/') || ACCEPTED_FILE_TYPES.has(file.type)
+}
+
 function isFileSpecificError(code: string, status: number): boolean {
   return FILE_SPECIFIC_CODES.has(code) || status === 413 || status === 415
 }
@@ -69,6 +76,23 @@ function OptionBtn({ icon, label, color, onClick }: OptionBtnProps) {
       </div>
       <b style={{ fontSize: 12, fontWeight: 700, color: 'var(--vliq-text)' }}>{label}</b>
     </button>
+  )
+}
+
+function FileErrorMessage({ message }: { message: string }) {
+  return (
+    <p
+      role="alert"
+      style={{
+        marginTop: 10,
+        fontSize: 12.5,
+        fontWeight: 600,
+        lineHeight: 1.35,
+        color: 'var(--color-dg)',
+      }}
+    >
+      {message}
+    </p>
   )
 }
 
@@ -153,14 +177,33 @@ function UploadContent() {
     if (incoming.length === 0) return
     // Selection changed — a stale file-specific error no longer applies.
     setFileError(null)
+    const validFiles: File[] = []
+    const rejected: string[] = []
+    for (const file of incoming) {
+      if (!isAcceptedReceiptFile(file)) {
+        rejected.push(`${file.name}: поддерживаются только фото или PDF`)
+        continue
+      }
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        rejected.push(`${file.name}: файл больше ${formatSize(MAX_FILE_SIZE_BYTES)}`)
+        continue
+      }
+      validFiles.push(file)
+    }
+    if (rejected.length > 0) {
+      const message = rejected[0] ?? 'Файл не подходит для загрузки'
+      setFileError(message)
+      pushToast(message, 'dg')
+    }
+    if (validFiles.length === 0) return
     setAttachments((prev) => {
       const room = MAX_FILES - prev.length
       if (room <= 0) {
         pushToast(`Можно прикрепить не более ${MAX_FILES} файлов`, 'wn')
         return prev
       }
-      const accepted = incoming.slice(0, room)
-      if (incoming.length > room) {
+      const accepted = validFiles.slice(0, room)
+      if (validFiles.length > room) {
         pushToast(`Можно прикрепить не более ${MAX_FILES} файлов`, 'wn')
       }
       // MERGE with the existing selection (additive) — do not replace.
@@ -246,6 +289,7 @@ function UploadContent() {
   const displayProgress = uploadProgress ?? progress
   const canSubmit = attachments.length > 0
   const atCap = attachments.length >= MAX_FILES
+  const qrOnly = scannedQr !== null && attachments.length === 0
 
   return (
     <div>
@@ -389,18 +433,7 @@ function UploadContent() {
               {atCap ? `Максимум ${MAX_FILES} файлов` : '+ Добавить ещё'}
             </button>
             {fileError && (
-              <p
-                role="alert"
-                style={{
-                  marginTop: 10,
-                  fontSize: 12.5,
-                  fontWeight: 600,
-                  lineHeight: 1.35,
-                  color: 'var(--color-dg)',
-                }}
-              >
-                {fileError}
-              </p>
+              <FileErrorMessage message={fileError} />
             )}
           </div>
         ) : (
@@ -424,10 +457,44 @@ function UploadContent() {
               Загрузите чек
             </h2>
             <p style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--vliq-hint)', marginTop: 6, lineHeight: 1.4 }}>
-              Сфотографируйте бумажный чек или прикрепите электронный (до {MAX_FILES} файлов)
+              Сфотографируйте бумажный чек или прикрепите электронный PDF. Можно добавить до {MAX_FILES} файлов.
             </p>
+            {fileError && <FileErrorMessage message={fileError} />}
           </>
         )}
+      </div>
+
+      <div
+        className="vliq-themed"
+        style={{
+          margin: '0 16px 14px',
+          borderRadius: 16,
+          padding: '14px 16px',
+          background: 'var(--vliq-card)',
+          boxShadow: 'var(--vliq-shadow-sm)',
+          color: 'var(--vliq-text)',
+        }}
+      >
+        <b style={{ display: 'block', fontSize: 14, fontWeight: 800, marginBottom: 6 }}>
+          Как загрузить чек
+        </b>
+        <ul
+          style={{
+            margin: 0,
+            paddingLeft: 18,
+            display: 'grid',
+            gap: 5,
+            fontSize: 12.5,
+            fontWeight: 500,
+            lineHeight: 1.4,
+            color: 'var(--vliq-hint)',
+          }}
+        >
+          <li>Добавьте от 1 до {MAX_FILES} файлов: фото чека или PDF.</li>
+          <li>Несколько фото одного чека загружайте одной отправкой.</li>
+          <li>QR-код необязателен: его можно отсканировать дополнительно, но без файла чек не отправится.</li>
+          <li>Максимальный размер одного файла — {formatSize(MAX_FILE_SIZE_BYTES)}.</li>
+        </ul>
       </div>
 
       {/* Scanned QR — INDEPENDENT of the files; can be cleared on its own. */}
@@ -505,6 +572,20 @@ function UploadContent() {
       </div>
 
       <div className="vliq-pad">
+        {qrOnly && (
+          <p
+            role="alert"
+            style={{
+              margin: '0 0 12px',
+              fontSize: 12.5,
+              fontWeight: 700,
+              lineHeight: 1.35,
+              color: 'var(--vliq-wn-ink)',
+            }}
+          >
+            QR-код добавлен. Теперь прикрепите фото или PDF чека — один QR без файла не отправляется.
+          </p>
+        )}
         <div className="vliq-sec-t">
           <b>Что проверит система</b>
         </div>

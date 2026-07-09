@@ -51,7 +51,7 @@ describe('AttachmentViewer — multiple attachments', () => {
 })
 
 describe('AttachmentViewer — nav controls do NOT bubble to the host (no approve/reject)', () => {
-  it('stops pointerdown and click propagation on the next zone', () => {
+  it('lets pointerdown bubble for host drag, but stops click propagation on the next zone', () => {
     const hostPointerDown = vi.fn()
     const hostClick = vi.fn()
     render(
@@ -62,10 +62,11 @@ describe('AttachmentViewer — nav controls do NOT bubble to the host (no approv
     const next = screen.getByLabelText('Следующее вложение')
     fireEvent.pointerDown(next)
     fireEvent.click(next)
-    // The outer host (which in production is SwipeDeck's drag surface) must
-    // never see the nav interaction — otherwise tapping to advance would fire
-    // an approve/reject.
-    expect(hostPointerDown).not.toHaveBeenCalled()
+    // The outer host (which in production is SwipeDeck's drag surface) must see
+    // pointerdown so a horizontal drag that starts on the edge/tap-zone can
+    // still approve/reject. The actual click stays isolated and only advances
+    // the attachment page.
+    expect(hostPointerDown).toHaveBeenCalled()
     expect(hostClick).not.toHaveBeenCalled()
     // And the page actually advanced.
     expect(screen.getByTestId('attachment-counter')).toHaveTextContent('2 / 2')
