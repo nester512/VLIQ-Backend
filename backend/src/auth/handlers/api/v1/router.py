@@ -9,7 +9,7 @@ from urllib.parse import parse_qsl, unquote
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.admin.models import Admin
@@ -32,6 +32,11 @@ from src.seller.models import Seller
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+
+# Fixed local-only identity used by the floating DEV panel. Keeping the ID on
+# the server (rather than accepting it from the client) makes it impossible for
+# this helper to delete an arbitrary seller even in a non-production environment.
+_DEV_REGISTRATION_SELLER_ID = 42424242
 
 
 async def _find_admin(session: AsyncSession, telegram_id: int) -> Admin | None:
@@ -111,6 +116,23 @@ async def login(
     if cfg.env == Env.prod:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")  # intentional 404, not AppError
     return await _issue_token_for_telegram_id(body.id, session)
+
+
+@router.delete(
+    "/dev/mock-registration-seller",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="[DEV ONLY] Удалить временного продавца для проверки регистрации",
+)
+async def reset_mock_registration_seller(
+    session: Annotated[AsyncSession, Depends(get_pg_session)],
+    cfg: Annotated[Settings, Depends(get_config)],
+) -> None:
+    """Remove only the fixed DEV registration identity and its cascaded test data."""
+    if cfg.env == Env.prod:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")  # intentional 404, not AppError
+
+    await session.execute(delete(Seller).where(Seller.telegram_id == _DEV_REGISTRATION_SELLER_ID))
+    await session.commit()
 
 
 @router.post(

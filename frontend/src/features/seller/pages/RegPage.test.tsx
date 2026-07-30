@@ -97,6 +97,7 @@ async function completeStep1(user: ReturnType<typeof userEvent.setup>, phone = '
 beforeEach(() => {
   vi.clearAllMocks()
   cleanup()
+  window.sessionStorage.clear()
   updateMe.mockResolvedValue({})
 })
 
@@ -136,7 +137,7 @@ describe('RegPage — city combobox', () => {
     expect(getCombobox().value).toBe('Москва')
   })
 
-  it('city_free_text_rejected: free text is not committed, "Далее" stays disabled', async () => {
+  it('city_free_text_rejected: free text is not committed and clicking "Далее" shows validation', async () => {
     const user = userEvent.setup()
     renderPage()
     await user.type(screen.getByLabelText('Имя'), 'Алексей')
@@ -151,7 +152,8 @@ describe('RegPage — city combobox', () => {
     await user.tab()
 
     await waitFor(() => expect(getCombobox().value).toBe(''))
-    expect(screen.getByRole('button', { name: 'Далее' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Далее' }))
+    expect(screen.getByText('Укажите город')).toBeInTheDocument()
   })
 })
 
@@ -170,14 +172,22 @@ describe('RegPage — submit', () => {
     expect(screen.queryByLabelText('Номер карты')).toBeNull()
   })
 
-  it('reg_submit_without_payout: store name + consent is enough to finish', async () => {
+  it('reg_submit_without_payout: outlet count and all consents are required, but consent data is not sent', async () => {
     const user = userEvent.setup()
     renderPage()
     await completeStep1(user)
     await user.type(screen.getByLabelText('Торговая точка'), 'Дымов · ТЦ Авиапарк')
-    await user.click(screen.getByRole('checkbox'))
+    await user.type(screen.getByLabelText('Количество торговых точек в сети'), '3')
 
     const submit = screen.getByRole('button', { name: 'Завершить регистрацию' })
+    expect(submit).toBeEnabled()
+    await user.click(submit)
+    expect(screen.getByText('Нужно согласие')).toBeInTheDocument()
+    expect(screen.getByText('Подтвердите оферту №1')).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: /обработку персональных данных/i }))
+    await user.click(screen.getByRole('checkbox', { name: /офертой №1/i }))
+    await user.click(screen.getByRole('checkbox', { name: /офертой №2/i }))
+
     await waitFor(() => expect(submit).toBeEnabled())
     await user.click(submit)
 
@@ -185,7 +195,37 @@ describe('RegPage — submit', () => {
     const payload = updateMe.mock.calls[0]?.[0] as Record<string, unknown>
     expect(payload).not.toHaveProperty('payout_method')
     expect(payload).not.toHaveProperty('payout_account_raw')
+    expect(payload).not.toHaveProperty('consent_pdn_at')
     expect(payload.store_name).toBe('Дымов · ТЦ Авиапарк')
+    expect(payload.store_count).toBe(3)
+  })
+
+  it('reg_legal_links: exposes local placeholder links for consent and both offers', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await completeStep1(user)
+
+    expect(screen.getByRole('link', { name: 'Согласие на обработку персональных данных' })).toHaveAttribute('href', '/seller/privacy')
+    expect(screen.getByRole('link', { name: 'офертой №1' })).toHaveAttribute('href', '/seller/offer/1')
+    expect(screen.getByRole('link', { name: 'офертой №2' })).toHaveAttribute('href', '/seller/offer/2')
+  })
+
+  it('reg_draft_restored: returns to the second step with entered data after a legal-document visit', () => {
+    window.sessionStorage.setItem('vliq.registration.draft', JSON.stringify({
+      step: 2,
+      form: {
+        first_name: 'Алексей', last_name: 'Морозов', phone: '+79991234567', city: 'Москва',
+        store_name: 'Дымов · ТЦ Авиапарк', store_address: '', store_count: '21', position: '',
+      },
+      agreed: true,
+      offerOneAgreed: true,
+      offerTwoAgreed: true,
+    }))
+
+    renderPage()
+    expect(screen.getByLabelText('Торговая точка')).toHaveValue('Дымов · ТЦ Авиапарк')
+    expect(screen.getByLabelText('Количество торговых точек в сети')).toHaveValue('21')
+    expect(screen.getByRole('checkbox', { name: /обработку персональных данных/i })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('error_toast_on_409: failed submit pushes a danger toast with the API message', async () => {
@@ -194,7 +234,10 @@ describe('RegPage — submit', () => {
     renderPage()
     await completeStep1(user)
     await user.type(screen.getByLabelText('Торговая точка'), 'Дымов · ТЦ Авиапарк')
-    await user.click(screen.getByRole('checkbox'))
+    await user.type(screen.getByLabelText('Количество торговых точек в сети'), '1')
+    await user.click(screen.getByRole('checkbox', { name: /обработку персональных данных/i }))
+    await user.click(screen.getByRole('checkbox', { name: /офертой №1/i }))
+    await user.click(screen.getByRole('checkbox', { name: /офертой №2/i }))
 
     const submit = screen.getByRole('button', { name: 'Завершить регистрацию' })
     await waitFor(() => expect(submit).toBeEnabled())

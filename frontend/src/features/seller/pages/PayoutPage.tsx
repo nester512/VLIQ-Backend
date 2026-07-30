@@ -9,6 +9,8 @@ import { useBalance } from '../hooks/useBalance'
 import { useRequestPayout } from '../hooks/useRequestPayout'
 import { fmtMoney } from '@/utils/formatMoney'
 
+const MIN_PAYOUT_KOPECKS = 300_000
+
 // S5.3: requisites are entered in THIS form on every request and never stored
 // in the profile. The only payout method per spec is СБП by phone number.
 function normalizePhone(raw: string): string {
@@ -32,13 +34,18 @@ export function PayoutPage() {
 
   // The seller types rubles; balance/amount are stored in kopecks → ×100.
   const amount = amountStr === '' ? available : Math.round((Number(amountStr) || 0) * 100)
-  const amountValid = amount > 0 && amount <= available
+  const amountValid = amount >= MIN_PAYOUT_KOPECKS && amount <= available
   const phoneValid = isValidPhone(phone)
   const notBlocked = true // status gate is enforced server-side
   const canSubmit = amountValid && phoneValid && available > 0
 
-  const amountError =
-    amountStr !== '' && amount > available ? 'Больше доступного баланса' : undefined
+  const amountError = amountStr !== ''
+    ? amount < MIN_PAYOUT_KOPECKS
+      ? 'Минимальная сумма — 3 000 ₽'
+      : amount > available
+        ? 'Больше доступного баланса'
+        : undefined
+    : undefined
 
   async function handleRequest() {
     if (!canSubmit) return
@@ -61,7 +68,7 @@ export function PayoutPage() {
         value={amountStr}
         placeholder={String(Math.floor(available / 100))}
         error={amountError}
-        hint={`Доступно ${fmtMoney(available)} · можно вывести часть`}
+        hint={`Доступно ${fmtMoney(available)} · минимум 3 000 ₽`}
         onChange={(e) => setAmountStr(e.target.value.replace(/[^\d]/g, ''))}
       />
 
@@ -90,8 +97,7 @@ export function PayoutPage() {
       >
         <Icon name="clock" size={18} className="flex-none" />
         <span>
-          Заявка обрабатывается после проверки администратором.
-          Статусы: Новая → В обработке → Выплачена.
+          Выплата будет произведена в течение 7 рабочих дней.
         </span>
       </div>
 

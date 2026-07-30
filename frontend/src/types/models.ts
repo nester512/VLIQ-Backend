@@ -115,6 +115,7 @@ export interface SellerProfile {
   city?: string
   store_name?: string
   store_address?: string
+  store_count?: number
   position?: string
   payout_method?: PayoutMethod
   payout_details?: string

@@ -124,6 +124,7 @@ export function ProfilePage() {
       <div className="vliq-list">
         <NavRow icon={<Icon name="wallet"  size={21} />} label="Мой баланс"             onClick={() => navigate('/seller/balance')} />
         <NavRow icon={<Icon name="cashout" size={21} />} label="Мои заявки на выплату"   onClick={() => navigate('/seller/payouts')} />
+        <NavRow icon={<Icon name="list"    size={21} />} label="Вопросы и ответы"        onClick={() => navigate('/seller/home#faq')} />
         <NavRow
           icon={<Icon name="user" size={21} />}
           label="Помощь"

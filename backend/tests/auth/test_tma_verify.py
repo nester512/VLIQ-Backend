@@ -11,11 +11,12 @@ import hashlib
 import hmac
 import json
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import urlencode
 
 import pytest
 from httpx import AsyncClient
+from src.app.base_settings import Env
 from src.auth.schemas.api import LoginResponse
 
 from tests.conftest import _build_init_data
@@ -116,6 +117,41 @@ async def test_login__dev_env__returns_non_404(client: AsyncClient):
     # We send invalid body on purpose to get 422, proving the route is mounted.
     response = await client.post(f"{PREFIX}/login", json={})
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_reset_mock_registration_seller__local__deletes_only_fixed_dev_identity() -> None:
+    """The DEV cleanup endpoint cannot receive an arbitrary seller ID from a client."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from src.auth.handlers.api.v1.router import reset_mock_registration_seller
+
+    session = MagicMock(spec=AsyncSession)
+    session.execute = AsyncMock()
+    session.commit = AsyncMock()
+    cfg = MagicMock()
+    cfg.env = Env.local
+
+    await reset_mock_registration_seller(session=session, cfg=cfg)
+
+    statement = session.execute.await_args.args[0]
+    assert statement.compile().params == {"telegram_id_1": 42424242}
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_reset_mock_registration_seller__prod__is_not_exposed() -> None:
+    from fastapi import HTTPException
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from src.auth.handlers.api.v1.router import reset_mock_registration_seller
+
+    session = MagicMock(spec=AsyncSession)
+    cfg = MagicMock()
+    cfg.env = Env.prod
+
+    with pytest.raises(HTTPException, match="Not found") as exc:
+        await reset_mock_registration_seller(session=session, cfg=cfg)
+
+    assert exc.value.status_code == 404
 
 
 @pytest.mark.asyncio

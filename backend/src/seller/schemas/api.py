@@ -37,6 +37,7 @@ class SellerCreate(BaseModel):
     region: str | None = Field(default=None, max_length=255)
     outlet_name: str | None = Field(default=None, max_length=255)
     outlet_address: str | None = Field(default=None, max_length=255)
+    outlet_count: int | None = Field(default=None, ge=1, le=1000)
     outlet_chain: str | None = Field(default=None, max_length=255)
     outlet_inn: str | None = Field(default=None, max_length=32, pattern=_INN_PATTERN)
     position: str | None = Field(default=None, max_length=255)
@@ -49,7 +50,6 @@ class SellerCreate(BaseModel):
         default=None,
         description="Plain-text payout account — will be encrypted before storage (H4)",
     )
-    consent_pdn_at: datetime | None = None
 
 
 class SellerUpdate(BaseModel):
@@ -61,6 +61,7 @@ class SellerUpdate(BaseModel):
     region: str | None = Field(default=None, max_length=255)
     outlet_name: str | None = Field(default=None, max_length=255)
     outlet_address: str | None = Field(default=None, max_length=255)
+    outlet_count: int | None = Field(default=None, ge=1, le=1000)
     outlet_chain: str | None = Field(default=None, max_length=255)
     outlet_inn: str | None = Field(default=None, max_length=32, pattern=_INN_PATTERN)
     position: str | None = Field(default=None, max_length=255)
@@ -73,7 +74,6 @@ class SellerUpdate(BaseModel):
         default=None,
         description="Plain-text payout account — encrypted before storage (H4)",
     )
-    consent_pdn_at: datetime | None = None
 
 
 class SellerRead(BaseModel):
@@ -90,6 +90,7 @@ class SellerRead(BaseModel):
     region: str | None = None
     outlet_name: str | None = None
     outlet_address: str | None = None
+    outlet_count: int | None = None
     outlet_chain: str | None = None
     outlet_inn: str | None = None
     position: str | None = None
@@ -97,7 +98,6 @@ class SellerRead(BaseModel):
     block_reason: str | None = None
     payout_kind: PayoutKind | None = None
     payout_masked: str | None = None
-    consent_pdn_at: datetime | None = None
     created_at: datetime
     updated_at: datetime | None = None
     created_by: int | None = None

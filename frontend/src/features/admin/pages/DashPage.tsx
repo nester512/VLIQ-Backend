@@ -167,33 +167,8 @@ function DashContent() {
         )}
       </div>
 
-      {/* UC-01 — товары, отсортированные по количеству */}
-      <div className="vliq-pad" style={{ paddingBottom: 20 }}>
-        <div className="vliq-sec-t">
-          <b>Товары по количеству</b>
-        </div>
-        {isLoading ? (
-          <div className="vliq-list"><RowSkeleton /><RowSkeleton /><RowSkeleton /></div>
-        ) : data && data.top_products.length > 0 ? (
-          <div className="vliq-list">
-            {data.top_products.map((p, i) => (
-              <div key={`${p.name}-${i}`} className="vliq-row is-static">
-                <div className="vliq-row-ic" style={{ background: 'var(--vliq-field)', color: 'var(--vliq-hint)', fontWeight: 800 }}>
-                  {i + 1}
-                </div>
-                <div className="vliq-row-tx" style={{ minWidth: 0 }}>
-                  <b style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</b>
-                </div>
-                <span style={{ flex: 'none', marginRight: 6, fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', fontVariantNumeric: 'tabular-nums' }}>
-                  {fmtInt(p.count)}
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <EmptyState icon="list" tone="muted" title="Товаров пока нет" description="Появятся после распознавания первых чеков." />
-        )}
-      </div>
+      {/* KAN-32: product analytics is hidden in the MVP. The product route is
+          intentionally retained in AppRouter so it can be restored later. */}
     </div>
   )
 }

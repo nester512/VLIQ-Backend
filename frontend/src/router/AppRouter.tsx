@@ -64,6 +64,8 @@ const PromoPage   = lazy(() => import('../features/seller/pages/PromoPage').then
 const ProfilePage = lazy(() => import('../features/seller/pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 const PayoutPage  = lazy(() => import('../features/seller/pages/PayoutPage').then((m) => ({ default: m.PayoutPage })))
 const PayoutRequestsPage = lazy(() => import('../features/seller/pages/PayoutRequestsPage').then((m) => ({ default: m.PayoutRequestsPage })))
+const PersonalDataConsentPage = lazy(() => import('../features/seller/pages/PersonalDataConsentPage').then((m) => ({ default: m.PersonalDataConsentPage })))
+const OfferPlaceholderPage = lazy(() => import('../features/seller/pages/OfferPlaceholderPage').then((m) => ({ default: m.OfferPlaceholderPage })))
 
 // Admin pages — lazy so sellers (the 95% case) never download the admin
 // bundle (review queue, framer-motion deck, etc.).
@@ -106,6 +108,9 @@ const SELLER_TITLES: Record<string, [string, string?, boolean?, boolean?]> = {
   // [title, subtitle?, isHome?, showBell?]
   '/seller/home':    ['VLIQ', undefined, true, true],
   '/seller/reg':     ['Регистрация', undefined, true, false],
+  '/seller/privacy': ['Согласие', undefined, false, false],
+  '/seller/offer/1': ['Оферта №1', undefined, false, false],
+  '/seller/offer/2': ['Оферта №2', undefined, false, false],
   '/seller/upload':  ['Загрузить чек', undefined, false, true],
   '/seller/balance': ['Мой баланс', undefined, false, true],
   '/seller/history': ['История чеков', undefined, false, true],
@@ -165,11 +170,13 @@ function SellerProfileGate({ children }: { children: ReactNode }) {
   })
 
   const isPending = profile?.status === 'pending'
-  const onRegPage = location.pathname === '/seller/reg'
+  // Offer placeholders are part of the mandatory registration flow and must
+  // stay reachable while the profile is still pending.
+  const onRegistrationFlow = location.pathname === '/seller/reg' || location.pathname === '/seller/privacy' || /^\/seller\/offer\/[12]$/.test(location.pathname)
 
   useEffect(() => {
-    if (isPending && !onRegPage) navigate('/seller/reg', { replace: true })
-  }, [isPending, onRegPage, navigate])
+    if (isPending && !onRegistrationFlow) navigate('/seller/reg', { replace: true })
+  }, [isPending, onRegistrationFlow, navigate])
 
   if (isLoading && !profile) {
     return (
@@ -208,6 +215,8 @@ function SellerLayout() {
             <Routes location={location} key={location.pathname}>
               <Route path="home"        element={<AnimatedPage><HomePage /></AnimatedPage>} />
               <Route path="reg"         element={<AnimatedPage><RegPage /></AnimatedPage>} />
+              <Route path="privacy"     element={<AnimatedPage><PersonalDataConsentPage /></AnimatedPage>} />
+              <Route path="offer/:offerId" element={<AnimatedPage><OfferPlaceholderPage /></AnimatedPage>} />
               <Route path="upload"      element={<AnimatedPage><UploadPage /></AnimatedPage>} />
               <Route path="status/:id"  element={<AnimatedPage><StatusPage /></AnimatedPage>} />
               <Route path="balance"     element={<AnimatedPage><BalancePage /></AnimatedPage>} />

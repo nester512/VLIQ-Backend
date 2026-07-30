@@ -173,8 +173,8 @@ async def get_me_notifications(
     description=(
         "TMA-friendly self-update endpoint. Accepts the same body as the admin "
         "`PATCH /sellers/{telegram_id}` route but always scopes to the JWT subject. "
-        "When the seller completes the required fields (phone + outlet_name + "
-        "payout_kind + payout_masked) the status auto-flips from `pending` → `active`."
+        "When the seller completes the required fields (phone, outlet name and "
+        "number of outlets), the status auto-flips from `pending` → `active`."
     ),
 )
 async def update_me(
@@ -214,17 +214,19 @@ async def update_me(
 
     # Project the merged seller to decide if we should auto-activate.
     # S2.2 / S5.3: payout requisites are NOT part of registration (they are
-    # entered per payout request), so activation requires only phone + outlet —
-    # NOT payout_kind/payout_masked.
+    # entered per payout request), so activation requires phone, outlet and the
+    # required number of network outlets — NOT payout_kind/payout_masked.
     merged = {
         "phone_e164": update_data.get("phone_e164", row.phone_e164),
         "outlet_name": update_data.get("outlet_name", row.outlet_name),
+        "outlet_count": update_data.get("outlet_count", row.outlet_count),
     }
     if (
         row.status == SellerStatus.pending.value
         and merged["phone_e164"]
         and not merged["phone_e164"].startswith("+99")  # synthetic stub
         and merged["outlet_name"]
+        and merged["outlet_count"] is not None
     ):
         update_data["status"] = SellerStatus.active.value
 

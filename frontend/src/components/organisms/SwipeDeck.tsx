@@ -549,7 +549,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
           </h1>
           <p style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--vliq-hint)', marginTop: 2 }}>
             {currentReceipt?.status === 'on_review'
-              ? 'Свайпните карточку или нажмите для деталей'
+              ? 'Свайпните карточку или используйте кнопки'
               : 'Чек ещё обрабатывается · нажмите для деталей'}
           </p>
         </div>
@@ -558,7 +558,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
         </span>
       </div>
 
-      {/* Legend — three direction hints (lg pills) + one 'tap' hint */}
+      {/* Hint for opening the receipt; decisions use the real action buttons below. */}
       <div
         style={{
           display: 'flex',
@@ -568,13 +568,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
           flex: 'none',
         }}
       >
-        {[
-          { label: '→ Одобрить',  bg: 'var(--vliq-ok-bg)', ink: 'var(--vliq-ok-ink)' },
-          { label: '← Отклонить', bg: 'var(--vliq-dg-bg)', ink: 'var(--vliq-dg-ink)' },
-          // «↑ На доработку» (revise) hint — DISABLED; restore with the gesture (onPtrUp):
-          // { label: '↑ На доработку', bg: 'var(--vliq-wn-bg)', ink: 'var(--vliq-wn-ink)' },
-          { label: 'Тап — фото и данные', bg: 'var(--vliq-field)', ink: 'var(--vliq-hint)' },
-        ].map(({ label, bg, ink }) => (
+        {[{ label: 'Тап — фото и данные', bg: 'var(--vliq-field)', ink: 'var(--vliq-hint)' }].map(({ label, bg, ink }) => (
           <span
             key={label}
             style={{
@@ -622,9 +616,28 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
         </AnimatePresence>
       </div>
 
-      {/* Bottom spacer — was the action button row; removed in favour of
-          swipe-gesture-only UX so the card claims the extra vertical space. */}
-      <div style={{ height: 12, flex: 'none' }} />
+      {/* KAN-37 / A2: keep the mobile swipe flow, but expose equivalent native
+          actions on tablet/desktop where a drag gesture is not discoverable. */}
+      <div className="vliq-review-native-actions" data-swipe-deck-control="true">
+        <button
+          type="button"
+          className="vliq-review-native-action vliq-review-native-action--reject"
+          disabled={currentReceipt?.status !== 'on_review'}
+          onClick={() => handleSwipe('reject')}
+        >
+          <Icon name="x" size={18} />
+          Отклонить
+        </button>
+        <button
+          type="button"
+          className="vliq-review-native-action vliq-review-native-action--approve"
+          disabled={currentReceipt?.status !== 'on_review'}
+          onClick={() => handleSwipe('approve')}
+        >
+          <Icon name="check" size={18} />
+          Одобрить
+        </button>
+      </div>
     </div>
   )
 }

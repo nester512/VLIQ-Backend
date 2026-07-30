@@ -277,6 +277,7 @@ export async function mockSellerApi(
     city: 'Москва',
     outlet_name: 'Дымов · ТЦ Авиапарк',
     outlet_address: 'пр. Ленинградский, 1',
+    outlet_count: 1,
     outlet_chain: null,
     outlet_inn: null,
     position: 'Продавец-консультант',
@@ -284,7 +285,6 @@ export async function mockSellerApi(
     block_reason: null,
     payout_kind: hasPayout ? 'sbp_phone' : null,
     payout_masked: hasPayout ? '567' : null,
-    consent_pdn_at: '2025-01-01T00:00:00Z',
     created_at: '2025-01-01T00:00:00Z',
     updated_at: null,
   }

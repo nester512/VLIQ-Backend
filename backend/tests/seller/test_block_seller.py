@@ -30,6 +30,7 @@ def _make_seller(telegram_id: int = 55555, status: str = "active") -> Seller:
     seller.region = None
     seller.outlet_name = None
     seller.outlet_address = None
+    seller.outlet_count = None
     seller.outlet_chain = None
     seller.outlet_inn = None
     seller.position = None
@@ -37,7 +38,6 @@ def _make_seller(telegram_id: int = 55555, status: str = "active") -> Seller:
     seller.block_reason = None
     seller.payout_kind = None
     seller.payout_masked = None
-    seller.consent_pdn_at = None
     seller.created_at = datetime(2025, 1, 1, 12, 0, 0)
     seller.updated_at = None
     seller.created_by = None

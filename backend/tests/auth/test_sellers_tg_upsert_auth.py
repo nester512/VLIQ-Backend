@@ -83,6 +83,7 @@ async def test_sellers_tg_upsert__matching_token__auth_passes(client: AsyncClien
     fake_seller.region = None
     fake_seller.outlet_name = None
     fake_seller.outlet_address = None
+    fake_seller.outlet_count = None
     fake_seller.outlet_chain = None
     fake_seller.outlet_inn = None
     fake_seller.position = None
@@ -91,7 +92,6 @@ async def test_sellers_tg_upsert__matching_token__auth_passes(client: AsyncClien
     fake_seller.payout_kind = None
     fake_seller.payout_masked = None
     fake_seller.payout_encrypted = None
-    fake_seller.consent_pdn_at = None
     fake_seller.created_at = datetime.now(UTC)
     fake_seller.updated_at = None
     fake_seller.created_by = None

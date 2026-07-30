@@ -20,6 +20,7 @@ interface BackendSellerRead {
   region?: string | null
   outlet_name?: string | null
   outlet_address?: string | null
+  outlet_count?: number | null
   outlet_chain?: string | null
   outlet_inn?: string | null
   position?: string | null
@@ -27,7 +28,6 @@ interface BackendSellerRead {
   block_reason?: string | null
   payout_kind?: PayoutMethod | null
   payout_masked?: string | null
-  consent_pdn_at?: string | null
   created_at: string
   updated_at?: string | null
 }
@@ -50,6 +50,7 @@ function mapSeller(s: BackendSellerRead): SellerProfile {
     city: s.city ?? undefined,
     store_name: s.outlet_name ?? undefined,
     store_address: s.outlet_address ?? undefined,
+    store_count: s.outlet_count ?? undefined,
     position: s.position ?? undefined,
     payout_method: s.payout_kind ?? undefined,
     payout_details: s.payout_masked ?? undefined,
@@ -80,16 +81,15 @@ interface BackendSellerUpdate {
   city?: string
   outlet_name?: string
   outlet_address?: string
+  outlet_count?: number
   position?: string
   payout_kind?: PayoutMethod
   payout_masked?: string
   payout_account_raw?: string
-  consent_pdn_at?: string
 }
 
 export interface SellerUpdatePayload extends Partial<SellerProfile> {
   payout_account_raw?: string
-  consent_pdn_at?: string
 }
 
 function mapSellerUpdate(p: SellerUpdatePayload): BackendSellerUpdate {
@@ -100,11 +100,11 @@ function mapSellerUpdate(p: SellerUpdatePayload): BackendSellerUpdate {
   if (p.city !== undefined)               out.city               = p.city
   if (p.store_name !== undefined)         out.outlet_name        = p.store_name
   if (p.store_address !== undefined)      out.outlet_address     = p.store_address
+  if (p.store_count !== undefined)        out.outlet_count       = p.store_count
   if (p.position !== undefined)           out.position           = p.position
   if (p.payout_method !== undefined)      out.payout_kind        = p.payout_method
   if (p.payout_details !== undefined)     out.payout_masked      = p.payout_details
   if (p.payout_account_raw !== undefined) out.payout_account_raw = p.payout_account_raw
-  if (p.consent_pdn_at !== undefined)     out.consent_pdn_at     = p.consent_pdn_at
   return out
 }
 

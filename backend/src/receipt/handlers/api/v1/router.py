@@ -61,6 +61,7 @@ from src.receipt_ocr.qr_parser import QRParseError, parse_qr_string
 from src.receipt_ocr.storage import get_receipt_storage, to_viewable_url
 from src.receipt_pipeline.state_machine import ReceiptStateMachine
 from src.seller.models import Seller
+from src.seller.services.balance_service import get_seller_balance
 
 logger = logging.getLogger(__name__)
 
@@ -884,6 +885,10 @@ async def edit_receipt_bonus(
 
         # If already approved, insert a correction transaction for the diff.
         if receipt.status == ReceiptStatus.approved.value and diff != 0:
+            # The correction has not been flushed yet, so calculate the current
+            # balance first and apply its delta explicitly. The notification must
+            # show the actual spendable balance, not merely the new bonus amount.
+            balance_before_correction = await get_seller_balance(seller_id=receipt.seller_id, session=session)
             correction = BonusTransaction(
                 seller_id=receipt.seller_id,
                 brand_id=receipt.brand_id,
@@ -903,6 +908,7 @@ async def edit_receipt_bonus(
                 payload={
                     "receipt_id": receipt_id,
                     "bonus_amount": new_bonus,
+                    "available": balance_before_correction.available + diff,
                 },
             )
 

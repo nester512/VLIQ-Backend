@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { useUiStore } from '@/store/uiStore'
 import { Icon } from '@/components/atoms/Icon'
-import { loginByTgId } from '@/api/auth'
+import { loginByTgId, resetMockRegistrationSeller } from '@/api/auth'
 
 /**
  * Floating developer panel — only rendered in DEV builds. Stripped from the
@@ -18,8 +18,11 @@ import { loginByTgId } from '@/api/auth'
  *   • Logout.
  */
 
-// IDs that exist in seed_dev.sql.
+// The first two IDs exist in seed_dev.sql. The pending seller is created by
+// the DEV-only /auth/login endpoint on first use, so the registration flow is
+// always available for local manual checks.
 const SELLER_TG_ID = 12345
+const PENDING_SELLER_TG_ID = 42424242
 const ADMIN_TG_ID  = 809296638
 
 interface SwitchTo {
@@ -30,6 +33,7 @@ interface SwitchTo {
 
 const PROFILES: SwitchTo[] = [
   { label: 'Продавец (#12345)',  telegramId: SELLER_TG_ID, toast: 'Вход как продавец' },
+  { label: 'Новый продавец (регистрация)', telegramId: PENDING_SELLER_TG_ID, toast: 'Открыта регистрация продавца' },
   { label: 'Админ (#809296638)', telegramId: ADMIN_TG_ID,  toast: 'Вход как админ' },
 ]
 
@@ -53,8 +57,10 @@ function DevPanelInner() {
   async function switchProfile(p: SwitchTo) {
     setWorking(true)
     try {
-      // Authenticate FIRST so a failure leaves the existing session intact —
-      // otherwise we strand the user with no token and an open DevPanel.
+      // Always reset the fixed temporary identity before any DEV profile
+      // switch. This makes "Новый продавец" repeatable and removes it when
+      // the tester goes back to the seeded seller or admin.
+      await resetMockRegistrationSeller()
       const res = await loginByTgId({ id: p.telegramId })
       qc.removeQueries()
       setAuth(res.access_token, res.role)

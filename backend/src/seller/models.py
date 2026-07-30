@@ -7,6 +7,7 @@ from sqlalchemy import (
     TIMESTAMP,
     BigInteger,
     ForeignKey,
+    Integer,
     String,
     Text,
     func,
@@ -52,6 +53,7 @@ class Seller(BaseModel):
     region: Mapped[str | None] = mapped_column(String(255), default=None)
     outlet_name: Mapped[str | None] = mapped_column(String(255), default=None)
     outlet_address: Mapped[str | None] = mapped_column(String(255), default=None)
+    outlet_count: Mapped[int | None] = mapped_column(Integer, default=None)
     outlet_chain: Mapped[str | None] = mapped_column(String(255), default=None)
     outlet_inn: Mapped[str | None] = mapped_column(String(32), default=None)
     position: Mapped[str | None] = mapped_column(String(255), default=None)
@@ -81,7 +83,6 @@ class Seller(BaseModel):
     payout_masked: Mapped[str | None] = mapped_column(String(64), default=None)
     payout_encrypted: Mapped[str | None] = mapped_column(Text, default=None)
 
-    consent_pdn_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
 
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(

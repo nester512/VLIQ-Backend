@@ -78,7 +78,25 @@ def _make_session(receipt: Receipt | None) -> MagicMock:
     lock_result = MagicMock()
     lock_result.scalar_one_or_none.return_value = receipt
 
-    session_mock.execute = AsyncMock(return_value=lock_result)
+    balance_result = MagicMock()
+    balance_row = MagicMock()
+    balance_row.available_accruals = 1_000
+    balance_row.payout_hold = -200
+    balance_row.total_accrued = 1_000
+    balance_row.payout_completed = 0
+    balance_result.one.return_value = balance_row
+
+    execute_calls = 0
+
+    async def execute(*_args, **_kwargs):
+        nonlocal execute_calls
+        execute_calls += 1
+        # Approved flow: lock receipt → UPDATE receipt → aggregate balance.
+        if receipt is not None and receipt.status == "approved" and execute_calls == 3:
+            return balance_result
+        return lock_result
+
+    session_mock.execute = AsyncMock(side_effect=execute)
     session_mock.flush = AsyncMock()
     session_mock.refresh = AsyncMock()
     session_mock.add = MagicMock()
@@ -147,7 +165,7 @@ async def test_valid_approved_creates_correction(client: AsyncClient, app) -> No
     assert len(outbox_rows) == 1
     assert outbox_rows[0].recipient_id == receipt.seller_id
     assert outbox_rows[0].template == "receipt.bonus_changed"
-    assert outbox_rows[0].payload == {"receipt_id": 1, "bonus_amount": 250}
+    assert outbox_rows[0].payload == {"receipt_id": 1, "bonus_amount": 250, "available": 950}
 
 
 @pytest.mark.asyncio

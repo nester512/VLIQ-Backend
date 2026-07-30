@@ -20,7 +20,9 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        // The default serves host-based local development. Dockerized Vite
+        // previews use the compose service name without changing application code.
+        target: process.env.VITE_API_PROXY_TARGET ?? 'http://localhost:8000',
         changeOrigin: true,
       },
     },

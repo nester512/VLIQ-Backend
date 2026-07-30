@@ -46,9 +46,10 @@ def test_worker_render__payout_shows_rubles() -> None:
 
 
 def test_worker_render__bonus_changed_shows_new_amount_in_rubles() -> None:
-    text = _render("receipt.bonus_changed", {"receipt_id": 7, "bonus_amount": 12300})
+    text = _render("receipt.bonus_changed", {"receipt_id": 7, "bonus_amount": 12300, "available": 30000})
     assert "чеку №7" in text
     assert "Новая сумма: <b>123 ₽</b>" in text
+    assert "Доступно к выплате: 300 ₽" in text
     assert "12300" not in text
 
 

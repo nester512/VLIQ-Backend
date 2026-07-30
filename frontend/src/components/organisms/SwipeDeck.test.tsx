@@ -36,6 +36,14 @@ function topCard(): HTMLElement {
 }
 
 describe('SwipeDeck — outer approve/reject swipe still works with the AttachmentViewer', () => {
+  it('fires the same actions through native review buttons', () => {
+    const onSwipe = vi.fn()
+    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Одобрить' }))
+    expect(onSwipe).toHaveBeenCalledWith('1', 'approve')
+  })
+
   it('fires onSwipe("approve") on a horizontal right drag of the top card', () => {
     vi.useFakeTimers()
     const onSwipe = vi.fn()

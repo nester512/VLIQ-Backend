@@ -389,6 +389,38 @@
   }
 }
 
+/* KAN-37: mobile swipe remains available, with visible explicit actions on
+   every screen. The flex deck reserves this block above the navigation. */
+.vliq-review-native-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 18px 18px;
+  flex: none;
+}
+
+.vliq-review-native-action {
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 14px;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: opacity .15s ease, transform .15s ease;
+}
+
+.vliq-review-native-action:active { transform: scale(.98); }
+.vliq-review-native-action:disabled { cursor: not-allowed; opacity: .48; }
+.vliq-review-native-action--approve { background: var(--vliq-ok); }
+.vliq-review-native-action--reject { background: var(--vliq-dg); }
+
 /* ===========================================================
    SAFE AREA + OVERFLOW GUARDS
    =========================================================== */

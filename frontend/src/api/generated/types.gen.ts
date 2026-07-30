@@ -1129,6 +1129,10 @@ export type SellerInfoResponse = {
      */
     outlet_address?: string | null;
     /**
+     * Outlet Count
+     */
+    outlet_count?: number | null;
+    /**
      * Outlet Chain
      */
     outlet_chain?: string | null;
@@ -1150,10 +1154,6 @@ export type SellerInfoResponse = {
      * Payout Masked
      */
     payout_masked?: string | null;
-    /**
-     * Consent Pdn At
-     */
-    consent_pdn_at?: string | null;
     /**
      * Created At
      */
@@ -1219,6 +1219,10 @@ export type SellerRead = {
      */
     outlet_address?: string | null;
     /**
+     * Outlet Count
+     */
+    outlet_count?: number | null;
+    /**
      * Outlet Chain
      */
     outlet_chain?: string | null;
@@ -1240,10 +1244,6 @@ export type SellerRead = {
      * Payout Masked
      */
     payout_masked?: string | null;
-    /**
-     * Consent Pdn At
-     */
-    consent_pdn_at?: string | null;
     /**
      * Created At
      */
@@ -1338,6 +1338,10 @@ export type SellerUpdate = {
      */
     outlet_address?: string | null;
     /**
+     * Outlet Count
+     */
+    outlet_count?: number | null;
+    /**
      * Outlet Chain
      */
     outlet_chain?: string | null;
@@ -1365,10 +1369,6 @@ export type SellerUpdate = {
      * Plain-text payout account — encrypted before storage (H4)
      */
     payout_account_raw?: string | null;
-    /**
-     * Consent Pdn At
-     */
-    consent_pdn_at?: string | null;
 };
 
 /**
