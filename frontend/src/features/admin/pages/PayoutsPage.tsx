@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { MetricCard } from '@/components/molecules/MetricCard'
 import { MetricCardSkeleton, ReceiptRowSkeleton } from '@/components/atoms/Skeleton'
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
@@ -91,9 +91,26 @@ function PayoutRow({ payout, onClick }: PayoutRowProps) {
 }
 
 function PayoutsContent() {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [searchParams, setSearchParams] = useSearchParams()
   const openSheet = useUiStore((s) => s.openSheet)
   const pushToast = useUiStore((s) => s.pushToast)
+
+  const statusParam = searchParams.get('status')
+  const statusFilter: StatusFilter = statusParam === 'new'
+    || statusParam === 'in_progress'
+    || statusParam === 'paid'
+    || statusParam === 'rejected'
+    ? statusParam
+    : 'all'
+
+  function setStatusFilter(next: StatusFilter) {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current)
+      if (next === 'all') params.delete('status')
+      else params.set('status', next)
+      return params
+    }, { replace: true })
+  }
 
   // Aggregate metrics computed from the full list (independent of the visible
   // status filter); the visible list comes from a second filtered query.

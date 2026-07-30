@@ -66,8 +66,30 @@ IMAGE_TAG=<существующий-ghcr-sha> docker compose \
   -f docker-compose.yml -f docker-compose.test.yml config --quiet
 ```
 
-`postgres`, `redis`, MinIO и Grafana привязаны к `127.0.0.1`; наружу публикуются только Caddy
-`80/443`. MinIO receipt bucket доступен через HTTPS `https://shamilara.fun/storage/...`.
+Redis, MinIO и Grafana привязаны к `127.0.0.1`; Caddy публикует `80/443`.
+MinIO receipt bucket доступен через HTTPS `https://shamilara.fun/storage/...`.
+
+## Тестовые данные на стенде
+
+Тестовый deploy всегда запускает backend с `SEED_DEMO=false`: перезапуск или
+следующий deploy не создаёт продавцов из `seed_demo.sql`, синтетические чеки
+`seed://` и демо-акции. Это не мешает обычной регистрации нового продавца через
+Mini App: при первом входе backend создаёт только его pending-профиль.
+
+После доставки этого изменения удалите уже существующие демо-данные **один
+раз**. Скрипт затрагивает только шесть известных demo Telegram ID, служебных
+админов `99998`/`99999`, их дочерние сущности и три demo-акции; реальных
+продавцов, администраторов, бренд и справочник городов не удаляет:
+
+```bash
+cd /srv/VLIQ-things/VLIQ-Backend
+docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T postgres \
+  psql -U vliq -d vliq < ops/cleanup_demo_seed.sql
+```
+
+PostgreSQL опубликован на `5432` на внешнем интерфейсе Docker, чтобы к тестовой
+базе можно было подключаться с внешней машины. Redis, MinIO и Grafana остаются
+привязаны к `127.0.0.1`.
 
 ## Ручной deploy и rollback
 

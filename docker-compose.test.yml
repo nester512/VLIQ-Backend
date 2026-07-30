@@ -11,8 +11,10 @@ services:
       OFD_PROVIDER: ${OFD_PROVIDER:-fake}
       OCR_MODE: ${OCR_MODE:-full}
       S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-https://shamilara.fun/storage}
-      # The e2e stand relies on demo sellers/receipts — keep the demo seed ON.
-      SEED_DEMO: ${SEED_DEMO:-true}
+      # The deployed test stand must contain only real test data entered by
+      # testers. Do not inherit SEED_DEMO from the server's .env: otherwise a
+      # restart recreates the fixture sellers and synthetic seed:// receipts.
+      SEED_DEMO: "false"
     # Alembic runs once in ops/deploy-test.sh before application services switch.
     command: >
       sh -c "

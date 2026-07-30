@@ -18,7 +18,7 @@
  *   Admin specs (admin-review-flow, admin-payout-flow, admin-sellers-page) are
  *   automatically skipped unless VLIQ_ADMIN_AVAILABLE=true.  That env var is
  *   set by globalSetup only when /auth/login returns role='admin'|'super_admin'
- *   for id=99999.  Currently the backend always returns role='seller', so all
+ *   for id=809296638.  Currently the backend always returns role='seller', so all
  *   admin tests are skipped with a documented root cause.
  */
 

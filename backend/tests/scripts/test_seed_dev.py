@@ -78,6 +78,13 @@ def test_core_seed_keeps_required_system_rows() -> None:
     assert "997459169" in core
 
 
+def test_core_seed_has_no_dev_only_admins() -> None:
+    """A test deploy must never recreate the disposable 99998/99999 identities."""
+    core = _sql_without_comments(_BACKEND_DIR / "seed_dev.sql")
+    assert "99998" not in core
+    assert "99999" not in core
+
+
 def test_demo_seed_has_no_admin_or_brand_rows() -> None:
     """Demo seed must not (re)define system rows — that is core's job."""
     demo = (_BACKEND_DIR / "seed_demo.sql").read_text(encoding="utf-8").lower()

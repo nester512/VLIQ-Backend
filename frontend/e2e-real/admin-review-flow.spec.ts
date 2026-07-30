@@ -2,7 +2,7 @@
  * admin-review-flow.spec.ts — Real-backend admin receipt review.
  *
  * Requires admin JWT (VLIQ_ADMIN_AVAILABLE=true from globalSetup).
- * The backend /auth/login returns role=super_admin for telegram_id=99999.
+ * The backend /auth/login returns role=super_admin for telegram_id=809296638.
  *
  * NOTE: Tests run serially across 3 viewports. Earlier viewports may consume
  * seeded receipts. Each test looks for any on_review receipt and skips

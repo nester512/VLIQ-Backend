@@ -7,7 +7,9 @@ services:
       POSTGRES_USER: vliq
       POSTGRES_PASSWORD: vliq_dev
     ports:
-      - "127.0.0.1:5432:5432"
+      # External database access is required for the test environment.
+      # Docker publishes this on every host interface as requested.
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

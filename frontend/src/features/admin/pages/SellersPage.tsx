@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { SearchBar } from '@/components/molecules/SearchBar'
 import { FilterPills } from '@/components/molecules/FilterPills'
 import { Avatar } from '@/components/atoms/Avatar'
@@ -58,8 +59,22 @@ function SellerRow({ seller, onClick }: SellerRowProps) {
 
 function SellersContent() {
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [searchParams, setSearchParams] = useSearchParams()
   const openSheet = useUiStore((s) => s.openSheet)
+
+  const statusParam = searchParams.get('status')
+  const statusFilter: StatusFilter = statusParam === 'active' || statusParam === 'blocked'
+    ? statusParam
+    : 'all'
+
+  function setStatusFilter(next: StatusFilter) {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current)
+      if (next === 'all') params.delete('status')
+      else params.set('status', next)
+      return params
+    }, { replace: true })
+  }
 
   const apiStatus =
     statusFilter === 'all' ? undefined : statusFilter === 'active' ? 'active' : 'blocked'

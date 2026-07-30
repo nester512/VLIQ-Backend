@@ -30,15 +30,6 @@ INSERT INTO vliq.admin (
 )
 ON CONFLICT (telegram_id) DO NOTHING;
 
--- Dev / smoke-test admins (T1)
-INSERT INTO vliq.admin (
-    telegram_id, phone_e164, first_name, last_name, role, brand_ids,
-    is_active, created_at, updated_at
-) VALUES
-    (99999, '+79990099999', 'Super', 'Admin', 'super_admin', '[]'::jsonb, true, now(), now()),
-    (99998, '+79990099998', 'Regular', 'Admin', 'admin', '[]'::jsonb, true, now(), now())
-ON CONFLICT (telegram_id) DO NOTHING;
-
 -- Real owner/tester admin (Telegram id 997459169). seed_dev.sql runs on every
 -- backend start, so this keeps the owner an admin across rebuilds / DB resets.
 -- Without it, opening the Mini App with this account falls through to the

@@ -74,6 +74,7 @@ const ReviewPage          = lazy(() => import('../features/admin/pages/ReviewPag
 const PayoutsPage         = lazy(() => import('../features/admin/pages/PayoutsPage').then((m) => ({ default: m.PayoutsPage })))
 const SellersPage         = lazy(() => import('../features/admin/pages/SellersPage').then((m) => ({ default: m.SellersPage })))
 const SellerReceiptsPage  = lazy(() => import('../features/admin/pages/SellerReceiptsPage').then((m) => ({ default: m.SellerReceiptsPage })))
+const AdminReceiptsPage   = lazy(() => import('../features/admin/pages/AdminReceiptsPage').then((m) => ({ default: m.AdminReceiptsPage })))
 const ProductsPage        = lazy(() => import('../features/admin/pages/ProductsPage').then((m) => ({ default: m.ProductsPage })))
 
 // Crossfade — used for tab switches where there's no logical push/pop direction.
@@ -238,6 +239,7 @@ function AdminLayout() {
   const location = useLocation()
   const navigate = useNavigate()
   const isReview = location.pathname === '/admin/review'
+  const isReceiptArchive = location.pathname === '/admin/receipts'
   const isProducts = location.pathname === '/admin/products'
   const isSellerReceipts = /^\/admin\/sellers\/\d+\/receipts$/.test(location.pathname)
   const viewport = useViewport()
@@ -257,8 +259,8 @@ function AdminLayout() {
           />
         ) : (
           <TgHeader
-            title={isReview ? 'Проверка чеков' : isProducts ? 'Товары' : 'Администратор'}
-            subtitle={isReview || isProducts ? undefined : 'VLIQ · бренд'}
+            title={isReview ? 'Проверка чеков' : isReceiptArchive ? 'Все чеки' : isProducts ? 'Товары' : 'Администратор'}
+            subtitle={isReview || isReceiptArchive || isProducts ? undefined : 'VLIQ · бренд'}
             isHome
           />
         )
@@ -277,6 +279,7 @@ function AdminLayout() {
           <Routes location={location} key={location.pathname}>
             <Route path="dash"                              element={<AnimatedPage><DashPage /></AnimatedPage>} />
             <Route path="review"                            element={<AnimatedPage fill><ReviewPage /></AnimatedPage>} />
+            <Route path="receipts"                          element={<AnimatedPage><AdminReceiptsPage /></AnimatedPage>} />
             <Route path="payouts"                           element={<AnimatedPage><PayoutsPage /></AnimatedPage>} />
             <Route path="sellers"                           element={<AnimatedPage><SellersPage /></AnimatedPage>} />
             <Route path="sellers/:telegramId/receipts"      element={<AnimatedPage><SellerReceiptsPage /></AnimatedPage>} />
