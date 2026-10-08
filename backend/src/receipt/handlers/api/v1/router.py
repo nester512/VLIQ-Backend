@@ -60,6 +60,7 @@ from src.receipt_ocr.mime import sniff_mime
 from src.receipt_ocr.qr_parser import QRParseError, parse_qr_string
 from src.receipt_ocr.storage import get_receipt_storage, to_viewable_url
 from src.receipt_pipeline.state_machine import ReceiptStateMachine
+from src.seller.depends import forbid_blocked_seller
 from src.seller.models import Seller
 from src.seller.services.balance_service import get_seller_balance
 
@@ -127,6 +128,7 @@ async def get_attachment_file(sig: str = Query(..., description="Signed access t
 
 @router.post(
     "/upload",
+    dependencies=[Depends(forbid_blocked_seller)],
     response_model=ReceiptUploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Upload a receipt package — 1..5 files + optional scanned QR (TMA)",
@@ -414,6 +416,7 @@ async def submit_qr_payload(
 
 @router.post(
     "/upload-urls",
+    dependencies=[Depends(forbid_blocked_seller)],
     response_model=PackageUploadUrlsResponse,
     status_code=status.HTTP_200_OK,
     summary="Mint 1..5 presigned S3 POST URLs for a receipt package (TMA)",
@@ -471,6 +474,7 @@ async def get_upload_urls(
 
 @router.post(
     "/upload-url",
+    dependencies=[Depends(forbid_blocked_seller)],
     response_model=PresignedUploadResponse,
     status_code=status.HTTP_200_OK,
     summary="[DEPRECATED] Mint a single presigned S3 POST URL — use /upload-urls",
@@ -504,6 +508,7 @@ async def get_upload_url(
 
 @router.post(
     "/finalize",
+    dependencies=[Depends(forbid_blocked_seller)],
     response_model=ReceiptUploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Finalize a presigned receipt package — create one Receipt + N attachments (TMA)",
