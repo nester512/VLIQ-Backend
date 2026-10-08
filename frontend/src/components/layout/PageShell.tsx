@@ -4,6 +4,7 @@ import { BottomSheet } from '../organisms/BottomSheet'
 import { DevPanel } from '../organisms/DevPanel'
 import { useTmaTheme } from '../../hooks/useTmaTheme'
 import { useTmaViewport } from '../../hooks/useTmaViewport'
+import { useTmaKeyboardInset } from '../../hooks/useTmaKeyboardInset'
 
 interface PageShellProps {
   children: ReactNode
@@ -26,6 +27,7 @@ interface PageShellProps {
 export function PageShell({ children }: PageShellProps) {
   useTmaTheme()
   useTmaViewport()
+  useTmaKeyboardInset()
 
   return (
     <div

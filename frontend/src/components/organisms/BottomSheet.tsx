@@ -52,6 +52,7 @@ export function BottomSheet() {
     <Drawer.Root
       open={isOpen}
       onOpenChange={(open) => { if (!open) closeSheet() }}
+      repositionInputs={false}
     >
       <Drawer.Portal>
         <Drawer.Overlay
@@ -62,10 +63,14 @@ export function BottomSheet() {
           aria-describedby={undefined}
           className="fixed bottom-0 left-0 right-0 mx-auto w-full max-w-[640px] md:max-w-3xl xl:max-w-5xl z-[61] outline-none"
           style={{
+            // Lift the sheet above the Telegram software keyboard (see
+            // useTmaKeyboardInset) so iOS doesn't scroll the fixed layer up.
+            bottom: 'var(--tma-kbd-inset, 0px)',
             // Auto-height — the sheet sizes to its content (capped at 93% of
-            // the viewport). Without this, vaul stretches the sheet to fill
-            // 93% and the empty space below the content reads as a dark slab.
-            maxHeight: '93dvh',
+            // the viewport, minus any keyboard overlay). Without this, vaul
+            // stretches the sheet to fill 93% and the empty space below the
+            // content reads as a dark slab.
+            maxHeight: 'min(93dvh, calc(var(--tma-height, 100dvh) - var(--tma-kbd-inset, 0px)))',
             // Card colour (not the page bg) so the sheet reads as a separate
             // elevated surface — was visible as a "washed-out slab" otherwise.
             background: 'var(--vliq-card)',

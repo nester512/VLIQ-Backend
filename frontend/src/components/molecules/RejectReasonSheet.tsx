@@ -182,6 +182,7 @@ export function RejectReasonSheet({
     <Drawer.Root
       open={open}
       onOpenChange={(o) => { if (!o) onClose() }}
+      repositionInputs={false}
     >
       <Drawer.Portal>
         <Drawer.Overlay
@@ -192,7 +193,10 @@ export function RejectReasonSheet({
           aria-describedby={undefined}
           className="fixed bottom-0 left-0 right-0 z-[71] outline-none"
           style={{
-            maxHeight: '93dvh',
+            // Lift the sheet exactly above the Telegram software keyboard so
+            // iOS doesn't scroll the whole fixed layer up (see useTmaKeyboardInset).
+            bottom: 'var(--tma-kbd-inset, 0px)',
+            maxHeight: 'min(93dvh, calc(var(--tma-height, 100dvh) - var(--tma-kbd-inset, 0px)))',
             background: 'var(--vliq-card)',
             borderTopLeftRadius: 26,
             borderTopRightRadius: 26,
