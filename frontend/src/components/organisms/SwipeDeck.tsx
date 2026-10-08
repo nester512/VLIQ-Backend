@@ -43,9 +43,11 @@ interface SwipeCardProps {
   isTop: boolean
   canSwipe: boolean
   onSellerClick?: (sellerId: number) => void
+  /** Swipe down: move the card to the end of the deck without a decision. */
+  onSkip?: () => void
 }
 
-function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop, canSwipe, onSellerClick }: SwipeCardProps) {
+function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop, canSwipe, onSellerClick, onSkip }: SwipeCardProps) {
   const x = useMotionValue(0)
   const y = useMotionValue(0)
 
@@ -100,6 +102,14 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop, canSwipe, onSel
 
     if (!wasMoved) {
       if (!isSwipeDeckControl(e.target)) onTap()
+      return
+    }
+
+    // Swipe DOWN = skip: no decision, the card goes to the end of this session's deck.
+    const dy = e.clientY - dragRef.current.startY
+    if (onSkip && dy > THRESHOLD_Y && dy > Math.abs(dx)) {
+      x.set(0); y.set(0)
+      onSkip()
       return
     }
 
@@ -428,9 +438,11 @@ export interface SwipeDeckProps {
   totalCount?: number
   /** Open the seller page (stats + previous receipts) from the final info card. */
   onSellerClick?: (sellerId: number) => void
+  /** A card was skipped (moved to the end of the deck, no API call). */
+  onSkip?: (receiptId: string) => void
 }
 
-export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0, totalCount, onSellerClick }: SwipeDeckProps) {
+export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0, totalCount, onSellerClick, onSkip }: SwipeDeckProps) {
   // Consume the queue by receipt ID, not by positional index. A positional
   // index silently SKIPS cards whenever the list shrinks from the front — which
   // happens on any mid-session refetch (window focus, a detail-sheet action, a
@@ -441,10 +453,19 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
   const orderRef = useRef<Array<{ id: string; dir: SwipeDirection }>>([])
   const [processed, setProcessed] = useState({ approve: 0, reject: 0, revise: 0 })
 
-  const pending = useMemo(
-    () => receipts.filter((r) => !processedIds.has(r.id)),
-    [receipts, processedIds],
-  )
+  // Skipped ids in skip order. A skipped card is NOT processed: it stays in the
+  // queue (server untouched) and simply moves behind every not-yet-skipped card,
+  // so the admin can come back to it later in the session.
+  const [skippedIds, setSkippedIds] = useState<string[]>([])
+
+  const pending = useMemo(() => {
+    const open = receipts.filter((r) => !processedIds.has(r.id))
+    if (skippedIds.length === 0) return open
+    const skipped = new Set(skippedIds)
+    const byId = new Map(open.map((r) => [r.id, r]))
+    const tail = skippedIds.map((id) => byId.get(id)).filter((r): r is AdminReceipt => r != null)
+    return [...open.filter((r) => !skipped.has(r.id)), ...tail]
+  }, [receipts, processedIds, skippedIds])
 
   // Watch external undoTrigger; on increment, un-process the most recently
   // actioned card so it returns to the top of the deck. No positional clamp is
@@ -480,7 +501,15 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
     [pending, onSwipe],
   )
 
+  const handleSkip = useCallback(() => {
+    const current = pending[0]
+    if (!current || pending.length < 2) return
+    setSkippedIds((prev) => [...prev.filter((id) => id !== current.id), current.id])
+    onSkip?.(current.id)
+  }, [pending, onSkip])
+
   const remaining = pending.length
+  const skippedCount = pending.filter((r) => skippedIds.includes(r.id)).length
   // Show the real backlog size (server total of on_review), not just how many
   // pages happen to be loaded — otherwise the counter is stuck at e.g. 20/20.
   const totalForCounter = totalCount ?? receipts.length
@@ -544,7 +573,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
       <DoneState
         processed={processed}
         isInitiallyEmpty={isInitiallyEmpty}
-        onReset={() => { orderRef.current = []; setProcessedIds(new Set()); setProcessed({ approve: 0, reject: 0, revise: 0 }) }}
+        onReset={() => { orderRef.current = []; setProcessedIds(new Set()); setSkippedIds([]); setProcessed({ approve: 0, reject: 0, revise: 0 }) }}
       />
     )
   }
@@ -578,8 +607,9 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
           </h1>
           <p style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--vliq-hint)', marginTop: 2 }}>
             {currentReceipt?.status === 'on_review'
-              ? 'Свайпните карточку или используйте кнопки'
-              : 'Чек ещё обрабатывается · нажмите для деталей'}
+              ? 'Свайп вправо/влево — решение, вниз — пропустить'
+              : 'Чек ещё обрабатывается · можно пропустить'}
+            {skippedCount > 0 && ` · пропущено ${skippedCount}`}
           </p>
         </div>
         <span style={{ flex: 'none', fontSize: 13, fontWeight: 700, color: 'var(--vliq-hint)', marginTop: 4 }}>
@@ -642,6 +672,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
                 onSwipe={handleSwipe}
                 onTap={() => { if (isTop && currentReceipt) onTap(currentReceipt.id) }}
                 onSellerClick={onSellerClick}
+                onSkip={remaining > 1 ? handleSkip : undefined}
               />
             )
           })}
@@ -659,6 +690,16 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
         >
           <Icon name="x" size={18} />
           Отклонить
+        </button>
+        <button
+          type="button"
+          className="vliq-review-native-action vliq-review-native-action--skip"
+          disabled={remaining < 2}
+          onClick={handleSkip}
+          aria-label="Пропустить чек"
+        >
+          <Icon name="chev" size={18} />
+          Пропустить
         </button>
         <button
           type="button"

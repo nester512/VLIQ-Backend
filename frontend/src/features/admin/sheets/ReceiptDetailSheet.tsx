@@ -16,6 +16,7 @@ import { useSwipeAction } from '@/features/admin/hooks/useReviewQueue'
 import { editReceiptBonus, addReceiptComment, blockSeller, deleteReceipt } from '@/api/admin'
 import { extractApiError } from '@/api/client'
 import type { AdminReceipt } from '@/api/admin'
+import { invalidateAfterReceiptChange } from '@/features/admin/invalidate'
 
 interface ReceiptDetailSheetProps {
   receiptId: string | null
@@ -42,9 +43,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
       editReceiptBonus(id, amountKopecks),
     onSuccess: () => {
       setEditBonusOpen(false)
-      queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
+      invalidateAfterReceiptChange(queryClient)
       pushToast('Сумма бонуса обновлена', 'ok')
     },
     onError: (err: unknown) => {
@@ -59,9 +58,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
       addReceiptComment(id, text),
     onSuccess: () => {
       setAddCommentOpen(false)
-      queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
+      invalidateAfterReceiptChange(queryClient)
       pushToast('Комментарий добавлен', 'ok')
     },
     onError: (err: unknown) => {
@@ -76,10 +73,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
       blockSeller(telegram_id, reason),
     onSuccess: () => {
       setBlockSellerOpen(false)
-      queryClient.invalidateQueries({ queryKey: ['admin', 'sellers'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
+      invalidateAfterReceiptChange(queryClient)
       pushToast('Продавец заблокирован', 'dg')
       closeSheet()
     },
@@ -93,9 +87,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
   const { mutate: doDelete, isPending: deletePending } = useMutation({
     mutationFn: (id: string) => deleteReceipt(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
+      invalidateAfterReceiptChange(queryClient)
       pushToast('Чек удалён', 'ok')
       closeSheet()
     },
@@ -140,9 +132,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
         onSettled: () => {
           setApproveBonusOpen(false)
           setRejectReasonOpen(false)
-          queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
-          queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
-          queryClient.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
+          invalidateAfterReceiptChange(queryClient)
           closeSheet()
         },
       },

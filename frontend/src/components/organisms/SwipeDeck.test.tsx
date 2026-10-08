@@ -283,3 +283,67 @@ describe('SwipeDeck — seller link on the final info card', () => {
     }
   })
 })
+
+describe('SwipeDeck — skip without a decision', () => {
+  const three = () => [receipt({ id: 'a' }), receipt({ id: 'b' }), receipt({ id: 'c' })]
+
+  it('«Пропустить» moves the card to the end and calls neither onSwipe nor the API', () => {
+    const onSwipe = vi.fn()
+    const onSkip = vi.fn()
+    render(<SwipeDeck receipts={three()} onSwipe={onSwipe} onTap={vi.fn()} onSkip={onSkip} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Пропустить чек' }))
+
+    expect(onSkip).toHaveBeenCalledWith('a')
+    expect(onSwipe).not.toHaveBeenCalled()
+    expect(screen.getByText(/пропущено 1/)).toBeInTheDocument()
+    // Counter is unchanged: a skip is not a processed receipt.
+    expect(screen.getByTestId('deck-counter')).toHaveTextContent('1 / 3')
+    // The decision now applies to the next card.
+    fireEvent.click(screen.getByRole('button', { name: 'Одобрить' }))
+    expect(onSwipe).toHaveBeenCalledWith('b', 'approve')
+  })
+
+  it('a skipped card comes back after the others', () => {
+    const onSwipe = vi.fn()
+    render(<SwipeDeck receipts={three()} onSwipe={onSwipe} onTap={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Пропустить чек' })) // a → end: b, c, a
+    fireEvent.click(screen.getByRole('button', { name: 'Одобрить' })) // b
+    fireEvent.click(screen.getByRole('button', { name: 'Отклонить' })) // c
+    fireEvent.click(screen.getByRole('button', { name: 'Одобрить' })) // a again
+
+    expect(onSwipe.mock.calls).toEqual([['b', 'approve'], ['c', 'reject'], ['a', 'approve']])
+  })
+
+  it('a downward drag skips; a sideways drag still decides', () => {
+    vi.useFakeTimers()
+    const onSwipe = vi.fn()
+    const onSkip = vi.fn()
+    render(<SwipeDeck receipts={three()} onSwipe={onSwipe} onTap={vi.fn()} onSkip={onSkip} />)
+
+    const card = topCard()
+    fireEvent.pointerDown(card, { clientX: 200, clientY: 100, pointerId: 1 })
+    fireEvent.pointerMove(card, { clientX: 210, clientY: 260, pointerId: 1 })
+    fireEvent.pointerUp(card, { clientX: 210, clientY: 260, pointerId: 1 })
+
+    expect(onSkip).toHaveBeenCalledWith('a')
+    act(() => { vi.advanceTimersByTime(400) })
+    expect(onSwipe).not.toHaveBeenCalled()
+  })
+
+  it('a card stuck in processing no longer blocks the deck', () => {
+    const onSwipe = vi.fn()
+    render(<SwipeDeck receipts={[receipt({ id: 'p', status: 'ocr_in_progress' }), receipt({ id: 'q' })]} onSwipe={onSwipe} onTap={vi.fn()} />)
+
+    expect(screen.getByRole('button', { name: 'Одобрить' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Пропустить чек' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Одобрить' }))
+    expect(onSwipe).toHaveBeenCalledWith('q', 'approve')
+  })
+
+  it('skip is disabled for the last card', () => {
+    render(<SwipeDeck receipts={[receipt({ id: 'only' })]} onSwipe={vi.fn()} onTap={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Пропустить чек' })).toBeDisabled()
+  })
+})

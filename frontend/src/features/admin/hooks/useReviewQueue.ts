@@ -9,6 +9,7 @@ import {
 import { useUiStore } from '@/store/uiStore'
 import { useHaptic } from '@/hooks/useHaptic'
 import { extractApiError } from '@/api/client'
+import { invalidateAfterReceiptChange } from '@/features/admin/invalidate'
 
 // Confluence A2 invariant: the active dating-style review feed contains only
 // actionable receipts. Seller-facing `pending` / `ocr_in_progress` still render
@@ -63,17 +64,9 @@ export function useSwipeAction() {
       return reviseReceipt(id, comment ?? '')
     },
     onSuccess: (_, { dir }) => {
-      // No need to invalidate ['admin','review-queue'] here: the deck hides the
-      // just-swiped card locally by receipt id, and fresh receipts arrive via
-      // fetchNextPage or on re-entry. (A mid-session refetch would be harmless
-      // now that the deck is id-based, but it is unnecessary traffic.)
-      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] })
-      // The per-seller receipts list (['admin','seller-receipts',<id>]) is a
-      // SEPARATE query from the deck — it is NOT walked by deckIdx, so refreshing
-      // it after a status change is safe and keeps SellerReceiptsPage in sync
-      // (it would otherwise show the stale pre-action status).
-      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
+      // The deck hides the just-swiped card locally by receipt id, so its own
+      // queue is not refetched mid-session; every other view is.
+      invalidateAfterReceiptChange(queryClient, { reviewQueue: false })
 
       if (dir === 'approve') {
         impact('medium')

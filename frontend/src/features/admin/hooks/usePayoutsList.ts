@@ -7,6 +7,7 @@ import {
 } from '@/api/admin'
 import { useUiStore } from '@/store/uiStore'
 import { extractApiError } from '@/api/client'
+import { invalidateAfterPayoutChange } from '@/features/admin/invalidate'
 
 export function usePayoutsList(filters: AdminPayoutsFilters = {}) {
   return useQuery({
@@ -24,11 +25,7 @@ export function usePayoutActions() {
   const approve = useMutation({
     mutationFn: (id: string) => approvePayoutRequest(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'payouts'] })
-      // The dashboard's «Выплачено» counter is a SEPARATE query (['admin',
-      // 'dashboard']) — invalidate it too, else it stays stale after marking
-      // requests paid (mirrors useReviewQueue / useSellersList).
-      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] })
+      invalidateAfterPayoutChange(queryClient)
       closeSheet()
       pushToast('Выплата подтверждена', 'ok')
     },
@@ -41,8 +38,7 @@ export function usePayoutActions() {
   const reject = useMutation({
     mutationFn: (id: string) => rejectPayoutRequest(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'payouts'] })
-      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] })
+      invalidateAfterPayoutChange(queryClient)
       closeSheet()
       pushToast('Заявка отклонена', 'dg')
     },

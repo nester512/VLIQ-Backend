@@ -147,16 +147,17 @@ describe('ReceiptDetailSheet — actualizes views after a status change', () => 
     expect(spy).toHaveBeenCalledWith({ queryKey: ['admin', 'review-queue'] })
   })
 
-  it('delete refetches the seller-receipts list + review queue (not the dead key)', async () => {
+  it('delete refreshes every view that shows receipts', async () => {
     const spy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
     renderSheet(receipt({ status: 'rejected' }))
     fireEvent.click(screen.getByText('Удалить чек'))
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith({ queryKey: ['admin', 'seller-receipts'] }),
     )
-    expect(spy).toHaveBeenCalledWith({ queryKey: ['admin', 'review-queue'] })
-    // The old ['admin','receipts'] key matched no query — must not be used.
-    expect(spy).not.toHaveBeenCalledWith({ queryKey: ['admin', 'receipts'] })
+    for (const key of ['review-queue', 'receipts', 'sellers', 'seller-detail', 'dashboard']) {
+      // ['admin','receipts'] IS live: the «Все чеки» archive (AdminReceiptsPage) uses it.
+      expect(spy).toHaveBeenCalledWith({ queryKey: ['admin', key] })
+    }
   })
 })
 

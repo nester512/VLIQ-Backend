@@ -393,8 +393,9 @@
    every screen. The flex deck reserves this block above the navigation. */
 .vliq-review-native-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  /* reject · skip · approve — skip is narrower: it is not a decision. */
+  grid-template-columns: 1fr auto 1fr;
+  gap: 10px;
   width: 100%;
   padding: 12px 18px 18px;
   flex: none;
@@ -420,6 +421,11 @@
 .vliq-review-native-action:disabled { cursor: not-allowed; opacity: .48; }
 .vliq-review-native-action--approve { background: var(--vliq-ok); }
 .vliq-review-native-action--reject { background: var(--vliq-dg); }
+.vliq-review-native-action--skip {
+  padding: 0 14px;
+  background: var(--vliq-field);
+  color: var(--vliq-text);
+}
 
 /* ===========================================================
    SAFE AREA + OVERFLOW GUARDS
