@@ -1,0 +1,136 @@
+# Stage overlay (isolated test stand, NOT production). Always pass it explicitly
+# together with the base file so the ignored docker-compose.override.yml cannot
+# alter the deployment:
+#
+#   COMPOSE_PROJECT_NAME=vliq-stage IMAGE_TAG=<git-sha> docker compose \
+#     -f docker-compose.yml -f docker-compose.stage.yml up -d
+#
+# Normally invoked via ops/deploy.sh (see docs/CI-CD.md). Production keeps
+# using docker-compose.test.yml; nothing here changes the production stack.
+#
+# Required in the stage server's .env (placeholders in .env.example):
+#   STAGE_HOSTNAME, POSTGRES_PASSWORD, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD,
+#   TG_BOT_TOKEN (stage-only bot), JWT_SECRET_SALT, PAYOUT_ENCRYPTION_KEY,
+#   CADDY_TLS_DIRECTIVE / CADDY_EMAIL.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-backend-image: &backend-image
+  image: "${BACKEND_IMAGE:-ghcr.io/nester512/vliq-backend}:${IMAGE_TAG:?IMAGE_TAG is required}"
+  pull_policy: always
+  logging: *default-logging
+
+services:
+  # --- Data services: never published on the host, stage-only credentials ---
+  postgres:
+    ports: !reset []
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required on stage}
+
+  redis:
+    ports: !reset []
+    restart: unless-stopped
+    logging: *default-logging
+
+  minio:
+    ports: !reset []
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required on stage}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required on stage}
+
+  createbuckets:
+    logging: *default-logging
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required on stage}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required on stage}
+    # Unlike the base file the bucket stays private: receipt images are served
+    # only through the signed /api/v1/receipts/attachments/file proxy.
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
+      /usr/bin/mc mb --ignore-existing local/vliq-receipts &&
+      /usr/bin/mc anonymous set none local/vliq-receipts
+      "
+
+  # --- Application services: immutable GHCR images by commit SHA ---
+  backend:
+    <<: *backend-image
+    restart: unless-stopped
+    environment:
+      POSTGRES__POSTGRES_URL: postgresql+asyncpg://vliq:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required on stage}@postgres:5432/vliq
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required on stage}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required on stage}
+      S3_PUBLIC_ENDPOINT: https://${STAGE_HOSTNAME:?STAGE_HOSTNAME is required on stage}/storage
+      TMA_URL: https://${STAGE_HOSTNAME:?STAGE_HOSTNAME is required on stage}
+      OFD_PROVIDER: ${OFD_PROVIDER:-fake}
+      OCR_MODE: ${OCR_MODE:-demo}
+      # The stage is reachable from the internet: keep the DEV-only
+      # POST /auth/login (token for any telegram_id) and Swagger disabled.
+      ENV: ${STAGE_APP_ENV:-prod}
+      # Synthetic demo sellers/receipts only — production data never lands here.
+      SEED_DEMO: "true"
+    # Alembic runs once in ops/deploy.sh before application services switch.
+    command: >
+      sh -c "
+        python -m src.scripts.seed_dev &&
+        uvicorn src.app.main:app --host 0.0.0.0 --port 8000
+      "
+
+  bot:
+    <<: *backend-image
+    environment:
+      POSTGRES__POSTGRES_URL: postgresql+asyncpg://vliq:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required on stage}@postgres:5432/vliq
+      TMA_URL: https://${STAGE_HOSTNAME:?STAGE_HOSTNAME is required on stage}
+      # Same mode as production. The stage bot has its own token, so its
+      # getUpdates queue is independent of the production bot.
+      BOT_MODE: polling
+
+  notifications-worker:
+    <<: *backend-image
+    environment:
+      POSTGRES__POSTGRES_URL: postgresql+asyncpg://vliq:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required on stage}@postgres:5432/vliq
+
+  receipt-pipeline-worker:
+    <<: *backend-image
+    environment:
+      POSTGRES__POSTGRES_URL: postgresql+asyncpg://vliq:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required on stage}@postgres:5432/vliq
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required on stage}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required on stage}
+      OFD_PROVIDER: ${OFD_PROVIDER:-fake}
+      OCR_MODE: ${OCR_MODE:-demo}
+
+  frontend:
+    image: "${FRONTEND_IMAGE:-ghcr.io/nester512/vliq-frontend}:${IMAGE_TAG:?IMAGE_TAG is required}"
+    pull_policy: always
+    restart: unless-stopped
+    logging: *default-logging
+
+  caddy:
+    logging: *default-logging
+    # Directly on 80/443 by default. When another reverse proxy owns 80/443 on
+    # the host, set STAGE_CADDY_SITE=http://<host> and bind Caddy to an
+    # internal address, e.g. STAGE_HTTP_BIND=127.0.0.1:8088.
+    ports: !override
+      - "${STAGE_HTTP_BIND:-80}:80"
+      - "${STAGE_HTTPS_BIND:-443}:443"
+    environment:
+      CADDY_HOSTNAME: ${STAGE_CADDY_SITE:-${STAGE_HOSTNAME:?STAGE_HOSTNAME is required on stage}}
+
+  # --- Monitoring is production-only: disabled on stage via a profile that is
+  # never activated here. The base file (and therefore production) is unchanged.
+  prometheus:
+    profiles: [monitoring]
+  loki:
+    profiles: [monitoring]
+  promtail:
+    profiles: [monitoring]
+  grafana:
+    profiles: [monitoring]
