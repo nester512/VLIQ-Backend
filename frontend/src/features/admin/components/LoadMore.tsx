@@ -4,11 +4,13 @@ interface LoadMoreProps {
   hasMore: boolean
   isLoading: boolean
   onLoadMore: () => unknown
+  /** Last page request failed: stop auto-loading, leave the manual button. */
+  isError?: boolean
 }
 
 /** Infinite-scroll sentinel + explicit «Загрузить ещё» fallback button. */
-export function LoadMore({ hasMore, isLoading, onLoadMore }: LoadMoreProps) {
-  const sentinelRef = useLoadMoreSentinel(hasMore, isLoading, onLoadMore)
+export function LoadMore({ hasMore, isLoading, onLoadMore, isError = false }: LoadMoreProps) {
+  const sentinelRef = useLoadMoreSentinel(hasMore && !isError, isLoading, onLoadMore)
   return (
     <>
       {hasMore && (
@@ -29,7 +31,7 @@ export function LoadMore({ hasMore, isLoading, onLoadMore }: LoadMoreProps) {
             opacity: isLoading ? 0.6 : 1,
           }}
         >
-          {isLoading ? 'Загрузка…' : 'Загрузить ещё'}
+          {isLoading ? 'Загрузка…' : isError ? 'Не загрузилось — повторить' : 'Загрузить ещё'}
         </button>
       )}
       <div ref={sentinelRef} aria-hidden style={{ height: 1 }} />

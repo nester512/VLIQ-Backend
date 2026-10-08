@@ -250,3 +250,36 @@ describe('SwipeDeck — id-based consumption is refetch-safe (no skip)', () => {
     expect(onSwipe).toHaveBeenLastCalledWith('b', 'approve')
   })
 })
+
+describe('SwipeDeck — seller link on the final info card', () => {
+  it('opens the seller and neither swipes, taps the card nor captures the pointer', () => {
+    const onSwipe = vi.fn()
+    const onTap = vi.fn()
+    const onSellerClick = vi.fn()
+    const capture = vi.fn()
+    const original = HTMLElement.prototype.setPointerCapture
+    HTMLElement.prototype.setPointerCapture = capture
+    try {
+      render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={onTap} onSellerClick={onSellerClick} />)
+      for (let i = 0; i < 2; i++) {
+        const next = screen.getAllByLabelText('Следующее вложение')[0]!
+        fireEvent.pointerDown(next, { pointerId: 9 })
+        fireEvent.click(next)
+      }
+
+      capture.mockClear() // the nav tap-zones above may start a drag; only the link matters here
+      onTap.mockClear()
+      const link = screen.getAllByRole('button', { name: /Открыть продавца/ })[0]!
+      fireEvent.pointerDown(link, { clientX: 50, clientY: 50, pointerId: 12 })
+      fireEvent.pointerUp(link, { clientX: 50, clientY: 50, pointerId: 12 })
+      fireEvent.click(link)
+
+      expect(onSellerClick).toHaveBeenCalledWith(9)
+      expect(onTap).not.toHaveBeenCalled()
+      expect(onSwipe).not.toHaveBeenCalled()
+      expect(capture).not.toHaveBeenCalled()
+    } finally {
+      HTMLElement.prototype.setPointerCapture = original
+    }
+  })
+})

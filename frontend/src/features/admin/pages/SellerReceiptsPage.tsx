@@ -141,7 +141,7 @@ function SellerPageContent() {
   const [statusFilter, setStatusFilter] = useState('')
 
   const { data: seller, isLoading: sellerLoading, isError: sellerError } = useSellerDetail(sellerId)
-  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
+  const { data, isLoading, isFetchNextPageError, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useSellerReceiptsInfinite(sellerId, statusFilter || undefined)
 
   const receipts = data?.pages.flatMap((p) => p.items) ?? []
@@ -192,7 +192,12 @@ function SellerPageContent() {
               />
             ))}
           </div>
-          <LoadMore hasMore={Boolean(hasNextPage)} isLoading={isFetchingNextPage} onLoadMore={fetchNextPage} />
+          <LoadMore
+            hasMore={Boolean(hasNextPage)}
+            isLoading={isFetchingNextPage}
+            isError={isFetchNextPageError}
+            onLoadMore={fetchNextPage}
+          />
         </>
       )}
     </div>

@@ -73,6 +73,7 @@ export function useSwipeAction() {
       // it after a status change is safe and keeps SellerReceiptsPage in sync
       // (it would otherwise show the stale pre-action status).
       queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
 
       if (dir === 'approve') {
         impact('medium')

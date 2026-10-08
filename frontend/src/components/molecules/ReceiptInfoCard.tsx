@@ -122,8 +122,11 @@ export function ReceiptInfoCard({ receipt, actions, className = '', onSellerClic
                 type="button"
                 onClick={() => onSellerClick(receipt.seller_id)}
                 aria-label={`Открыть продавца ${sellerName}`}
-                // Inside the review SwipeDeck: a tap here must not start a swipe gesture.
+                // Inside the review SwipeDeck: the card captures the pointer on pointerdown,
+                // which would retarget the click to the card (→ onTap opens the sheet and
+                // this link never fires). Keep the gesture to the link itself.
                 data-swipe-deck-control="true"
+                onPointerDown={(e) => e.stopPropagation()}
                 className="p-0 border-0 bg-transparent cursor-pointer font-[inherit] text-[var(--vliq-brand)] underline underline-offset-2"
               >
                 {sellerName}

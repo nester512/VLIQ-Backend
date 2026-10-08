@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { SearchBar } from '@/components/molecules/SearchBar'
 import { FilterPills } from '@/components/molecules/FilterPills'
@@ -90,7 +91,9 @@ function SellersContent() {
   const [params, setParams] = useSearchParams()
 
   // Filters live in the URL so «назад» from a seller page restores the same list.
-  const search = params.get('q') ?? ''
+  // The input keeps local state (no router round-trip per keystroke, IME-safe);
+  // only the debounced value is written to the URL and sent to the API.
+  const [search, setSearch] = useState(() => params.get('q') ?? '')
   const status = pick<StatusFilter>(params.get('status'), ['', 'active', 'pending', 'blocked'], '')
   const risk = pick<RiskFilter>(params.get('risk'), ['', 'low', 'medium', 'high'], '')
   const sort = pick(params.get('sort'), SORT_OPTIONS.map((o) => o.value), DEFAULT_SORT)
@@ -106,7 +109,12 @@ function SellersContent() {
   }
 
   const debouncedSearch = useDebouncedValue(search.trim(), 300)
-  const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useSellersInfinite({
+  const urlSearch = params.get('q') ?? ''
+  useEffect(() => {
+    if (debouncedSearch !== urlSearch) setParam('q', debouncedSearch)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only when the debounced term settles
+  }, [debouncedSearch])
+  const { data, isLoading, isError, isFetchNextPageError, fetchNextPage, hasNextPage, isFetchingNextPage } = useSellersInfinite({
     search: debouncedSearch || undefined,
     status: status || undefined,
     risk: risk || undefined,
@@ -116,14 +124,14 @@ function SellersContent() {
 
   const sellers = data?.pages.flatMap((p) => p.items) ?? []
   const total = data?.pages[0]?.total ?? 0
-  const isFiltered = Boolean(debouncedSearch || status || risk || onReview)
+  const isFiltered = Boolean(search.trim() || status || risk || onReview)
 
   return (
     <div className="vliq-pad" style={{ paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <SearchBar
         placeholder="Имя, телефон, точка, город или Telegram ID"
         value={search}
-        onChange={(v) => setParam('q', v)}
+        onChange={setSearch}
       />
 
       <FilterPills options={STATUS_PILLS} value={status} onChange={(v) => setParam('status', v)} />
@@ -193,7 +201,12 @@ function SellersContent() {
               />
             ))}
           </div>
-          <LoadMore hasMore={Boolean(hasNextPage)} isLoading={isFetchingNextPage} onLoadMore={fetchNextPage} />
+          <LoadMore
+            hasMore={Boolean(hasNextPage)}
+            isLoading={isFetchingNextPage}
+            isError={isFetchNextPageError}
+            onLoadMore={fetchNextPage}
+          />
         </>
       )}
     </div>

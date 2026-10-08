@@ -44,6 +44,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
       setEditBonusOpen(false)
       queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
       queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
       pushToast('Сумма бонуса обновлена', 'ok')
     },
     onError: (err: unknown) => {
@@ -60,6 +61,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
       setAddCommentOpen(false)
       queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
       queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
       pushToast('Комментарий добавлен', 'ok')
     },
     onError: (err: unknown) => {
@@ -76,6 +78,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
       setBlockSellerOpen(false)
       queryClient.invalidateQueries({ queryKey: ['admin', 'sellers'] })
       queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
       queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
       pushToast('Продавец заблокирован', 'dg')
       closeSheet()
@@ -91,6 +94,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     mutationFn: (id: string) => deleteReceipt(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
       queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
       pushToast('Чек удалён', 'ok')
       closeSheet()
@@ -138,6 +142,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
           setRejectReasonOpen(false)
           queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
           queryClient.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
+          queryClient.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
           closeSheet()
         },
       },
