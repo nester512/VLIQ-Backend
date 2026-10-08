@@ -1,106 +1,174 @@
-# CI/CD и тестовый стенд `shamilara.fun`
+# CI/CD: две среды — stage и production
 
-## Контракт
+| | **Stage** (тестовый стенд) | **Production** (`shamilara.fun`) |
+|---|---|---|
+| Назначение | ручное и приёмочное тестирование, аудит по BRD | живые продавцы |
+| Ветка | `develop` | `main` |
+| Деплой | автоматически на push в `develop` | автоматически на push в `main`; ручное подтверждение включается required reviewer в Environment `test` |
+| GitHub Environment | `stage` | `test` (историческое имя, секреты `TEST_*`) |
+| Compose | `docker-compose.yml` + `docker-compose.stage.yml` | `docker-compose.yml` + `docker-compose.test.yml` |
+| Compose project | `vliq-stage` | `vliq-backend` |
+| Telegram-бот | отдельный тестовый бот | прод-бот |
+| Данные | только синтетика (`SEED_DEMO=true`) и то, что внесли тестировщики | реальные; **на стенд не копируются** |
+| Проверка чеков | `OFD_PROVIDER=fake`, `OCR_MODE=demo` (по умолчанию) | по `.env` сервера |
+| Мониторинг | выключен (profile `monitoring` в оверлее) | prometheus / loki / promtail / grafana |
 
-- Pull request в `main`: Ruff, backend unit/functional tests, реальные PostgreSQL/migration tests,
-  frontend ESLint/Vitest/build и production Docker build.
-- Push/merge в `main`: те же проверки → публикация immutable GHCR-образов с тегом commit SHA →
-  автоматический deploy на `https://shamilara.fun`.
-- Deploy сериализован. Новая версия переключается только после успешной миграции. После запуска
-  проверяется публичный backend `/health`; при ошибке application images возвращаются на предыдущий
-  записанный SHA. Схема БД автоматически не откатывается, поэтому миграции должны быть backward-compatible.
+Workflow: `.github/workflows/ci-cd.yml`. Серверный entrypoint обеих сред: `ops/deploy.sh`
+(`ops/deploy-test.sh` — symlink для обратной совместимости).
 
-Workflow: `.github/workflows/ci-cd.yml`. Серверный entrypoint: `ops/deploy-test.sh`.
+## Контракт CI
 
-## Одноразовая настройка GitHub
+- Pull request в `main` или `develop`: Ruff, backend unit/functional tests, реальные PostgreSQL/migration
+  tests, frontend ESLint/Vitest/build и Docker build (без публикации).
+- Push в `develop` или `main`: те же проверки → публикация immutable GHCR-образов
+  `vliq-backend` / `vliq-frontend` с тегом **commit SHA** (+ плавающий `stage-latest` / `test-latest`).
+  Образ собирается **один раз на SHA**: если SHA уже опубликован (fast-forward `develop → main`),
+  образы не пересобираются, а только перетегиваются.
+- `develop` → job `Deploy / stage`; `main` → job `Deploy / production (shamilara.fun)`.
+  Обе среды получают **один и тот же** образ данного SHA.
+- Deploy сериализован в пределах среды (`deploy-stage` / `deploy-test`). Сначала `alembic upgrade head`,
+  затем переключение контейнеров. После запуска проверяется публичный `https://<host>/health`
+  (ожидается `{"result":"ok"}`). При ошибке application images откатываются на SHA из
+  `.deploy/current-image-tag`. Схема БД автоматически не откатывается — миграции должны быть
+  backward-compatible.
 
-Создать Environment **`test`** в `Settings → Environments` без required reviewers, если deploy должен
-быть полностью автоматическим. В Environment добавить secrets:
+Рекомендуемый поток: feature-ветка → PR в `develop` → автодеплой на stage → проверка → PR `develop → main`
+→ прод.
 
-| Secret | Значение |
-|---|---|
-| `TEST_SSH_HOST` | IP или SSH hostname тестового сервера |
-| `TEST_SSH_PORT` | обычно `22` |
-| `TEST_SSH_USER` | непривилегированный deploy-user с доступом к Docker |
-| `TEST_SSH_PRIVATE_KEY` | приватный Ed25519-ключ GitHub Actions → server |
-| `TEST_SSH_KNOWN_HOSTS` | проверенная строка known_hosts для сервера |
-| `TEST_DEPLOY_PATH` | `/srv/VLIQ-things/VLIQ-Backend` |
+## Переменные `ops/deploy.sh`
 
-В `Settings → Actions → General → Workflow permissions` разрешить workflow создавать packages
-(`packages: write` задан только image-job). После первого запуска при необходимости сделать пакеты
-`vliq-backend` и `vliq-frontend` доступными этому репозиторию в настройках GHCR.
+| Переменная | По умолчанию (= production) | Stage |
+|---|---|---|
+| `IMAGE_TAG` | — (обязательна) | commit SHA |
+| `COMPOSE_PROJECT_NAME` | `vliq-backend` | `vliq-stage` |
+| `DEPLOY_COMPOSE_OVERLAY` | `docker-compose.test.yml` | `docker-compose.stage.yml` |
+| `DEPLOY_HEALTH_URL` | `https://shamilara.fun/health` | `https://<stage-host>/health` |
 
-Для `main` включить branch protection и required checks:
+## GitHub: секреты и переменные (только имена)
 
-- `Backend / Ruff + unit tests`;
-- `Backend / PostgreSQL + migrations`;
-- `Frontend / lint + tests + build`;
-- `Containers / build`.
+**Environment `stage`** (`Settings → Environments → New environment → stage`, Deployment branches:
+только `develop`):
 
-## Одноразовая настройка сервера
+| Тип | Имя | Что |
+|---|---|---|
+| secret | `STAGE_SSH_HOST` | IP/hostname stage-сервера |
+| secret | `STAGE_SSH_PORT` | SSH-порт |
+| secret | `STAGE_SSH_USER` | deploy-пользователь (группа `docker`, без sudo) |
+| secret | `STAGE_SSH_PRIVATE_KEY` | приватный Ed25519-ключ **только для стенда** |
+| secret | `STAGE_SSH_KNOWN_HOSTS` | строка known_hosts stage-сервера |
+| secret | `STAGE_DEPLOY_PATH` | путь к checkout на сервере |
+| variable | `STAGE_HOSTNAME` | публичный хост стенда, без `https://` |
 
-1. Deploy-user должен иметь доступ к Docker и read-only доступ к приватному GitHub-репозиторию.
-2. Репозиторий должен существовать в `/srv/VLIQ-things/VLIQ-Backend`, remote `origin` должен указывать
-   на `nester512/VLIQ-Backend`. Рабочее дерево не должно содержать изменения tracked-файлов: deploy
-   использует detached checkout точного проверенного SHA.
-3. В корне оставить серверный `.env` минимум с:
+**Environment `test`** (production, существующий): `TEST_SSH_HOST`, `TEST_SSH_PORT`, `TEST_SSH_USER`,
+`TEST_SSH_PRIVATE_KEY`, `TEST_SSH_KNOWN_HOSTS`, `TEST_DEPLOY_PATH`.
+
+- **Ручное подтверждение прод-деплоя:** `Settings → Environments → test → Required reviewers` → добавить
+  ревьюера → Save. Код менять не нужно: job будет ждать «Approve». Там же — `Deployment branches: main`.
+- **(Опционально) переименование `test` → `production`:** создать Environment `production`, завести в нём
+  те же шесть секретов с теми же значениями, затем в workflow заменить `environment.name: test` на
+  `production`, смержить, убедиться в успешном деплое и только потом удалить Environment `test`.
+  Переносить секреты нужно вручную: GitHub не показывает и не копирует их значения.
+
+`Settings → Actions → General → Workflow permissions`: разрешить workflow публиковать packages
+(`packages: write` задан только image-job). Пакеты GHCR сейчас публичные — серверам для pull логин не нужен,
+но deploy-job всё равно выполняет `docker login` токеном job'а (через stdin).
+
+Required checks для `main` (и рекомендуется для `develop`): `Backend / Ruff + unit tests`,
+`Backend / PostgreSQL + migrations`, `Frontend / lint + tests + build`, `Containers / build`.
+
+## Stage: одноразовая настройка сервера
+
+1. Docker + compose plugin ≥ 2.24 (оверлей использует `!reset` / `!override`), deploy-пользователь в
+   группе `docker`, вход только по SSH-ключам.
+2. Checkout в `STAGE_DEPLOY_PATH` с `origin` = `https://github.com/nester512/VLIQ-Backend.git`
+   (репозиторий публичный — deploy key не нужен). Tracked-файлы не менять: deploy делает
+   `git checkout --detach <SHA>`.
+3. `.env` из `.env.example` с **новыми** секретами (не копировать с прода), права `600`:
+   `STAGE_HOSTNAME`, `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `JWT_SECRET_SALT`,
+   `PAYOUT_ENCRYPTION_KEY`, `TG_BOT_TOKEN` (тестовый бот), `CADDY_TLS_DIRECTIVE` / `CADDY_EMAIL`
+   (ACME-email), `OFD_PROVIDER=fake`, `OCR_MODE=demo`.
+4. Если порты 80/443 на хосте заняты другим reverse proxy: `STAGE_CADDY_SITE=http://<host>`,
+   `STAGE_HTTP_BIND=<адрес>:<порт>` (Caddy только по HTTP), TLS терминирует внешний proxy.
+5. Проверка: `COMPOSE_PROJECT_NAME=vliq-stage IMAGE_TAG=<sha> docker compose -f docker-compose.yml -f docker-compose.stage.yml config --quiet`.
+
+Что даёт оверлей стенда: Postgres/Redis/MinIO не публикуются на хост, у них собственные креды;
+бакет чеков приватный (картинки отдаются только через подписанный
+`/api/v1/receipts/attachments/file?sig=…`); `ENV=prod` (DEV `POST /auth/login` и Swagger выключены);
+бот в режиме polling со своим токеном; ротация логов `json-file` 10 MB × 3.
+
+### Ручной deploy / rollback стенда
+
+```bash
+cd <STAGE_DEPLOY_PATH>
+git fetch origin develop && git checkout --detach <sha>
+COMPOSE_PROJECT_NAME=vliq-stage DEPLOY_COMPOSE_OVERLAY=docker-compose.stage.yml \
+  DEPLOY_HEALTH_URL=https://<stage-host>/health IMAGE_TAG=<sha> ./ops/deploy.sh
+```
+
+Rollback — тот же вызов с предыдущим SHA (`cat .deploy/current-image-tag` до деплоя).
+
+### Админ на стенде
+
+Core-сид (`backend/seed_dev.sql`) на каждом старте создаёт служебных админов. Дополнительного —
+разовым SQL **на БД стенда** (Telegram ID в репозиторий не коммитить):
+
+```bash
+cd <STAGE_DEPLOY_PATH>
+COMPOSE_PROJECT_NAME=vliq-stage IMAGE_TAG=$(cat .deploy/current-image-tag) \
+docker compose -f docker-compose.yml -f docker-compose.stage.yml exec -T postgres psql -U vliq -d vliq -c \
+ "INSERT INTO vliq.admin (telegram_id, phone_e164, role, brand_ids, is_active, created_at, updated_at) \
+  VALUES (<TG_ID>, '+70000000000', 'admin', '[]'::jsonb, true, now(), now()) \
+  ON CONFLICT (telegram_id) DO UPDATE SET is_active=true, role=EXCLUDED.role;"
+```
+
+### Полный сброс данных стенда
+
+```bash
+COMPOSE_PROJECT_NAME=vliq-stage IMAGE_TAG=$(cat .deploy/current-image-tag) \
+  docker compose -f docker-compose.yml -f docker-compose.stage.yml down
+docker volume rm vliq-stage_postgres_data vliq-stage_minio_data
+# затем ручной deploy текущего SHA (см. выше) — backend заново применит миграции и сиды
+```
+
+## Production: сервер
+
+1. Deploy-user с доступом к Docker. Checkout в `/srv/VLIQ-things/VLIQ-Backend`, `origin` →
+   `nester512/VLIQ-Backend`, без изменений tracked-файлов.
+2. Серверный `.env` (не коммитится), минимум:
 
 ```dotenv
 CADDY_HOSTNAME=shamilara.fun
-CADDY_TLS_DIRECTIVE=admin@example.com
-CADDY_EMAIL=admin@example.com
-TG_BOT_TOKEN=...
-JWT_SECRET_SALT=...
+CADDY_TLS_DIRECTIVE=<acme-email>
+CADDY_EMAIL=<acme-email>
+TG_BOT_TOKEN=<prod-bot-token>
+JWT_SECRET_SALT=<secret>
+ENV=prod
 OFD_PROVIDER=fake
 OCR_MODE=full
 ```
 
-Для реальной проверки ФНС заменить `OFD_PROVIDER=proverkacheka` и задать
-`PROVERKACHEKA_TOKEN`. `.env` не коммитится и сохраняется между checkout.
+`ENV=prod` обязателен: без него на публичном домене открыт DEV-логин `POST /auth/login`.
+Для реальной проверки ФНС: `OFD_PROVIDER=proverkacheka` и `PROVERKACHEKA_TOKEN`.
 
-4. Проверить сервер локально:
+3. Проверка: `IMAGE_TAG=<sha> docker compose -f docker-compose.yml -f docker-compose.test.yml config --quiet`.
 
-```bash
-cd /srv/VLIQ-things/VLIQ-Backend
-IMAGE_TAG=<существующий-ghcr-sha> docker compose \
-  -f docker-compose.yml -f docker-compose.test.yml config --quiet
-```
+Прод-оверлей всегда запускает backend с `SEED_DEMO=false`. Разовая чистка ранее насеянного демо:
+`docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T postgres psql -U vliq -d vliq < ops/cleanup_demo_seed.sql`
+(затрагивает только известные demo Telegram ID, служебных админов `99998`/`99999` и demo-акции).
 
-Redis, MinIO и Grafana привязаны к `127.0.0.1`; Caddy публикует `80/443`.
-MinIO receipt bucket доступен через HTTPS `https://shamilara.fun/storage/...`.
+> ⚠️ **Известный риск (2026-10-08):** базовый `docker-compose.yml` публикует PostgreSQL на `5432` на всех
+> интерфейсах, а пароль БД и креды MinIO лежат в публичном репозитории; бакет чеков открыт на анонимное
+> чтение через `https://shamilara.fun/storage/...`. Нужны ротация паролей и закрытие порта / маршрута —
+> отдельная задача, согласовать с #infosec.
 
-## Тестовые данные на стенде
-
-Тестовый deploy всегда запускает backend с `SEED_DEMO=false`: перезапуск или
-следующий deploy не создаёт продавцов из `seed_demo.sql`, синтетические чеки
-`seed://` и демо-акции. Это не мешает обычной регистрации нового продавца через
-Mini App: при первом входе backend создаёт только его pending-профиль.
-
-После доставки этого изменения удалите уже существующие демо-данные **один
-раз**. Скрипт затрагивает только шесть известных demo Telegram ID, служебных
-админов `99998`/`99999`, их дочерние сущности и три demo-акции; реальных
-продавцов, администраторов, бренд и справочник городов не удаляет:
-
-```bash
-cd /srv/VLIQ-things/VLIQ-Backend
-docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T postgres \
-  psql -U vliq -d vliq < ops/cleanup_demo_seed.sql
-```
-
-PostgreSQL опубликован на `5432` на внешнем интерфейсе Docker, чтобы к тестовой
-базе можно было подключаться с внешней машины. Redis, MinIO и Grafana остаются
-привязаны к `127.0.0.1`.
-
-## Ручной deploy и rollback
-
-Deploy конкретной уже опубликованной ревизии:
+### Ручной deploy и rollback прода
 
 ```bash
 cd /srv/VLIQ-things/VLIQ-Backend
 git fetch origin main
 git checkout --detach <commit-sha>
-IMAGE_TAG=<commit-sha> ./ops/deploy-test.sh
+IMAGE_TAG=<commit-sha> ./ops/deploy.sh
 ```
 
-Для ручного rollback запустить тот же скрипт с предыдущим SHA. Alembic downgrade автоматически не
-выполняется. До деплоя breaking migration сначала выпускается совместимая промежуточная версия.
+Rollback — тот же скрипт с предыдущим SHA. Alembic downgrade автоматически не выполняется; перед breaking
+migration сначала выпускается совместимая промежуточная версия.

@@ -11,7 +11,8 @@
 - `docs/` — **источник правды по продукту: `docs/VLIQ PRD+BRD/Use cases VLIQ.md`** (+ `FLOW Seller`s recipt.md`).
   Реализация в коде аргументом не является. Удалённое/устаревшее — выжимкой в `docs/DEPRECATED.md`, архив — `docs/NOT_ACTUAL_DOCS/`.
 - `docker-compose.yml` (+ `docker-compose.override.yml` для прод-домена) — весь стек.
-- **Живой деплой:** `https://shamilara.fun` (этот сервер).
+- **Прод (живые продавцы):** `https://shamilara.fun`, ветка `main`, сервер `/srv/VLIQ-things/VLIQ-Backend`.
+- **Stage (тестовый стенд):** ветка `develop`, `docker-compose.stage.yml`, отдельный бот и данные — см. `docs/CI-CD.md`.
 
 ## Как всё запускается (launch conditions)
 Стек поднимается из корня репо: `docker compose up -d`.
@@ -21,7 +22,7 @@
   (бренд, админы `809296638, 99999, 99998` + owner `997459169`, города — идемпотентно).
   **Демо-данные** (продавцы/чеки/выплаты/акции) вынесены в `backend/seed_demo.sql` и
   применяются **только при `SEED_DEMO=true`** (env; в `docker-compose.yml` дефолт `false`,
-  на тест-стенде `docker-compose.test.yml` — `true`). Разовая чистка уже насеянного демо
+  прод-оверлей `docker-compose.test.yml` форсирует `false`, stage `docker-compose.stage.yml` — `true`). Разовая чистка уже насеянного демо
   на живой БД: `ops/cleanup_demo_seed.sql`.
   → Чтобы добавить админа: строка в `seed_dev.sql` (переживёт ребилд) или разовый SQL (ниже).
 - Сервисы: `backend, bot, notifications-worker, receipt-pipeline-worker, frontend, caddy,
