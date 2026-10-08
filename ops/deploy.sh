@@ -7,10 +7,14 @@ export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-vliq-backend}"
 export BACKEND_IMAGE="${BACKEND_IMAGE:-ghcr.io/nester512/vliq-backend}"
 export FRONTEND_IMAGE="${FRONTEND_IMAGE:-ghcr.io/nester512/vliq-frontend}"
 
+# Defaults describe production (shamilara.fun). The stage deploy overrides them:
+#   COMPOSE_PROJECT_NAME=vliq-stage DEPLOY_COMPOSE_OVERLAY=docker-compose.stage.yml \
+#   DEPLOY_HEALTH_URL=https://<stage-host>/health IMAGE_TAG=<sha> ./ops/deploy.sh
 readonly HEALTH_URL="${DEPLOY_HEALTH_URL:-https://shamilara.fun/health}"
+readonly COMPOSE_OVERLAY="${DEPLOY_COMPOSE_OVERLAY:-docker-compose.test.yml}"
 readonly STATE_DIR=".deploy"
 readonly CURRENT_TAG_FILE="${STATE_DIR}/current-image-tag"
-readonly -a COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.test.yml)
+readonly -a COMPOSE=(docker compose -f docker-compose.yml -f "${COMPOSE_OVERLAY}")
 readonly -a APP_SERVICES=(backend bot notifications-worker receipt-pipeline-worker frontend)
 
 mkdir -p "${STATE_DIR}"
@@ -70,4 +74,4 @@ if ! health_body="$(curl --fail --silent --show-error --max-time 5 \
 fi
 
 printf '%s\n' "${IMAGE_TAG}" > "${CURRENT_TAG_FILE}"
-echo "Test stand successfully deployed: ${IMAGE_TAG}"
+echo "${COMPOSE_PROJECT_NAME} successfully deployed: ${IMAGE_TAG}"
