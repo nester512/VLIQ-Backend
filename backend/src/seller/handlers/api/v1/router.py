@@ -30,8 +30,8 @@ from src.notification import outbox as notification_outbox
 from src.notification.models import Notification
 from src.notification.schemas.api import NotificationRead
 from src.receipt.models import Receipt, ReceiptStatus
-from src.receipt.schemas.api import ReceiptRead
-from src.seller.depends import get_seller_repository
+from src.receipt.schemas.api import SellerReceiptRead
+from src.seller.depends import forbid_blocked_seller, get_seller_repository
 from src.seller.errors import is_phone_conflict
 from src.seller.models import Seller, SellerStatus
 from src.seller.repository import SellerRepository
@@ -102,7 +102,7 @@ async def get_me_balance(
 
 @router.get(
     "/me/receipts",
-    response_model=PagedResponse[ReceiptRead],
+    response_model=PagedResponse[SellerReceiptRead],
     summary="История чеков текущего продавца",
 )
 async def get_me_receipts(  # noqa: PLR0913
@@ -111,7 +111,7 @@ async def get_me_receipts(  # noqa: PLR0913
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=1, le=200),
     status: str | None = Query(default=None, description="Filter by receipt status"),
-) -> PagedResponse[ReceiptRead]:
+) -> PagedResponse[SellerReceiptRead]:
     seller_id = token["user_id"]
 
     stmt = select(Receipt).where(Receipt.seller_id == seller_id, Receipt.is_deleted.is_(False))
@@ -133,7 +133,7 @@ async def get_me_receipts(  # noqa: PLR0913
     stmt = stmt.order_by(Receipt.created_at.desc(), Receipt.id.desc()).offset((page - 1) * limit).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
 
-    items = [ReceiptRead.model_validate(r, from_attributes=True) for r in rows]
+    items = [SellerReceiptRead.model_validate(r, from_attributes=True) for r in rows]
     return PagedResponse.build(items=items, total=total, page=page, limit=limit)
 
 
@@ -172,6 +172,7 @@ async def get_me_notifications(
 
 @router.patch(
     "/me",
+    dependencies=[Depends(forbid_blocked_seller)],
     response_model=SellerRead,
     summary="Обновить профиль текущего продавца (TMA registration)",
     description=(
@@ -205,7 +206,7 @@ async def update_me(
     if payload.city is not None and not await city_name_is_valid(session, payload.city):
         raise AppError("SELLER_CITY_INVALID", status_code=400)
 
-    update_data = payload.model_dump(exclude_none=True, exclude={"payout_account_raw", "status"})
+    update_data = payload.model_dump(exclude_none=True, exclude={"payout_account_raw", "status", "block_reason"})
 
     # H7: encrypt payout account if provided, derive masked version.
     if payload.payout_account_raw:
@@ -253,6 +254,7 @@ async def update_me(
 
 @router.post(
     "/tg-upsert",
+    dependencies=[Depends(forbid_blocked_seller)],
     response_model=SellerRead,
     status_code=status.HTTP_200_OK,
     summary="Создать или обновить seller по telegram_id (требует Bearer-токен TMA)",
@@ -395,7 +397,7 @@ async def get_seller(
     )
 
 
-@router.patch("/{telegram_id}", response_model=SellerRead)
+@router.patch("/{telegram_id}", response_model=SellerRead, dependencies=[Depends(forbid_blocked_seller)])
 async def update_seller(
     telegram_id: int,
     payload: SellerUpdate,
@@ -403,8 +405,12 @@ async def update_seller(
     session: Annotated[AsyncSession, Depends(get_pg_session)],
 ) -> SellerRead:
     """Update seller profile fields. Admins can update any seller; sellers can only update themselves."""
-    if token.get("role") == "seller" and token["user_id"] != telegram_id:
-        raise AppError("AUTH_FORBIDDEN", status_code=403)
+    if token.get("role") == "seller":
+        if token["user_id"] != telegram_id:
+            raise AppError("AUTH_FORBIDDEN", status_code=403)
+        # Moderation fields are admin-only: a seller must not lift their own block (S1).
+        if payload.status is not None or payload.block_reason is not None:
+            raise AppError("AUTH_FORBIDDEN", status_code=403)
 
     row = (await session.execute(select(Seller).where(Seller.telegram_id == telegram_id))).scalar_one_or_none()
     if row is None:

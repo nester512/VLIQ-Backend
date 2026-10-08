@@ -36,6 +36,7 @@ from src.payout_request.service import (
     reject_payout_request,
     update_payout_request,
 )
+from src.seller.depends import forbid_blocked_seller
 from src.seller.models import Seller
 
 logger = structlog.get_logger(__name__)
@@ -71,6 +72,7 @@ async def _attach_seller_info(
 @router.post(
     "",
     response_model=PayoutRequestRead,
+    dependencies=[Depends(forbid_blocked_seller)],
     status_code=status.HTTP_201_CREATED,
     summary="Создать заявку на выплату (H13, H15)",
     description=(

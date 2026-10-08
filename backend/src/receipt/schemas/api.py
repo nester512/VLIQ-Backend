@@ -381,3 +381,45 @@ class ReceiptRead(BaseModel):
         if v is None:
             return []
         return v
+
+
+class SellerReceiptRead(BaseModel):
+    """Seller-facing receipt DTO (``GET /sellers/me/receipts``).
+
+    A whitelist on purpose: moderation data — fraud signals (with ids of other
+    sellers' receipts), admin comments, the OCR payload, audit columns and raw
+    storage keys — must never reach the seller.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    seller_id: int
+    brand_id: int
+    status: ReceiptStatus
+    bonus_amount: int
+    rejection_reason: str | None = None
+    rejection_code: str | None = None
+    file_kind: ReceiptFileKind | None = None
+    # Browser-viewable URL (signed proxy), never the internal ``s3://`` key.
+    file_url: str | None = None
+    purchase_date: date | None = None
+    total_sum: int | None = None
+    shop_name: str | None = None
+    shop_inn: str | None = None
+    items: list[ReceiptItem] = Field(default_factory=list)
+    attachments: list[ReceiptAttachmentRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    @field_validator("items", mode="before")
+    @classmethod
+    def _coerce_items(cls, v: Any) -> list:
+        return [] if v is None else v
+
+    @field_validator("file_url", mode="after")
+    @classmethod
+    def _viewable_file_url(cls, v: str | None) -> str | None:
+        from src.receipt_ocr.storage import to_viewable_url  # noqa: PLC0415 — avoid import cycle
+
+        return to_viewable_url(v)
