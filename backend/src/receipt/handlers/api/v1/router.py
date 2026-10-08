@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Form, Query, Request, Response, UploadFile, status
 from sqlalchemy import Select, func, select, update
@@ -1037,14 +1037,16 @@ async def create_receipt(
     return await _build_receipt_read(session, new_id)
 
 
-def _order_receipt_queue(stmt: Select) -> Select:
-    """Order the admin review queue oldest-first (FIFO).
+def _order_receipt_queue(stmt: Select, *, newest_first: bool = False) -> Select:
+    """Order the admin review queue oldest-first (FIFO); ``newest_first`` for histories.
 
     ``id`` is a REQUIRED tiebreaker, not cosmetic: receipts are uploaded in
     bursts that share a ``created_at`` down to the second, so ordering by that
     ambiguous key alone makes ``offset``/``limit`` pagination repeat or skip
     rows between pages. ``id`` is monotonic, making the order total and stable.
     """
+    if newest_first:
+        return stmt.order_by(Receipt.created_at.desc(), Receipt.id.desc())
     return stmt.order_by(Receipt.created_at.asc(), Receipt.id.asc())
 
 
@@ -1066,6 +1068,9 @@ async def list_receipts(  # noqa: PLR0913
     seller_id: int | None = Query(default=None, description="Filter by seller telegram_id"),
     from_date: datetime | None = Query(default=None, alias="from", description="ISO date lower bound on created_at"),  # noqa: B008
     to_date: datetime | None = Query(default=None, alias="to", description="ISO date upper bound on created_at"),  # noqa: B008
+    order: Literal["asc", "desc"] = Query(
+        default="asc", description="asc = review queue (FIFO); desc = newest first (seller history)"
+    ),
 ) -> PagedResponse[ReceiptRead]:
     """Admin receipt queue with real pagination and server-side filters (H25).
 
@@ -1097,7 +1102,7 @@ async def list_receipts(  # noqa: PLR0913
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total: int = (await session.execute(count_stmt)).scalar_one()
 
-    stmt = _order_receipt_queue(stmt).offset((page - 1) * limit).limit(limit)
+    stmt = _order_receipt_queue(stmt, newest_first=order == "desc").offset((page - 1) * limit).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
 
     items = []

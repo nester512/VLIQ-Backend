@@ -8,7 +8,7 @@ H6:  Rate limit on /tg-upsert via SlowAPI limiter.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -39,12 +39,22 @@ from src.seller.schemas.api import (
     SellerBalanceRead,
     SellerBlockRequest,
     SellerCreate,
+    SellerListItem,
     SellerRead,
     SellerReadAdmin,
     SellerTgUpsertRequest,
     SellerUpdate,
 )
 from src.seller.services.balance_service import get_seller_balance
+from src.seller.services.stats_service import (
+    build_stats,
+    get_seller_avg_bonus,
+    get_seller_stats,
+    get_seller_weekly_activity,
+    receipt_stats_subquery,
+    risk_level_filter,
+    risk_score_expr,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -293,10 +303,22 @@ async def create_seller(payload: SellerCreate) -> SellerRead:
     raise AppError("NOT_IMPLEMENTED", status_code=501)
 
 
+_SELLER_SORTS = {
+    "created_at",
+    "updated_at",
+    "last_receipt_at",
+    "receipts_total",
+    "receipts_30d",
+    "receipts_approved",
+    "risk_score",
+    "name",
+}
+
+
 @router.get(
     "",
-    response_model=PagedResponse[SellerRead],
-    summary="Список продавцов (admin) с пагинацией и фильтрами (H25)",
+    response_model=PagedResponse[SellerListItem],
+    summary="Список продавцов (admin): фильтры, сортировки, статистика и риск",
 )
 async def list_sellers(  # noqa: PLR0913
     session: Annotated[AsyncSession, Depends(get_pg_session)],
@@ -305,95 +327,113 @@ async def list_sellers(  # noqa: PLR0913
     token: Annotated[JwtTokenT, Depends(require_admin)],
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=1, le=200),
-    sort: str = Query(default="created_at:desc"),
+    sort: str = Query(
+        default="created_at:desc",
+        description="field:dir — created_at, updated_at, last_receipt_at, receipts_total (популярность), "
+        "receipts_30d (частота), receipts_approved, risk_score, name",
+    ),
     brand_id: int | None = Query(default=None),
     status: str | None = Query(default=None),
-    search: str | None = Query(default=None, description="Search by first_name, last_name, phone"),
+    city: str | None = Query(default=None),
+    risk: Literal["low", "medium", "high"] | None = Query(default=None),
+    has_on_review: bool | None = Query(default=None, description="Only sellers with receipts awaiting review"),
+    search: str | None = Query(default=None, description="Name, phone, outlet, city or exact telegram_id"),
     date_from: datetime | None = Query(default=None),  # noqa: B008
     date_to: datetime | None = Query(default=None),  # noqa: B008
-) -> PagedResponse[SellerRead]:
-    """H25: Paginated seller list for admin."""
-    stmt = select(Seller)
+) -> PagedResponse[SellerListItem]:
+    """Paginated seller list for admin with activity stats aggregated in SQL."""
+    stats = receipt_stats_subquery()
+    score = risk_score_expr(stats)
+    stmt = select(Seller, stats, score.label("risk_score")).outerjoin(stats, stats.c.seller_id == Seller.telegram_id)
 
     if brand_id is not None:
         stmt = stmt.where(Seller.brand_id == brand_id)
     if status is not None:
         stmt = stmt.where(Seller.status == status)
+    if city:
+        stmt = stmt.where(Seller.city == city)
+    if risk is not None:
+        stmt = stmt.where(risk_level_filter(func.coalesce(score, 0), risk))
+    if has_on_review is not None:
+        on_review = func.coalesce(stats.c.receipts_on_review, 0)
+        stmt = stmt.where(on_review > 0 if has_on_review else on_review == 0)
     if date_from is not None:
         stmt = stmt.where(Seller.created_at >= date_from)
     if date_to is not None:
         stmt = stmt.where(Seller.created_at <= date_to)
-    if search:
-        pattern = f"%{search}%"
-        stmt = stmt.where(
-            or_(
-                Seller.first_name.ilike(pattern),
-                Seller.last_name.ilike(pattern),
-                Seller.phone_e164.ilike(pattern),
-            )
-        )
-
-    # Sorting.
-    try:
-        sort_field, sort_dir = sort.split(":", 1)
-    except ValueError:
-        sort_field, sort_dir = "created_at", "desc"
-
-    _sort_map = {
-        "created_at": Seller.created_at,
-        "updated_at": Seller.updated_at,
-    }
-    sort_col = _sort_map.get(sort_field, Seller.created_at)
-    stmt = stmt.order_by(sort_col.desc() if sort_dir == "desc" else sort_col.asc())
+    if search and search.strip():
+        term = search.strip()
+        pattern = f"%{term}%"
+        conditions = [
+            Seller.first_name.ilike(pattern),
+            Seller.last_name.ilike(pattern),
+            func.concat_ws(" ", Seller.first_name, Seller.last_name).ilike(pattern),
+            Seller.phone_e164.ilike(pattern),
+            Seller.outlet_name.ilike(pattern),
+            Seller.city.ilike(pattern),
+        ]
+        if term.isdigit():
+            conditions.append(Seller.telegram_id == int(term))
+        stmt = stmt.where(or_(*conditions))
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total: int = (await session.execute(count_stmt)).scalar_one()
 
-    stmt = stmt.offset((page - 1) * limit).limit(limit)
-    rows = (await session.execute(stmt)).scalars().all()
+    sort_field, _, sort_dir = sort.partition(":")
+    if sort_field not in _SELLER_SORTS:
+        sort_field = "created_at"
+    descending = sort_dir != "asc"
+    sort_cols = {
+        "created_at": Seller.created_at,
+        "updated_at": Seller.updated_at,
+        "last_receipt_at": stats.c.last_receipt_at,
+        "receipts_total": func.coalesce(stats.c.receipts_total, 0),
+        "receipts_30d": func.coalesce(stats.c.receipts_30d, 0),
+        "receipts_approved": func.coalesce(stats.c.receipts_approved, 0),
+        "risk_score": func.coalesce(score, 0),
+        "name": func.concat_ws(" ", Seller.first_name, Seller.last_name),
+    }
+    col = sort_cols[sort_field]
+    ordered = col.desc().nulls_last() if descending else col.asc().nulls_last()
+    # telegram_id makes the order total, so offset pagination never repeats or skips rows.
+    stmt = stmt.order_by(ordered, Seller.telegram_id.desc()).offset((page - 1) * limit).limit(limit)
 
-    items = [SellerRead.model_validate(r, from_attributes=True) for r in rows]
+    items = []
+    for row in (await session.execute(stmt)).all():
+        base = SellerRead.model_validate(row.Seller, from_attributes=True)
+        items.append(SellerListItem(**base.model_dump(), stats=build_stats(row, score=row.risk_score or 0)))
     return PagedResponse.build(items=items, total=total, page=page, limit=limit)
 
 
 @router.get(
     "/{telegram_id}",
     response_model=SellerReadAdmin,
-    summary="Получить продавца по telegram_id (admin)",
+    summary="Получить продавца по telegram_id (admin): профиль, баланс, статистика, риск",
 )
 async def get_seller(
     telegram_id: int,
     token: Annotated[JwtTokenT, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_pg_session)],
 ) -> SellerReadAdmin:
-    """Admin-only: fetch a single seller by telegram_id.
-
-    Returns SellerReadAdmin which extends SellerRead with:
-    - ``balance_available`` — spendable bonus balance (same formula as /sellers/me/balance).
-    - ``receipts_total``   — total non-deleted receipt count for this seller.
-
-    The list endpoint (GET /sellers) continues to use SellerRead to keep queries light.
-    """
+    """Admin-only: a seller with balance, receipt activity, risk factor and weekly history."""
     row = (await session.execute(select(Seller).where(Seller.telegram_id == telegram_id))).scalar_one_or_none()
     if row is None:
         raise AppError("SELLER_NOT_FOUND", status_code=404)
 
     balance = await get_seller_balance(seller_id=telegram_id, session=session)
-
-    receipts_total: int = (
-        await session.execute(
-            select(func.count(Receipt.id)).where(
-                Receipt.seller_id == telegram_id,
-                Receipt.is_deleted.is_(False),
-            )
-        )
-    ).scalar_one()
+    stats = await get_seller_stats(session, telegram_id)
 
     base = SellerRead.model_validate(row, from_attributes=True)
     return SellerReadAdmin(
         **base.model_dump(),
         balance_available=balance.available,
-        receipts_total=receipts_total,
+        receipts_total=stats.receipts_total,
+        stats=stats,
+        total_accrued=balance.total_accrued,
+        total_paid_out=balance.total_paid_out,
+        on_hold=balance.on_hold,
+        avg_bonus=await get_seller_avg_bonus(session, telegram_id),
+        weekly_activity=await get_seller_weekly_activity(session, telegram_id),
     )
 
 

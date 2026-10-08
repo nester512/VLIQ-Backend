@@ -7,7 +7,8 @@ H28: outlet_inn validated as 10 or 12 digits (INN).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -117,6 +118,34 @@ class SellerReadSensitive(SellerRead):
     )
 
 
+class SellerStats(BaseModel):
+    """Receipt activity and risk factor of one seller (admin)."""
+
+    receipts_total: int = 0
+    receipts_approved: int = Field(default=0, description="approved + paid_out")
+    receipts_rejected: int = 0
+    receipts_on_review: int = 0
+    receipts_30d: int = Field(default=0, description="Uploads in the last 30 days — activity frequency")
+    receipts_duplicates: int = Field(default=0, description="Receipts carrying any duplicate fraud signal")
+    first_receipt_at: datetime | None = None
+    last_receipt_at: datetime | None = None
+    risk_score: int = Field(default=0, ge=0, le=100, description="Moderation heuristic, see stats_service")
+    risk_level: Literal["low", "medium", "high"] = "low"
+    risk_flags: list[str] = Field(default_factory=list, description="low_data | high_reject_rate | duplicates")
+
+
+class SellerWeekActivity(BaseModel):
+    week_start: date
+    receipts: int
+    approved: int
+
+
+class SellerListItem(SellerRead):
+    """Row of the admin seller list: profile + activity stats + risk (one SQL query)."""
+
+    stats: SellerStats
+
+
 class SellerReadAdmin(SellerRead):
     """Admin-only seller detail schema — adds computed balance and receipt count.
 
@@ -133,6 +162,12 @@ class SellerReadAdmin(SellerRead):
         ...,
         description="Total number of non-deleted receipts submitted by this seller",
     )
+    stats: SellerStats = Field(default_factory=SellerStats)
+    total_accrued: int = 0
+    total_paid_out: int = 0
+    on_hold: int = 0
+    avg_bonus: int = Field(default=0, description="Mean bonus of approved receipts, kopecks")
+    weekly_activity: list[SellerWeekActivity] = Field(default_factory=list)
 
 
 class SellerBlockRequest(BaseModel):
