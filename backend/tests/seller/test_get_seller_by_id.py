@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.auth.jwt import jwt_auth
+from src.seller.handlers.api.v1 import router as seller_router
 from src.seller.models import Seller, SellerStatus
+from src.seller.schemas.api import SellerStats, SellerWeekActivity
 
 PREFIX = "/api/v1/sellers"
 
@@ -61,10 +63,10 @@ def _make_session_mock_for_seller(
     balance_available: int = 150,
     receipts_total: int = 7,
 ) -> MagicMock:
-    """Build a session mock that handles three sequential execute() calls:
-    1. SELECT seller WHERE telegram_id = ...
-    2. SELECT aggregate balance (bonus_transactions) via get_seller_balance
-    3. SELECT count(receipt.id) WHERE seller_id = ...
+    """Build a session mock for the seller lookup + balance aggregate.
+
+    Receipt statistics/risk/weekly activity are stubbed by ``_stub_stats`` — their
+    SQL is covered against real PostgreSQL in tests/integration/pg.
     """
     # Result 1: seller lookup
     seller_result = MagicMock()
@@ -79,13 +81,30 @@ def _make_session_mock_for_seller(
     balance_result = MagicMock()
     balance_result.one.return_value = balance_row
 
-    # Result 3: receipts count
-    receipts_result = MagicMock()
-    receipts_result.scalar_one.return_value = receipts_total
-
     session_mock = MagicMock(spec=AsyncSession)
-    session_mock.execute = AsyncMock(side_effect=[seller_result, balance_result, receipts_result])
+    session_mock.execute = AsyncMock(side_effect=[seller_result, balance_result])
+    _STATS["receipts_total"] = receipts_total
     return session_mock
+
+
+_STATS: dict[str, int] = {"receipts_total": 0}
+
+
+@pytest.fixture(autouse=True)
+def _stub_stats(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _stats(_session, _seller_id):
+        n = _STATS["receipts_total"]
+        return SellerStats(receipts_total=n, receipts_approved=n, risk_flags=["low_data"])
+
+    async def _avg_bonus(_session, _seller_id):
+        return 4200
+
+    async def _weekly(_session, _seller_id):
+        return [SellerWeekActivity(week_start=date(2024, 1, 1), receipts=3, approved=2)]
+
+    monkeypatch.setattr(seller_router, "get_seller_stats", _stats)
+    monkeypatch.setattr(seller_router, "get_seller_avg_bonus", _avg_bonus)
+    monkeypatch.setattr(seller_router, "get_seller_weekly_activity", _weekly)
 
 
 @pytest.mark.asyncio
@@ -141,6 +160,13 @@ async def test_get_seller__admin_token__has_balance_and_receipt_count(client: As
     assert "receipts_total" in body, "receipts_total must be present in response"
     assert body["balance_available"] == 250
     assert body["receipts_total"] == 12
+    # Admin card extras: stats/risk, balance breakdown, avg bonus, weekly activity.
+    assert body["stats"]["receipts_total"] == 12
+    assert body["stats"]["risk_level"] == "low"
+    assert body["total_accrued"] == 250
+    assert body["on_hold"] == 0
+    assert body["avg_bonus"] == 4200
+    assert body["weekly_activity"] == [{"week_start": "2024-01-01", "receipts": 3, "approved": 2}]
 
 
 @pytest.mark.asyncio

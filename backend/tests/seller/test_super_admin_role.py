@@ -174,8 +174,27 @@ def _make_seller_mock(telegram_id: int = 12345) -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_super_admin__has_admin_access(client: AsyncClient, app):
+async def test_super_admin__has_admin_access(client: AsyncClient, app, monkeypatch: pytest.MonkeyPatch):
     """super_admin token must be accepted by admin-only endpoints (GET /sellers/{id})."""
+    from src.seller.handlers.api.v1 import router as seller_router  # noqa: PLC0415
+    from src.seller.schemas.api import SellerBalanceRead, SellerStats  # noqa: PLC0415
+
+    async def _balance(**_kw):
+        return SellerBalanceRead(available=0, on_hold=0, total_accrued=0, total_paid_out=0)
+
+    async def _stats(*_a):
+        return SellerStats()
+
+    async def _zero(*_a):
+        return 0
+
+    async def _empty(*_a):
+        return []
+
+    monkeypatch.setattr(seller_router, "get_seller_balance", _balance)
+    monkeypatch.setattr(seller_router, "get_seller_stats", _stats)
+    monkeypatch.setattr(seller_router, "get_seller_avg_bonus", _zero)
+    monkeypatch.setattr(seller_router, "get_seller_weekly_activity", _empty)
     mock_seller = _make_seller_mock(telegram_id=12345)
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = mock_seller

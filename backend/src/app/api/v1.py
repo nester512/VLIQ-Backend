@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from src.admin.handlers.api.v1.router import router as admin_router
+from src.analytics.handlers.api.v1.router import router as analytics_router
 from src.app.settings import Settings
 from src.app.telegram_webhook import router as telegram_webhook_router
 from src.audit_log.handlers.api.v1.router import router as audit_log_router
@@ -30,4 +31,5 @@ router.include_router(bonus_transaction_router)
 router.include_router(payout_request_router)
 router.include_router(notification_router)
 router.include_router(audit_log_router)
+router.include_router(analytics_router)
 router.include_router(telegram_webhook_router)
