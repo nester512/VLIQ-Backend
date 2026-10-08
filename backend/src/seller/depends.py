@@ -27,7 +27,12 @@ async def forbid_blocked_seller(
     mutating seller action re-checks the current status. Admin tokens pass through.
     """
     if token.get("role") == "seller":
+        # The read autobegins a transaction on the request-scoped session; end the one
+        # we started so handlers can still open their own `async with session.begin()`.
+        started_here = not session.in_transaction()
         current_status = await session.scalar(select(Seller.status).where(Seller.telegram_id == token["user_id"]))
+        if started_here:
+            await session.rollback()
         if current_status == SellerStatus.blocked.value:
             raise AppError("SELLER_BLOCKED", status_code=403)
     return token
