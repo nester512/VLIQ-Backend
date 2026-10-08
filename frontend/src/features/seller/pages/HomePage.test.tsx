@@ -22,11 +22,11 @@ describe('HomePage — FAQ', () => {
     render(<MemoryRouter><HomePage /></MemoryRouter>)
 
     expect(screen.getByText('Вопросы и ответы')).toBeInTheDocument()
-    const question = screen.getByRole('button', { name: 'Нужно ли сканировать QR-код?' })
+    const question = screen.getByRole('button', { name: 'Участвуют ли коллаборации в системе мотивации?' })
     expect(question).toHaveAttribute('aria-expanded', 'false')
 
     fireEvent.click(question)
     expect(question).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText('Нет. QR-код можно добавить для удобства, но он не обязателен.')).toBeInTheDocument()
+    expect(screen.getByText('Нет. В системе мотивации участвуют только актуальные линейки бренда VLIQ.')).toBeInTheDocument()
   })
 })

@@ -9,8 +9,8 @@ import { useAuthStore } from '@/store/authStore'
 import { getMe } from '@/api/sellers'
 import { getTgWebApp } from '@/utils/tma'
 
-// Single support contact for everyone (spec S9: @nester256).
-const ADMIN_SUPPORT_USERNAME = 'nester256'
+// Single support contact for everyone (spec S9: @kovalyova_yekaterina).
+const ADMIN_SUPPORT_USERNAME = 'kovalyova_yekaterina'
 // Telegram-username syntax — used both to validate the constant and as the
 // runtime guard if the value ever becomes server-supplied.
 const TG_USERNAME_RE = /^[A-Za-z0-9_]{5,32}$/
