@@ -156,11 +156,6 @@ OCR_MODE=full
 `docker compose -f docker-compose.yml -f docker-compose.test.yml exec -T postgres psql -U vliq -d vliq < ops/cleanup_demo_seed.sql`
 (затрагивает только известные demo Telegram ID, служебных админов `99998`/`99999` и demo-акции).
 
-> ⚠️ **Известный риск (2026-10-08):** базовый `docker-compose.yml` публикует PostgreSQL на `5432` на всех
-> интерфейсах, а пароль БД и креды MinIO лежат в публичном репозитории; бакет чеков открыт на анонимное
-> чтение через `https://shamilara.fun/storage/...`. Нужны ротация паролей и закрытие порта / маршрута —
-> отдельная задача, согласовать с #infosec.
-
 ### Ручной deploy и rollback прода
 
 ```bash
