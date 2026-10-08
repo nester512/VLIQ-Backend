@@ -39,6 +39,11 @@ services:
     logging: *default-logging
 
   minio:
+    # minio/minio and minio/mc were removed from Docker Hub (2025), so tags can
+    # no longer be pulled. Pin the last official release by digest; it must be
+    # present in the host's local image cache.
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    pull_policy: never
     ports: !reset []
     restart: unless-stopped
     logging: *default-logging
@@ -47,18 +52,42 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required on stage}
 
   createbuckets:
-    logging: *default-logging
+    # Our own backend image (boto3) instead of the unavailable minio/mc.
+    # Unlike the base file the bucket stays private: receipt images are served
+    # only through the signed /api/v1/receipts/attachments/file proxy.
+    <<: *backend-image
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required on stage}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required on stage}
-    # Unlike the base file the bucket stays private: receipt images are served
-    # only through the signed /api/v1/receipts/attachments/file proxy.
-    entrypoint: >
-      /bin/sh -c "
-      /usr/bin/mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
-      /usr/bin/mc mb --ignore-existing local/vliq-receipts &&
-      /usr/bin/mc anonymous set none local/vliq-receipts
-      "
+    entrypoint:
+      - python
+      - -c
+      - |
+        import os
+
+        import boto3
+        from botocore.exceptions import ClientError
+
+        bucket = "vliq-receipts"
+        s3 = boto3.client(
+            "s3",
+            endpoint_url="http://minio:9000",
+            aws_access_key_id=os.environ["MINIO_ROOT_USER"],
+            aws_secret_access_key=os.environ["MINIO_ROOT_PASSWORD"],
+            region_name="us-east-1",
+        )
+        try:
+            s3.create_bucket(Bucket=bucket)
+            print(f"bucket {bucket} created")
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] not in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
+                raise
+            print(f"bucket {bucket} exists")
+        try:
+            s3.delete_bucket_policy(Bucket=bucket)
+        except ClientError:
+            pass
+        print(f"bucket {bucket} is private")
 
   # --- Application services: immutable GHCR images by commit SHA ---
   backend:
