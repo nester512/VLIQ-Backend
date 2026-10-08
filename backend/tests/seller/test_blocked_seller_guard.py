@@ -116,3 +116,26 @@ async def test_seller_patch_self__moderation_fields__forbidden(client: AsyncClie
     assert response.status_code == 403
     assert response.json()["code"] == "AUTH_FORBIDDEN"
     session.execute.assert_not_awaited()
+
+
+# --- transaction hygiene (regression: upload 500 "A transaction is already begun") ---
+
+
+@pytest.mark.asyncio
+async def test_forbid_blocked_seller__ends_the_transaction_it_started():
+    session = _session_with_status(SellerStatus.active.value)
+    session.in_transaction = MagicMock(return_value=False)
+
+    await forbid_blocked_seller({"user_id": SELLER_ID, "role": "seller"}, session)
+
+    session.rollback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_forbid_blocked_seller__keeps_an_outer_transaction():
+    session = _session_with_status(SellerStatus.active.value)
+    session.in_transaction = MagicMock(return_value=True)
+
+    await forbid_blocked_seller({"user_id": SELLER_ID, "role": "seller"}, session)
+
+    session.rollback.assert_not_awaited()
