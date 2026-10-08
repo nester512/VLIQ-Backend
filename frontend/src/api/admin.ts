@@ -20,6 +20,8 @@ export interface AdminReceiptsFilters {
   to?: string     // ISO date
   page?: number
   limit?: number
+  /** `asc` (default) = review queue FIFO; `desc` = newest first (seller history). */
+  order?: 'asc' | 'desc'
 }
 
 export interface AdminPayoutsFilters {
@@ -29,11 +31,26 @@ export interface AdminPayoutsFilters {
   search?: string
 }
 
+export type SellerRiskLevel = 'low' | 'medium' | 'high'
+
+/** Server-side sort keys of GET /sellers (`field:dir`). */
+export type SellerSortField =
+  | 'created_at'
+  | 'last_receipt_at'
+  | 'receipts_total'
+  | 'receipts_30d'
+  | 'risk_score'
+
 export interface AdminSellersFilters {
   status?: string
   page?: number
   limit?: number
   search?: string
+  /** `field:dir`, e.g. `receipts_total:desc` (популярность), `receipts_30d:desc` (частота). */
+  sort?: `${SellerSortField}:${'asc' | 'desc'}`
+  risk?: SellerRiskLevel
+  city?: string
+  has_on_review?: boolean
 }
 
 export interface PaginatedResponse<T> {
@@ -87,11 +104,49 @@ export interface AdminReceipt extends Receipt {
   extraction_warnings?: string[]
 }
 
+/** Receipt activity + moderation risk of a seller, aggregated on the server. */
+export interface SellerStats {
+  receipts_total: number
+  /** approved + paid_out */
+  receipts_approved: number
+  receipts_rejected: number
+  receipts_on_review: number
+  /** Uploads in the last 30 days — activity frequency. */
+  receipts_30d: number
+  receipts_duplicates: number
+  first_receipt_at: string | null
+  last_receipt_at: string | null
+  /** 0..100 moderation heuristic (formula pending product confirmation). */
+  risk_score: number
+  risk_level: SellerRiskLevel
+  /** `low_data` | `high_reject_rate` | `duplicates` */
+  risk_flags: string[]
+}
+
+export interface SellerWeekActivity {
+  week_start: string
+  receipts: number
+  approved: number
+}
+
 export interface AdminSellerRow extends SellerProfile {
   receipts_total?: number
   receipts_approved?: number
+  /** Spendable balance (kopecks) — only on the single-seller endpoint. */
   balance?: number
   registered_at?: string
+  block_reason?: string
+  stats?: SellerStats
+}
+
+/** GET /sellers/{id}: the list row plus balance breakdown and weekly history. */
+export interface AdminSellerDetail extends AdminSellerRow {
+  total_accrued: number
+  total_paid_out: number
+  on_hold: number
+  /** Mean bonus of approved receipts, kopecks. */
+  avg_bonus: number
+  weekly_activity: SellerWeekActivity[]
 }
 
 /** Alias for callers that prefer the shorter name. */
@@ -115,6 +170,20 @@ interface BackendSeller {
   payout_masked?: string | null
   created_at: string
   updated_at?: string | null
+  /** Present on GET /sellers rows and GET /sellers/{id}. */
+  stats?: SellerStats
+}
+
+/** GET /sellers/{telegram_id} — SellerReadAdmin. */
+interface BackendSellerDetail extends BackendSeller {
+  balance_available: number
+  receipts_total: number
+  stats: SellerStats
+  total_accrued: number
+  total_paid_out: number
+  on_hold: number
+  avg_bonus: number
+  weekly_activity: SellerWeekActivity[]
 }
 
 interface BackendPayoutRequest {
@@ -211,7 +280,30 @@ function mapAdminSeller(s: BackendSeller): AdminSellerRow {
     payout_details: s.payout_masked ?? undefined,
     is_active: s.status === 'active',
     status: s.status,
+    block_reason: s.block_reason ?? undefined,
     registered_at: s.created_at,
+    stats: s.stats,
+    receipts_total: s.stats?.receipts_total,
+    receipts_approved: s.stats?.receipts_approved,
+  }
+}
+
+/**
+ * Detail mapper. The plain list mapper used to be applied here too, which
+ * silently dropped `balance_available` / `receipts_total` — the card then showed
+ * «—» for balance and receipt count of every seller.
+ */
+export function mapAdminSellerDetail(s: BackendSellerDetail): AdminSellerDetail {
+  return {
+    ...mapAdminSeller(s),
+    balance: s.balance_available,
+    receipts_total: s.receipts_total,
+    receipts_approved: s.stats.receipts_approved,
+    total_accrued: s.total_accrued,
+    total_paid_out: s.total_paid_out,
+    on_hold: s.on_hold,
+    avg_bonus: s.avg_bonus,
+    weekly_activity: s.weekly_activity ?? [],
   }
 }
 
@@ -434,6 +526,7 @@ export const getAdminReceipts = async (
   if (filters.seller_id != null) params['seller_id'] = filters.seller_id
   if (filters.from) params['from'] = filters.from
   if (filters.to) params['to'] = filters.to
+  if (filters.order) params['order'] = filters.order
   const page = filters.page ?? 1
   const limit = filters.limit ?? 50
   params['page'] = page
@@ -496,35 +589,55 @@ export const rejectPayoutRequest = (id: string, adminComment?: string) =>
 // ---- Seller admin endpoints ----
 
 export const getAdminSellers = (filters: AdminSellersFilters = {}) => {
-  const params: Record<string, string | number> = {}
+  const params: Record<string, string | number | boolean> = {}
   if (filters.status) params['status'] = filters.status
   if (filters.page != null) params['page'] = filters.page
   if (filters.limit != null) params['limit'] = filters.limit
   if (filters.search) params['search'] = filters.search
+  if (filters.sort) params['sort'] = filters.sort
+  if (filters.risk) params['risk'] = filters.risk
+  if (filters.city) params['city'] = filters.city
+  if (filters.has_on_review != null) params['has_on_review'] = filters.has_on_review
   return api
     .get<PaginatedResponse<BackendSeller>>('/sellers', { params })
     .then((r) => mapPagedSellers(r.data))
 }
 
-export const getAdminSeller = (telegram_id: number) =>
-  api.get<BackendSeller>(`/sellers/${telegram_id}`).then((r) => mapAdminSeller(r.data))
+/** GET /sellers/{telegram_id} — profile, balance breakdown, stats, risk, weekly activity. */
+export const getAdminSellerById = (telegram_id: number): Promise<AdminSellerDetail> =>
+  api.get<BackendSellerDetail>(`/sellers/${telegram_id}`).then((r) => mapAdminSellerDetail(r.data))
 
-/** Fetch a single seller by telegram_id from the real GET /sellers/{telegram_id} endpoint. */
-export const getAdminSellerById = (telegram_id: number): Promise<AdminSellerRow> =>
-  api.get<BackendSeller>(`/sellers/${telegram_id}`).then((r) => mapAdminSeller(r.data))
+export const getAdminSeller = getAdminSellerById
 
-/**
- * Toggle seller status via PATCH /sellers/{id}. The backend doesn't expose a
- * dedicated /block endpoint — but the generic update accepts the `status`
- * field (admin role required). `blocked` <-> `active` covers both directions.
- */
-export const setSellerStatus = (telegram_id: number, status: 'active' | 'blocked' | 'pending', blockReason?: string) =>
-  api
-    .patch<BackendSeller>(`/sellers/${telegram_id}`, {
-      status,
-      ...(status === 'blocked' && blockReason ? { block_reason: blockReason } : {}),
-    })
-    .then((r) => mapAdminSeller(r.data))
+// ---- Analytics ----
+
+/** GET /analytics/dashboard — every number aggregated in SQL over the whole DB. */
+export interface AdminDashboardResponse {
+  sellers_total: number
+  sellers_active: number
+  receipts_total: number
+  receipts_on_review: number
+  payouts_pending: number
+  payouts_pending_amount: number
+  payouts_paid_month: number
+  payouts_paid_month_amount: number
+  avg_check: number
+  daily_receipts: Array<{ day: string; receipts: number }>
+  top_sellers: Array<{
+    telegram_id: number
+    name: string
+    city: string | null
+    receipts_total: number
+    receipts_approved: number
+    sales: number
+    paid: number
+  }>
+  top_products: Array<{ name: string; count: number }>
+  generated_at: string
+}
+
+export const getAdminDashboard = (): Promise<AdminDashboardResponse> =>
+  api.get<AdminDashboardResponse>('/analytics/dashboard').then((r) => r.data)
 
 // ---- New receipt / seller action endpoints ----
 

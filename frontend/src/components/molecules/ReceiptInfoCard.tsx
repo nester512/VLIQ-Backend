@@ -77,6 +77,8 @@ export interface ReceiptInfoCardProps {
   /** Optional action row (approve/reject buttons) rendered by the host. */
   actions?: ReactNode
   className?: string
+  /** When set, the seller name becomes a link to the seller page (stats + previous receipts). */
+  onSellerClick?: (sellerId: number) => void
 }
 
 /**
@@ -85,7 +87,7 @@ export interface ReceiptInfoCardProps {
  * OCR extraction warnings. Shared by SwipeDeck's final viewer page and the
  * ReceiptDetailSheet so the same data renders identically in both places.
  */
-export function ReceiptInfoCard({ receipt, actions, className = '' }: ReceiptInfoCardProps) {
+export function ReceiptInfoCard({ receipt, actions, className = '', onSellerClick }: ReceiptInfoCardProps) {
   const sellerName = receipt.seller_name ?? `Продавец #${receipt.seller_id}`
   const sellerStore = receipt.seller_store ?? '—'
   const status = RECEIPT_STATUS[receipt.status]
@@ -115,7 +117,21 @@ export function ReceiptInfoCard({ receipt, actions, className = '' }: ReceiptInf
         <div className="flex-1 min-w-0">
           <div className="font-extrabold text-[17px] leading-tight mb-1.5">Чек #{receipt.id}</div>
           <div className="text-[13px] text-[var(--vliq-hint)] font-semibold leading-snug break-words">
-            {sellerName} · {sellerStore}
+            {onSellerClick ? (
+              <button
+                type="button"
+                onClick={() => onSellerClick(receipt.seller_id)}
+                aria-label={`Открыть продавца ${sellerName}`}
+                // Inside the review SwipeDeck: a tap here must not start a swipe gesture.
+                data-swipe-deck-control="true"
+                className="p-0 border-0 bg-transparent cursor-pointer font-[inherit] text-[var(--vliq-brand)] underline underline-offset-2"
+              >
+                {sellerName}
+              </button>
+            ) : (
+              sellerName
+            )}{' '}
+            · {sellerStore}
           </div>
         </div>
         <Pill kind={statusKind} className="flex-none mt-1">{statusLabel}</Pill>

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import { createElement, type ReactNode } from 'react'
 
 // ---------------------------------------------------------------------------
@@ -87,7 +88,7 @@ function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
   render(
-    createElement(QueryClientProvider, { client: queryClient }, createElement(ReviewPage)),
+    createElement(MemoryRouter, null, createElement(QueryClientProvider, { client: queryClient }, createElement(ReviewPage))),
   )
   return { invalidateSpy }
 }

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@/components/atoms/Icon'
 import { Btn } from '@/components/atoms/Btn'
@@ -23,7 +24,7 @@ interface ReceiptDetailSheetProps {
 
 export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetProps) {
   const closeSheet = useUiStore((s) => s.closeSheet)
-  const openSheet = useUiStore((s) => s.openSheet)
+  const navigate = useNavigate()
   const pushToast = useUiStore((s) => s.pushToast)
   const { mutate: swipe, isPending } = useSwipeAction()
   const queryClient = useQueryClient()
@@ -144,6 +145,12 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
   }
 
   const sellerTelegramId = String(receipt.seller_id)
+  // A real page (not a sheet swap): stats, risk and every previous receipt of the
+  // seller, and «назад» returns to where the admin came from.
+  const goToSeller = (sellerId: number) => {
+    closeSheet()
+    navigate(`/admin/sellers/${sellerId}/receipts`)
+  }
 
   return (
     <>
@@ -189,7 +196,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
         {/* Reusable info card — fiscal data, seller, duplicate/fraud signals,
             system rejection reason, OCR extraction warnings. Shared with the
             swipe-deck viewer. */}
-        <ReceiptInfoCard receipt={receipt} className="mb-4" />
+        <ReceiptInfoCard receipt={receipt} className="mb-4" onSellerClick={goToSeller} />
 
         <div className="grid grid-cols-2 gap-3 mx-4 mt-1 mb-4">
           {receipt.fn && receipt.fd && receipt.fp && (
@@ -210,7 +217,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
 
           <button
             type="button"
-            onClick={() => openSheet('seller', { telegram_id: receipt.seller_id })}
+            onClick={() => goToSeller(receipt.seller_id)}
             className="min-w-0 flex items-center justify-center gap-2 rounded-[14px] px-3 py-3 text-[13px] font-extrabold leading-tight bg-[var(--vliq-field)] text-[var(--vliq-brand)] border-0 cursor-pointer active:opacity-80 transition-opacity"
           >
             <Icon name="user" size={17} className="flex-none" />

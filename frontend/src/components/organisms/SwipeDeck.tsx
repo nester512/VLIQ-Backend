@@ -42,9 +42,10 @@ interface SwipeCardProps {
   onTap: () => void
   isTop: boolean
   canSwipe: boolean
+  onSellerClick?: (sellerId: number) => void
 }
 
-function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop, canSwipe }: SwipeCardProps) {
+function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop, canSwipe, onSellerClick }: SwipeCardProps) {
   const x = useMotionValue(0)
   const y = useMotionValue(0)
 
@@ -229,7 +230,7 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop, canSwipe }: Swi
           finalCard={
             hasAttachments ? (
               <div className="vliq-pad py-4">
-                <ReceiptInfoCard receipt={receipt} />
+                <ReceiptInfoCard receipt={receipt} onSellerClick={onSellerClick} />
               </div>
             ) : undefined
           }
@@ -425,9 +426,11 @@ export interface SwipeDeckProps {
   /** Server-side total of the review queue (all on_review). Denominator for
    *  the "N / total" counter; falls back to the loaded count when omitted. */
   totalCount?: number
+  /** Open the seller page (stats + previous receipts) from the final info card. */
+  onSellerClick?: (sellerId: number) => void
 }
 
-export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0, totalCount }: SwipeDeckProps) {
+export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0, totalCount, onSellerClick }: SwipeDeckProps) {
   // Consume the queue by receipt ID, not by positional index. A positional
   // index silently SKIPS cards whenever the list shrinks from the front — which
   // happens on any mid-session refetch (window focus, a detail-sheet action, a
@@ -638,6 +641,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
                 canSwipe={canSwipe}
                 onSwipe={handleSwipe}
                 onTap={() => { if (isTop && currentReceipt) onTap(currentReceipt.id) }}
+                onSellerClick={onSellerClick}
               />
             )
           })}

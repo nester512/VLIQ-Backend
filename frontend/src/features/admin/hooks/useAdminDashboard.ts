@@ -1,11 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
-import { getAdminSellers, getAdminPayouts, getAdminReceipts } from '@/api/admin'
-import { isApprovedStatus } from '@/utils/receiptStatus'
-import { REVIEW_QUEUE_STATUSES } from './useReviewQueue'
-import type { AdminSellerRow } from '@/api/admin'
+import { getAdminDashboard, type AdminDashboardResponse } from '@/api/admin'
 
 export interface ChartData {
-  /** Real receipt count per bucket (10 even time-slices across the date range). */
+  /** Receipts uploaded per day (last 30 days, zero-filled by the server). */
   values: number[]
   /** Max bucket count (≥1) — the y-axis top tick; bars scale to this. */
   max: number
@@ -38,156 +35,56 @@ export interface DashboardData {
 }
 
 /**
- * Real dashboard aggregate — derived client-side from the existing list
- * endpoints because the backend hasn't shipped `/analytics/dashboard` yet.
- * Once it does, swap the four parallel queries below for a single call.
+ * Admin dashboard — ONE call to `GET /analytics/dashboard`, where every metric is
+ * aggregated in SQL over the whole database. It used to be derived client-side
+ * from the first 200 rows of four list endpoints, so on real volumes everything
+ * except the plain totals (top sellers, average check, paid-this-month, chart)
+ * was computed over a sample and was wrong.
  */
 export function useAdminDashboard() {
   return useQuery<DashboardData>({
     queryKey: ['admin', 'dashboard'],
     staleTime: 30_000,
-    queryFn: async () => {
-      // Fetch receipts for chart/top_sellers (up to 200), plus a lightweight
-      // probe for pending-receipt count using limit=1 (reads server total only).
-      const [sellersPage, payoutsPage, receiptsPage, pendingProbe] = await Promise.all([
-        getAdminSellers({ limit: 200 }),
-        getAdminPayouts({ limit: 200 }),
-        getAdminReceipts({ limit: 200 }),
-        // Use the same status filter the review-queue uses so the dashboard
-        // counter never disagrees with what /admin/review actually shows.
-        getAdminReceipts({ status: [...REVIEW_QUEUE_STATUSES], limit: 1 }),
-      ])
-
-      const sellers = sellersPage.items
-      const payouts = payoutsPage.items
-      const receipts = receiptsPage.items
-
-      const sellers_active = sellers.filter((s) => s.is_active).length
-      // Use server total from the pending-only probe — accurate even if receipts
-      // window (200) doesn't cover all pending records.
-      const receipts_pending = pendingProbe.total
-      const payouts_pending = payouts.filter((p) => p.status === 'new' || p.status === 'in_progress').length
-      const payouts_paid_month = payouts.filter((p) => p.status === 'paid').length
-
-      // Top sellers by approved receipt count (tie-break by total). Computed
-      // here so admins see the same ranking the seller "Чеки" tab implies.
-      const receiptsBySeller = new Map<number, { approved: number; total: number }>()
-      for (const r of receipts) {
-        const cur = receiptsBySeller.get(r.seller_id) ?? { approved: 0, total: 0 }
-        cur.total += 1
-        if (isApprovedStatus(r.status)) cur.approved += 1
-        receiptsBySeller.set(r.seller_id, cur)
-      }
-      const sellersWithCounts: Array<AdminSellerRow & { approved: number; total: number }> = sellers.map((s) => {
-        const counts = receiptsBySeller.get(s.telegram_id ?? s.id) ?? { approved: 0, total: 0 }
-        return { ...s, ...counts }
-      })
-      sellersWithCounts.sort((a, b) => (b.approved - a.approved) || (b.total - a.total))
-
-      // UC-01: per-seller sales (Σ approved total_sum) and payouts (Σ paid).
-      const salesBySeller = new Map<number, number>()
-      for (const r of receipts) {
-        if (isApprovedStatus(r.status) && typeof r.amount === 'number') {
-          salesBySeller.set(r.seller_id, (salesBySeller.get(r.seller_id) ?? 0) + r.amount)
-        }
-      }
-      const paidBySeller = new Map<number, number>()
-      for (const p of payouts) {
-        if (p.status === 'paid') {
-          paidBySeller.set(p.seller_id, (paidBySeller.get(p.seller_id) ?? 0) + p.amount)
-        }
-      }
-
-      const top_sellers = sellersWithCounts.slice(0, 25).map((s) => {
-        const sid = s.telegram_id ?? s.id
-        return {
-          telegram_id: s.telegram_id,
-          name: [s.first_name, s.last_name].filter(Boolean).join(' ') || `Продавец #${s.telegram_id ?? s.id}`,
-          city: s.city ?? '—',
-          receipts: s.approved > 0 ? `${s.approved} одобрено` : `${s.total} чеков`,
-          sales: salesBySeller.get(sid) ?? 0,
-          paid: paidBySeller.get(sid) ?? 0,
-        }
-      })
-
-      // UC-01: средний чек продажи — mean total_sum over approved receipts.
-      const approvedAmounts = receipts
-        .filter((r) => isApprovedStatus(r.status) && typeof r.amount === 'number')
-        .map((r) => r.amount as number)
-      const avg_check = approvedAmounts.length
-        ? Math.round(approvedAmounts.reduce((sum, a) => sum + a, 0) / approvedAmounts.length)
-        : 0
-
-      // UC-01: сводная таблица товаров, отсортированная по количеству.
-      const productCounts = new Map<string, number>()
-      for (const r of receipts) {
-        for (const it of r.items ?? []) {
-          const name = (it.name ?? '').trim() || '—'
-          productCounts.set(name, (productCounts.get(name) ?? 0) + (it.qty ?? 1))
-        }
-      }
-      const top_products = [...productCounts.entries()]
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 15)
-
-      // Chart placeholder — until backend ships a time-series we bucket
-      // received receipts into 10 even slices across their date range.
-      const chart = buildChartBuckets(receipts.map((r) => r.created_at))
-
-      return {
-        // Server-side total, NOT sellers.length — the page is capped at 200,
-        // so .length would silently plateau at 200 for larger datasets.
-        sellers_total: sellersPage.total,
-        sellers_active,
-        // Server-side total, NOT receipts.length — receipts is a 200-row page,
-        // so .length caps at 200 and could read BELOW receipts_pending (bug).
-        receipts_loaded: receiptsPage.total,
-        receipts_pending,
-        payouts_pending,
-        payouts_paid_month,
-        chart,
-        avg_check,
-        top_products,
-        top_sellers,
-      }
-    },
+    queryFn: async () => toDashboardData(await getAdminDashboard()),
   })
 }
 
-const RU_DAY = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' })
-const fmtDay = (ms: number) => RU_DAY.format(new Date(ms))
+const RU_DAY = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+const fmtDay = (isoDay: string) => RU_DAY.format(new Date(`${isoDay}T00:00:00Z`))
 
-/**
- * Bucket receipt timestamps into `buckets` even time-slices and return the REAL
- * per-bucket counts plus calendar-date axis labels — so the dashboard chart can
- * show actual magnitudes (y-axis) and the period covered (x-axis), instead of
- * the previous opaque 0–100 heights with no dates.
- */
-function buildChartBuckets(dates: string[], buckets = 10): ChartData {
-  const empty: ChartData = { values: new Array(buckets).fill(0), max: 1, labels: ['—', '—', '—'] }
-  const ts = dates
-    .map((d) => new Date(d).getTime())
-    .filter((t) => !Number.isNaN(t))
-    .sort((a, b) => a - b)
-  if (ts.length === 0) return empty
+/** Map the server DTO onto the shape DashPage renders (A4: same metrics, now correct). */
+export function toDashboardData(d: AdminDashboardResponse): DashboardData {
+  const days = d.daily_receipts
+  const values = days.map((x) => x.receipts)
+  const chart: ChartData = days.length
+    ? {
+        values,
+        max: Math.max(...values, 1),
+        labels: [
+          fmtDay(days[0]!.day),
+          fmtDay(days[Math.floor((days.length - 1) / 2)]!.day),
+          fmtDay(days[days.length - 1]!.day),
+        ],
+      }
+    : { values: [], max: 1, labels: ['—', '—', '—'] }
 
-  const min = ts[0]!
-  const max = ts[ts.length - 1]!
-  const counts = new Array(buckets).fill(0)
-  if (min === max) {
-    counts[buckets - 1] = ts.length
-  } else {
-    const step = (max - min) / buckets
-    for (const t of ts) {
-      const idx = Math.min(buckets - 1, Math.floor((t - min) / step))
-      counts[idx] += 1
-    }
-  }
-  const mid = min + (max - min) / 2
   return {
-    values: counts,
-    max: Math.max(...counts, 1),
-    labels: [fmtDay(min), fmtDay(mid), fmtDay(max)],
+    sellers_total: d.sellers_total,
+    sellers_active: d.sellers_active,
+    receipts_loaded: d.receipts_total,
+    receipts_pending: d.receipts_on_review,
+    payouts_pending: d.payouts_pending,
+    payouts_paid_month: d.payouts_paid_month,
+    chart,
+    avg_check: d.avg_check,
+    top_products: d.top_products,
+    top_sellers: d.top_sellers.map((s) => ({
+      telegram_id: s.telegram_id,
+      name: s.name,
+      city: s.city ?? '—',
+      receipts: s.receipts_approved > 0 ? `${s.receipts_approved} одобрено` : `${s.receipts_total} чеков`,
+      sales: s.sales,
+      paid: s.paid,
+    })),
   }
 }

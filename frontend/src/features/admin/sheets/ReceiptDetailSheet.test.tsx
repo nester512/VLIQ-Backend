@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, within, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import type { AdminReceipt } from '@/api/admin'
 import type { Attachment } from '@/types/models'
@@ -76,7 +77,11 @@ function receipt(over: Partial<AdminReceipt> = {}): AdminReceipt {
 function renderSheet(r: AdminReceipt) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   function Wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    return (
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      </MemoryRouter>
+    )
   }
   return render(<ReceiptDetailSheet receiptId={r.id} receipt={r} />, { wrapper: Wrapper })
 }
@@ -154,3 +159,36 @@ describe('ReceiptDetailSheet — actualizes views after a status change', () => 
     expect(spy).not.toHaveBeenCalledWith({ queryKey: ['admin', 'receipts'] })
   })
 })
+
+describe('ReceiptDetailSheet — navigation to the seller page', () => {
+  function renderWithRoutes(r: AdminReceipt) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    return render(
+      <MemoryRouter initialEntries={['/admin/review']}>
+        <QueryClientProvider client={queryClient}>
+          <Routes>
+            <Route path="/admin/review" element={<ReceiptDetailSheet receiptId={r.id} receipt={r} />} />
+            <Route path="/admin/sellers/:telegramId/receipts" element={<SellerPageProbe />} />
+          </Routes>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    )
+  }
+
+  it('«К продавцу» opens the seller page (stats + previous receipts), not a sheet swap', async () => {
+    renderWithRoutes(receipt())
+    fireEvent.click(screen.getByRole('button', { name: /К продавцу/ }))
+    expect(await screen.findByText('seller-page:9')).toBeInTheDocument()
+  })
+
+  it('the seller name in the info card links to the same page', async () => {
+    renderWithRoutes(receipt())
+    fireEvent.click(within(screen.getByTestId('receipt-info-card')).getAllByRole('button', { name: /Открыть продавца/ })[0]!)
+    expect(await screen.findByText('seller-page:9')).toBeInTheDocument()
+  })
+})
+
+function SellerPageProbe() {
+  const { telegramId } = useParams()
+  return <div>seller-page:{telegramId}</div>
+}

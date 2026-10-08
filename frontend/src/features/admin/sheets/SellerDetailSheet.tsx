@@ -5,14 +5,17 @@ import { Pill } from '@/components/atoms/Pill'
 import { Spinner } from '@/components/atoms/Spinner'
 import { KVRow } from '@/components/molecules/KVRow'
 import { getInitials, getFullName } from '@/utils/initials'
-import { fmtMoney } from '@/utils/formatMoney'
+import { fmtInt, fmtMoney } from '@/utils/formatMoney'
 import { useUiStore } from '@/store/uiStore'
 import { useSellerDetail, useSellerStatusToggle } from '@/features/admin/hooks/useSellersList'
+import { RiskPill } from '@/features/admin/components/SellerStats'
+import { RISK_FLAG_LABEL } from '@/features/admin/sellerRisk'
 
 interface SellerDetailSheetProps {
   telegram_id: number | null
 }
 
+/** Quick view of a seller; the full picture (history, weekly activity) is on the seller page. */
 export function SellerDetailSheet({ telegram_id }: SellerDetailSheetProps) {
   const navigate = useNavigate()
   const closeSheet = useUiStore((s) => s.closeSheet)
@@ -36,49 +39,45 @@ export function SellerDetailSheet({ telegram_id }: SellerDetailSheetProps) {
   }
 
   const fullName = getFullName(seller, seller.telegram_id ?? telegram_id ?? undefined)
-  const initials = getInitials(seller)
   const isBlocked = seller.status === 'blocked'
   const isPending = seller.status === 'pending'
-
-  const dateFmt = new Intl.DateTimeFormat('ru-RU', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-  })
+  const stats = seller.stats
 
   return (
     <div className="vliq-pad" style={{ paddingTop: 6, paddingBottom: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 13, marginTop: 4, marginBottom: 16 }}>
-        <Avatar initials={initials} size={52} className="rounded-[15px]" />
+        <Avatar initials={getInitials(seller)} size={52} className="rounded-[15px]" />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--vliq-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {fullName}
           </div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--vliq-hint)' }}>
-            {seller.position ?? 'Продавец'}
+          <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+            <Pill kind={isBlocked ? 'dg' : isPending ? 'wn' : 'ok'}>
+              {isBlocked ? 'Блок' : isPending ? 'Ожидает' : 'Активен'}
+            </Pill>
+            <RiskPill stats={stats} withScore />
           </div>
         </div>
-        <Pill kind={isBlocked ? 'dg' : isPending ? 'wn' : 'ok'}>
-          {isBlocked ? 'Блок' : isPending ? 'Ожидает' : 'Активен'}
-        </Pill>
       </div>
 
-      <div className="vliq-card" style={{ padding: '0 16px', marginBottom: 16 }}>
-        <KVRow label="Город"            value={seller.city ?? '—'} />
-        <KVRow label="Торговая точка"   value={seller.store_name ?? '—'} />
-        <KVRow label="Телефон"          value={seller.phone ?? '—'} />
-        <KVRow
-          label="Дата регистрации"
-          value={seller.registered_at ? dateFmt.format(new Date(seller.registered_at)) : '—'}
-        />
+      <div className="vliq-card" style={{ padding: '0 16px', marginBottom: 12 }}>
+        <KVRow label="Город" value={seller.city ?? '—'} />
+        <KVRow label="Торговая точка" value={seller.store_name ?? '—'} />
+        <KVRow label="Телефон" value={seller.phone ?? '—'} />
         <KVRow label="Баланс" value={fmtMoney(seller.balance)} valueStyle={{ color: 'var(--vliq-ok-ink)' }} />
+        <KVRow label="Начислено / выплачено" value={`${fmtMoney(seller.total_accrued)} / ${fmtMoney(seller.total_paid_out)}`} />
         <KVRow
           label="Чеков всего"
-          value={
-            seller.receipts_total != null
-              ? `${seller.receipts_total} · ${seller.receipts_approved ?? 0} одобрено`
-              : '—'
-          }
+          value={stats ? `${fmtInt(stats.receipts_total)} · ${fmtInt(stats.receipts_approved)} одобрено` : '—'}
         />
+        <KVRow label="За 30 дней" value={stats ? fmtInt(stats.receipts_30d) : '—'} />
       </div>
+
+      {stats && stats.risk_flags.length > 0 && (
+        <ul style={{ margin: '0 0 12px', paddingLeft: 18, fontSize: 13, color: 'var(--vliq-hint)', lineHeight: 1.5 }}>
+          {stats.risk_flags.map((f) => <li key={f}>{RISK_FLAG_LABEL[f] ?? f}</li>)}
+        </ul>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <button
@@ -97,18 +96,17 @@ export function SellerDetailSheet({ telegram_id }: SellerDetailSheetProps) {
           }}
         >
           <Icon name="receipt" size={18} />
-          К чекам
+          Страница и чеки
         </button>
         <button
           type="button"
           disabled={togglePending || telegram_id == null}
           onClick={() => {
             if (telegram_id == null) return
-            toggleStatus({
-              telegram_id,
-              status: isBlocked ? 'active' : 'blocked',
-              blockReason: isBlocked ? undefined : 'Заблокирован администратором',
-            })
+            toggleStatus(
+              { telegram_id, block: !isBlocked, reason: isBlocked ? undefined : 'Заблокирован администратором' },
+              { onSuccess: closeSheet },
+            )
           }}
           style={{
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,

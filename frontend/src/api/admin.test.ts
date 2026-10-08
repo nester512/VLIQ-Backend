@@ -7,7 +7,7 @@ vi.mock('./client', () => ({
   api: { get: (...a: unknown[]) => get(...a) },
 }))
 
-import { getAdminReceipts, type AdminReceipt } from './admin'
+import { getAdminReceipts, getAdminSellerById, getAdminSellers, type AdminReceipt } from './admin'
 
 interface BackendReceiptLike {
   id: number
@@ -151,5 +151,52 @@ describe('mapAdminReceipt — extraction warnings + identities from ocr_raw', ()
       'Низкая чёткость',
     ])
     expect(r.detected_identities).toEqual([{ fn: '900', fd: '5', fp: '5050' }])
+  })
+})
+
+describe('admin sellers API — stats, filters and the detail mapper', () => {
+  const stats = {
+    receipts_total: 12, receipts_approved: 9, receipts_rejected: 1, receipts_on_review: 2, receipts_30d: 4,
+    receipts_duplicates: 0, first_receipt_at: null, last_receipt_at: null, risk_score: 5, risk_level: 'low', risk_flags: [],
+  }
+  const wireSeller = { telegram_id: 77, brand_id: 1, phone_e164: '+79990000077', status: 'active', created_at: '2026-01-01T00:00:00Z' }
+
+  it('GET /sellers/{id}: keeps balance and receipt count (used to be dropped → «—» in the card)', async () => {
+    get.mockResolvedValueOnce({
+      data: {
+        ...wireSeller, stats, balance_available: 150_000, receipts_total: 12,
+        total_accrued: 300_000, total_paid_out: 100_000, on_hold: 50_000, avg_bonus: 12_500,
+        weekly_activity: [{ week_start: '2026-10-05', receipts: 3, approved: 2 }],
+      },
+    })
+
+    const s = await getAdminSellerById(77)
+
+    expect(s.balance).toBe(150_000)
+    expect(s.receipts_total).toBe(12)
+    expect(s.receipts_approved).toBe(9)
+    expect(s.on_hold).toBe(50_000)
+    expect(s.avg_bonus).toBe(12_500)
+    expect(s.stats?.receipts_30d).toBe(4)
+    expect(s.weekly_activity).toHaveLength(1)
+  })
+
+  it('GET /sellers: passes sort / risk / has_on_review and maps per-row stats', async () => {
+    get.mockResolvedValueOnce({ data: { items: [{ ...wireSeller, stats }], total: 2014, page: 1, limit: 50, has_more: true } })
+
+    const res = await getAdminSellers({ sort: 'receipts_30d:desc', risk: 'high', has_on_review: true, search: 'Анна', page: 1, limit: 50 })
+
+    expect(get).toHaveBeenCalledWith('/sellers', {
+      params: { sort: 'receipts_30d:desc', risk: 'high', has_on_review: true, search: 'Анна', page: 1, limit: 50 },
+    })
+    expect(res.total).toBe(2014)
+    expect(res.items[0]!.stats?.risk_level).toBe('low')
+    expect(res.items[0]!.receipts_total).toBe(12)
+  })
+
+  it('GET /receipts: forwards order=desc for seller history', async () => {
+    get.mockResolvedValueOnce(paged([]))
+    await getAdminReceipts({ seller_id: 77, order: 'desc' })
+    expect(get).toHaveBeenCalledWith('/receipts', { params: { seller_id: 77, order: 'desc', page: 1, limit: 50 } })
   })
 })

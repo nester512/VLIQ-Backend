@@ -253,7 +253,7 @@ function AdminLayout() {
       header={
         isSellerReceipts ? (
           <TgHeader
-            title="Чеки продавца"
+            title="Продавец"
             isHome={false}
             onBack={!inTma ? () => navigate(-1) : undefined}
           />

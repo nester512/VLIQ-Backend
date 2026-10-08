@@ -8,7 +8,6 @@ import { MiniBarChart } from '@/components/molecules/MiniBarChart'
 import { TopSellersBoard } from '@/components/organisms/TopSellersBoard'
 import { EmptyState } from '@/components/molecules/EmptyState'
 import { useAdminDashboard } from '@/features/admin/hooks/useAdminDashboard'
-import { useUiStore } from '@/store/uiStore'
 import { fmtInt, fmtMoney } from '@/utils/formatMoney'
 
 interface QuickNavRowProps {
@@ -55,7 +54,6 @@ function QuickNavRow({ icon, label, counter, tone = 'hint', to }: QuickNavRowPro
 
 function DashContent() {
   const navigate = useNavigate()
-  const openSheet = useUiStore((s) => s.openSheet)
   const { data, isLoading } = useAdminDashboard()
   const activeShare = data && data.sellers_total > 0
     ? `${Math.round((data.sellers_active / data.sellers_total) * 100)}% базы`
@@ -91,7 +89,7 @@ function DashContent() {
             <MetricCard title="Чеков загружено" value={fmtInt(data?.receipts_loaded)}  delta="за всё время"                              deltaColor="hint" tween onClick={() => navigate('/admin/receipts')} />
             <MetricCard title="На проверке"     value={fmtInt(data?.receipts_pending)} delta={data && data.receipts_pending > 0 ? 'требует действий' : 'очередь пуста'} deltaColor={data && data.receipts_pending > 0 ? 'wn' : 'hint'} onClick={() => navigate('/admin/review')} />
             <MetricCard title="Средний чек"     value={data?.avg_check ? fmtMoney(data.avg_check) : '—'} delta="по одобренным чекам" deltaColor="hint" onClick={() => navigate('/admin/receipts?status=approved')} />
-            <MetricCard title="Выплачено"        value={fmtInt(data?.payouts_paid_month)} delta="заявок выплачено" deltaColor="ok" onClick={() => navigate('/admin/payouts?status=paid')} />
+            <MetricCard title="Выплачено"        value={fmtInt(data?.payouts_paid_month)} delta="заявок за этот месяц" deltaColor="ok" onClick={() => navigate('/admin/payouts?status=paid')} />
           </>
         )}
       </div>
@@ -101,18 +99,9 @@ function DashContent() {
         <div className="vliq-card" style={{ padding: '18px 18px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <b style={{ fontSize: 15, fontWeight: 700, color: 'var(--vliq-text)' }}>Динамика чеков</b>
-              <span
-                style={{
-                  fontSize: 10, fontWeight: 700, letterSpacing: '.3px', textTransform: 'uppercase',
-                  color: 'var(--vliq-hint)', background: 'var(--vliq-field)',
-                  padding: '3px 7px', borderRadius: 6,
-                }}
-              >
-                бета
-              </span>
+              <b style={{ fontSize: 15, fontWeight: 700, color: 'var(--vliq-text)' }}>Чеки за 30 дней</b>
             </div>
-            <Pill kind="ok">{data?.receipts_loaded ? `${data.receipts_loaded}` : '0'}</Pill>
+            <Pill kind="ok">{fmtInt(data ? data.chart.values.reduce((sum, v) => sum + v, 0) : 0)}</Pill>
           </div>
 
           {isLoading || !data ? (
@@ -153,7 +142,7 @@ function DashContent() {
             sellers={data.top_sellers}
             collapsedCount={3}
             onSelect={(s) => {
-              if (s.telegram_id) openSheet('seller', { telegram_id: s.telegram_id })
+              if (s.telegram_id) navigate(`/admin/sellers/${s.telegram_id}/receipts`)
               else navigate('/admin/sellers')
             }}
           />

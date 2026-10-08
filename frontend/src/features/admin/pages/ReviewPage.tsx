@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { SwipeDeck } from '@/components/organisms/SwipeDeck'
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
 import { RejectReasonSheet } from '@/components/molecules/RejectReasonSheet'
@@ -18,6 +19,7 @@ function ReviewContent() {
   const queryClient = useQueryClient()
   const { data, isLoading, isFetchingNextPage, fetchNextPage, hasNextPage } = useReviewQueue()
   const { mutate: swipeAction, isPending: isSwipePending } = useSwipeAction()
+  const navigate = useNavigate()
   const openSheet = useUiStore((s) => s.openSheet)
   const pushToast = useUiStore((s) => s.pushToast)
 
@@ -195,6 +197,7 @@ function ReviewContent() {
           isLoading={isLoading || isFetchingNextPage}
           undoTrigger={undoTrigger}
           totalCount={reviewTotal}
+          onSellerClick={(sellerId) => navigate(`/admin/sellers/${sellerId}/receipts`)}
         />
       </div>
       <RejectReasonSheet
