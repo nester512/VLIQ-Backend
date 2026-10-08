@@ -1,4 +1,4 @@
-# Handover: admin «Продавцы» + server-side dashboard (WIP, branch `feat/admin-sellers-workspace`)
+# Handover: admin «Продавцы» + server-side dashboard (branch `feat/admin-sellers-workspace`)
 
 ## Задача (от владельца продукта, 2026-10-08)
 1. В разделе «Продавцы» невозможно найти нужного: нет фильтров, сортировок, бесконечного скролла, видны только первые 50.
@@ -9,33 +9,34 @@
 6. Раздуть тестовую базу стенда, чтобы это увидеть и проверить (сделано, см. ниже).
 
 ## Критерии готовности (проверять на стенде https://test-nekuro.online, ветка develop → автодеплой)
-- [ ] Список продавцов: поиск (debounce) по имени/телефону/точке/городу/telegram_id; фильтры статус (все/активные/ожидают/блок) и риск (низкий/средний/высокий), «есть чеки на проверке»; сортировки: новые, последняя активность, популярность (receipts_total), частота (receipts_30d), риск; бесконечный скролл через все 2000+ продавцов; в строке — кол-во чеков, частота за 30 дн., пилюля риска; общее число найденных.
-- [ ] Карточка/страница продавца: баланс, начислено, выплачено, на удержании, средний бонус, чеки по статусам, частота, первый/последний чек, риск (score + level + причины flags), активность по неделям (12 нед.), действия блок/разблок через `POST /sellers/{id}/block|unblock` (с уведомлением, а не PATCH).
-- [ ] История чеков продавца: ВСЕ статусы с фильтром, новые сверху (`GET /receipts?seller_id=&order=desc`), бесконечный скролл.
-- [ ] Из чека (ReceiptDetailSheet, ReceiptInfoCard, финальная карточка SwipeDeck) — переход на страницу продавца `/admin/sellers/:telegramId/receipts` (не замена шторки без возврата).
-- [ ] Дашборд берёт `GET /analytics/dashboard`; цифры совпадают с SQL на стенде (сверить запросами к БД стенда).
-- [ ] Тесты: backend unit + PG-интеграция для новых агрегатов/сортировок/фильтров; frontend vitest на страницы/хуки; ruff 0.12.12, tsc, eslint зелёные; CI зелёный.
-- [ ] PR в develop → проверено на стенде (API + скриншоты/описание UI) → отчёт владельцу. В main не мержить без явного «да».
+- [x] Список продавцов: поиск (debounce) по имени/телефону/точке/городу/telegram_id; фильтры статус (все/активные/ожидают/блок) и риск (низкий/средний/высокий), «есть чеки на проверке»; сортировки: новые, последняя активность, популярность (receipts_total), частота (receipts_30d), риск; бесконечный скролл через все 2000+ продавцов; в строке — кол-во чеков, частота за 30 дн., пилюля риска; общее число найденных.
+- [x] Карточка/страница продавца: баланс, начислено, выплачено, на удержании, средний бонус, чеки по статусам, частота, первый/последний чек, риск (score + level + причины flags), активность по неделям (12 нед.), действия блок/разблок через `POST /sellers/{id}/block|unblock` (с уведомлением, а не PATCH).
+- [x] История чеков продавца: ВСЕ статусы с фильтром, новые сверху (`GET /receipts?seller_id=&order=desc`), бесконечный скролл.
+- [x] Из чека (ReceiptDetailSheet, ReceiptInfoCard, финальная карточка SwipeDeck) — переход на страницу продавца `/admin/sellers/:telegramId/receipts` (не замена шторки без возврата).
+- [x] Дашборд берёт `GET /analytics/dashboard`; цифры совпадают с SQL на стенде (сверить запросами к БД стенда).
+- [x] Тесты: backend unit + PG-интеграция для новых агрегатов/сортировок/фильтров; frontend vitest на страницы/хуки; ruff 0.12.12, tsc, eslint зелёные; CI зелёный.
+- [x] PR в develop → проверено на стенде (API + скриншоты/описание UI) → отчёт владельцу. В main не мержить без явного «да».
 
-## Что уже сделано в ветке (WIP-коммит)
-- `ops/seed_load_stage.sql` — синтетическая нагрузка ТОЛЬКО для стенда (2000 продавцов, ~75k чеков, ~1.6k выплат, id ≥ 9e12, идемпотентно, требует `-v confirm=stage`). **Уже применён на БД стенда.**
-- `backend/src/seller/services/stats_service.py` — агрегаты по чекам в SQL, формула риска (константы вверху файла — эвристика, требует подтверждения продукта), недельная активность, средний бонус.
-- `backend/src/seller/schemas/api.py` — `SellerStats`, `SellerWeekActivity`, `SellerListItem`; `SellerReadAdmin` расширен (stats, total_accrued, total_paid_out, on_hold, avg_bonus, weekly_activity).
-- `backend/src/seller/handlers/api/v1/router.py` — `GET /sellers` → `PagedResponse[SellerListItem]`, сортировки `created_at|updated_at|last_receipt_at|receipts_total|receipts_30d|receipts_approved|risk_score|name` (`field:dir`), фильтры `status, city, risk, has_on_review, search`; `GET /sellers/{id}` со статистикой. Прототип агрегата на 75k чеков — 43 мс.
-- `backend/src/receipt/handlers/api/v1/router.py` — `GET /receipts?order=asc|desc` (по умолчанию asc = очередь FIFO не меняется).
-- `backend/src/analytics/schemas/api.py` — схема `AdminDashboard`.
+## Статус (2026-10-08)
+Реализовано и влито в `develop` (стенд). Backend: `GET /analytics/dashboard` (`src/analytics/service.py`),
+статистика/риск/сортировки/фильтры продавцов, `GET /receipts?order=desc`. Frontend: список продавцов
+(поиск с debounce, фильтры статус/риск/«есть на проверке», 5 сортировок, бесконечный скролл, фильтры в URL),
+страница продавца `/admin/sellers/:id/receipts` (баланс, начислено/выплачено/удержание, средний бонус,
+чеки по статусам, частота, первый/последний чек, риск + причины, 12 недель активности, блок/разблок через
+POST, история всех чеков с фильтром и скроллом), переход к продавцу из ReceiptDetailSheet / ReceiptInfoCard /
+финальной карточки SwipeDeck, дашборд одним запросом.
 
-## Что осталось
-1. `backend/src/analytics/service.py` + `handlers/api/v1/router.py` (`prefix="/analytics"`, `GET /dashboard`, `require_admin`) и регистрация в `backend/src/app/api/v1.py`. Метрики — см. `AdminDashboard`; paid за месяц — `status='paid' AND updated_at >= date_trunc('month', now())`; daily — `generate_series` за 30 дней с нулями; top_sellers — по approved desc, total desc, 25 шт., sales = Σ total_sum approved, paid = Σ paid payouts; top_products — `jsonb_array_elements(items)` по approved, 15 шт.
-2. Тесты backend (мок + PG в `tests/integration/pg/`), включая сортировки/фильтры/риск и дашборд.
-3. Frontend (`frontend/src`):
-   - `api/admin.ts`: типы `stats`, параметры sort/risk/city/has_on_review; **исправить баг `mapAdminSeller`** (выбрасывает `balance_available`/`receipts_total` → «—» в карточке); `getAdminDashboard()`; `getAdminReceipts` с `order`.
-   - `features/admin/pages/SellersPage.tsx`: `useInfiniteQuery` (образец `features/seller/hooks/useReceipts.ts` + `HistoryPage.tsx` с IntersectionObserver), debounce поиска, `FilterPills` для статуса и риска, селектор сортировки, total.
-   - `features/admin/pages/SellerReceiptsPage.tsx` → полноценная страница продавца: шапка со статистикой и риском + история всех чеков с фильтром и бесконечным скроллом.
-   - `features/admin/sheets/SellerDetailSheet.tsx`: статистика/риск; блок через POST block/unblock (`blockSeller`/`unblockSeller` в `api/admin.ts`).
-   - Переход из чека к продавцу: `ReceiptDetailSheet.tsx` (кнопка «К продавцу» → navigate на страницу продавца), `ReceiptInfoCard.tsx` (имя продавца кликабельно).
-   - `features/admin/hooks/useAdminDashboard.ts` → один запрос `GET /analytics/dashboard`; сохранить форму `DashboardData` для `DashPage.tsx` (A4: состав метрик не расширяем, только корректность).
-   - Обновить тесты: `useAdminDashboard.test.ts`, `DashPage.test.tsx`, `AdminReceiptsPage.test.tsx`; добавить тесты SellersPage/SellerReceiptsPage.
+Тесты: backend unit (`tests/seller/test_list_sellers.py`, `test_stats_service.py`, `tests/analytics/`),
+PG (`tests/integration/pg/test_seller_list_stats_pg.py`, `test_admin_dashboard_pg.py`); frontend
+`SellersPage.test.tsx`, `SellerReceiptsPage.test.tsx`, `useAdminDashboard.test.ts`, `useLoadMoreSentinel.test.ts`,
+`api/admin.test.ts`, `SwipeDeck.test.tsx`, `ReceiptDetailSheet.test.tsx`.
+
+### Требует решения продукта
+- **Формула риска** — эвристика, константы вверху `backend/src/seller/services/stats_service.py`
+  (`W_REJECT=0.5`, `W_DUPLICATE=0.5`, пороги `RISK_MEDIUM=20`, `RISK_HIGH=45`, `RISK_MIN_DECISIONS=5`).
+- **«Выплачено за месяц»** считается по `payout_request.updated_at` (момент перевода в `paid`): отдельного
+  `paid_at` нет, поэтому позднее редактирование выплаченной заявки сдвинет её в текущий месяц.
+- Даты дашборда/недель — в часовом поясе сессии БД (на стенде UTC), не в МСК.
 
 ## Как проверять (см. также CLAUDE.md)
 - Тестовый образ backend: `vliq-backend-dev` (python 3.12 + poetry deps, собран из `backend/pyproject.toml`). Unit:
