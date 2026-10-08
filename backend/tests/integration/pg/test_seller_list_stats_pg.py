@@ -140,6 +140,8 @@ async def test_filters_status_on_review_city_search(session_factory, seeded) -> 
         assert await _ids(s, city="Казань") == [RISKY]
         assert await _ids(s, search=str(SILENT)) == [SILENT]  # exact telegram_id
         assert await _ids(s, search="точка 9002") == [POPULAR_OLD]  # outlet, case-insensitive
+        assert await _ids(s, search="%") == []  # a literal %, not "match everything"
+        assert await _ids(s, search="²") == []  # unicode digit: no int() crash
 
 
 async def test_seller_without_receipts_has_zero_stats(session_factory, seeded) -> None:
@@ -174,5 +176,7 @@ async def test_get_seller_card_stats(session_factory, seeded) -> None:
     assert card.stats.receipts_approved == 12
     assert card.stats.receipts_30d == 12
     assert card.avg_bonus == 500
+    assert len(card.weekly_activity) == 12  # zero-filled: one bar per week, quiet weeks included
+    assert [w.week_start for w in card.weekly_activity] == sorted(w.week_start for w in card.weekly_activity)
     assert sum(w.receipts for w in card.weekly_activity) == 12
     assert all(w.approved == w.receipts for w in card.weekly_activity)

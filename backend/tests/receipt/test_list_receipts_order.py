@@ -39,3 +39,11 @@ def test_helper_only_adds_ordering_and_keeps_filters() -> None:
     assert "WHERE" in ordered
     assert "status" in ordered
     assert "ORDER BY" in ordered
+
+
+def test_newest_first_for_seller_history_keeps_id_tiebreaker() -> None:
+    # order=desc (admin seller page history): newest first, still a total order.
+    sql = _order_by_sql(_order_receipt_queue(select(Receipt), newest_first=True))
+    assert "created_at DESC" in sql
+    assert "id DESC" in sql
+    assert sql.index("created_at") < sql.index("id DESC")

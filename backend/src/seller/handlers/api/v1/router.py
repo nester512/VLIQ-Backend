@@ -16,6 +16,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from src.app.api.pagination import PagedResponse
 from src.app.auth.jwt import JwtTokenT, require_admin, require_seller, validate_token_dependency
@@ -303,6 +304,31 @@ async def create_seller(payload: SellerCreate) -> SellerRead:
     raise AppError("NOT_IMPLEMENTED", status_code=501)
 
 
+_MAX_TELEGRAM_ID_DIGITS = 18  # fits a signed BIGINT
+
+def _seller_search_condition(term: str) -> ColumnElement[bool]:
+    """Name / phone / outlet / city substring, or an exact telegram_id for a digits-only term."""
+    # Escape LIKE wildcards: a literal "%" or "_" must not match every seller.
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
+    conditions = [
+        col.ilike(pattern, escape="\\")
+        for col in (
+            Seller.first_name,
+            Seller.last_name,
+            func.concat_ws(" ", Seller.first_name, Seller.last_name),
+            Seller.phone_e164,
+            Seller.outlet_name,
+            Seller.city,
+        )
+    ]
+    # ASCII-only and BIGINT-sized: "²".isdigit() is True but int() fails, and a
+    # 20-digit number overflows the bigint bind — both used to surface as a 500.
+    if term.isascii() and term.isdigit() and len(term) <= _MAX_TELEGRAM_ID_DIGITS:
+        conditions.append(Seller.telegram_id == int(term))
+    return or_(*conditions)
+
+
 _SELLER_SORTS = {
     "created_at",
     "updated_at",
@@ -344,39 +370,38 @@ async def list_sellers(  # noqa: PLR0913
     """Paginated seller list for admin with activity stats aggregated in SQL."""
     stats = receipt_stats_subquery()
     score = risk_score_expr(stats)
-    stmt = select(Seller, stats, score.label("risk_score")).outerjoin(stats, stats.c.seller_id == Seller.telegram_id)
+    # Seller-level conditions vs. conditions on the receipt aggregate: the plain total
+    # only needs the aggregate when a stats-based filter is active (saves a full scan).
+    where: list = []
+    stats_where: list = []
 
     if brand_id is not None:
-        stmt = stmt.where(Seller.brand_id == brand_id)
+        where.append(Seller.brand_id == brand_id)
     if status is not None:
-        stmt = stmt.where(Seller.status == status)
+        where.append(Seller.status == status)
     if city:
-        stmt = stmt.where(Seller.city == city)
+        where.append(Seller.city == city)
     if risk is not None:
-        stmt = stmt.where(risk_level_filter(func.coalesce(score, 0), risk))
+        stats_where.append(risk_level_filter(func.coalesce(score, 0), risk))
     if has_on_review is not None:
         on_review = func.coalesce(stats.c.receipts_on_review, 0)
-        stmt = stmt.where(on_review > 0 if has_on_review else on_review == 0)
+        stats_where.append(on_review > 0 if has_on_review else on_review == 0)
     if date_from is not None:
-        stmt = stmt.where(Seller.created_at >= date_from)
+        where.append(Seller.created_at >= date_from)
     if date_to is not None:
-        stmt = stmt.where(Seller.created_at <= date_to)
+        where.append(Seller.created_at <= date_to)
     if search and search.strip():
-        term = search.strip()
-        pattern = f"%{term}%"
-        conditions = [
-            Seller.first_name.ilike(pattern),
-            Seller.last_name.ilike(pattern),
-            func.concat_ws(" ", Seller.first_name, Seller.last_name).ilike(pattern),
-            Seller.phone_e164.ilike(pattern),
-            Seller.outlet_name.ilike(pattern),
-            Seller.city.ilike(pattern),
-        ]
-        if term.isdigit():
-            conditions.append(Seller.telegram_id == int(term))
-        stmt = stmt.where(or_(*conditions))
+        where.append(_seller_search_condition(search.strip()))
 
-    count_stmt = select(func.count()).select_from(stmt.subquery())
+    stmt = (
+        select(Seller, stats, score.label("risk_score"))
+        .outerjoin(stats, stats.c.seller_id == Seller.telegram_id)
+        .where(*where, *stats_where)
+    )
+    if stats_where:
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+    else:
+        count_stmt = select(func.count()).select_from(Seller).where(*where)
     total: int = (await session.execute(count_stmt)).scalar_one()
 
     sort_field, _, sort_dir = sort.partition(":")

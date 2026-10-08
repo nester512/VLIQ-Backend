@@ -58,7 +58,8 @@ _TOP_PRODUCTS_SQL = text(
     SELECT name, sum(qty) AS count
     FROM (
         SELECT COALESCE(NULLIF(btrim(it->>'raw_name'), ''), NULLIF(btrim(it->>'name'), ''), '—') AS name,
-               COALESCE(NULLIF(it->>'qty', '')::numeric, 1) AS qty
+               -- OCR/OFD may put text like "2 шт" or "1,5" into qty: count it as 1, never 500.
+               CASE WHEN it->>'qty' ~ '^[0-9]+([.][0-9]+)?$' THEN (it->>'qty')::numeric ELSE 1 END AS qty
         FROM vliq.receipt r
         CROSS JOIN LATERAL jsonb_array_elements(
             CASE WHEN jsonb_typeof(r.items) = 'array' THEN r.items ELSE '[]'::jsonb END

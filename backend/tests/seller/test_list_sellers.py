@@ -167,3 +167,33 @@ async def test_list_sellers__filters_applied_to_count_and_page(client: AsyncClie
 async def test_list_sellers__invalid_risk__422(client: AsyncClient, session_mock) -> None:
     response = await client.get(PREFIX, params={"risk": "extreme"}, headers={"Authorization": f"Bearer {_admin_token()}"})
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_list_sellers__plain_total_skips_receipt_aggregate(client: AsyncClient, session_mock) -> None:
+    response = await client.get(PREFIX, params={"status": "active"}, headers={"Authorization": f"Bearer {_admin_token()}"})
+
+    assert response.status_code == 200
+    count_sql = _sql(session_mock, 0)
+    assert "seller_receipt_stats" not in count_sql  # no second full scan of receipts for the total
+    assert "vliq.seller.status = 'active'" in count_sql
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("term", ["²", "99999999999999999999"])
+async def test_list_sellers__non_ascii_or_huge_digits__no_500(client: AsyncClient, session_mock, term: str) -> None:
+    response = await client.get(PREFIX, params={"search": term}, headers={"Authorization": f"Bearer {_admin_token()}"})
+
+    assert response.status_code == 200
+    assert "vliq.seller.telegram_id =" not in _sql(session_mock, 1)  # only the text match remains
+
+
+@pytest.mark.asyncio
+async def test_list_sellers__like_wildcards_escaped(client: AsyncClient, session_mock) -> None:
+    response = await client.get(PREFIX, params={"search": "50%_off"}, headers={"Authorization": f"Bearer {_admin_token()}"})
+
+    assert response.status_code == 200
+    stmt = session_mock.execute.await_args_list[1].args[0]
+    compiled = stmt.compile(dialect=postgresql.dialect())
+    assert "%50\\%\\_off%" in compiled.params.values()  # wildcards escaped in the bound pattern
+    assert "ESCAPE" in str(compiled)

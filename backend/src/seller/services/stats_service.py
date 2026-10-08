@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import Float, Integer, Numeric, Select, and_, cast, func, literal_column, select
+from sqlalchemy import Float, Integer, Numeric, Select, and_, cast, func, literal_column, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -137,22 +137,34 @@ async def get_seller_stats(session: AsyncSession, seller_id: int) -> SellerStats
     return build_stats(row, score=row.risk_score or 0)
 
 
+_WEEKLY_SQL = text(
+    f"""
+    SELECT w::date AS week_start, COALESCE(c.receipts, 0) AS receipts, COALESCE(c.approved, 0) AS approved
+    FROM generate_series(
+        date_trunc('week', now()) - interval '{WEEKS_OF_HISTORY - 1} weeks', date_trunc('week', now()), interval '1 week'
+    ) AS w
+    LEFT JOIN (
+        SELECT date_trunc('week', created_at) AS week,
+               count(*) AS receipts,
+               count(*) FILTER (WHERE status IN ('approved', 'paid_out')) AS approved
+        FROM vliq.receipt
+        WHERE seller_id = :seller_id AND is_deleted = false
+          AND created_at >= date_trunc('week', now()) - interval '{WEEKS_OF_HISTORY - 1} weeks'
+        GROUP BY 1
+    ) c ON c.week = w
+    ORDER BY w
+    """
+)
+
+
 async def get_seller_weekly_activity(session: AsyncSession, seller_id: int) -> list[SellerWeekActivity]:
-    """Receipts uploaded / approved per ISO week for the last WEEKS_OF_HISTORY weeks (oldest first)."""
-    week = func.date_trunc("week", Receipt.created_at)
-    since = func.date_trunc("week", func.now()) - timedelta(weeks=WEEKS_OF_HISTORY - 1)
-    stmt = (
-        select(
-            week.label("week_start"),
-            func.count().label("receipts"),
-            _count_if(Receipt.status.in_(_APPROVED)).label("approved"),
-        )
-        .where(Receipt.seller_id == seller_id, Receipt.is_deleted.is_(False), Receipt.created_at >= since)
-        .group_by(week)
-        .order_by(week)
-    )
-    rows = (await session.execute(stmt)).all()
-    return [SellerWeekActivity(week_start=r.week_start.date(), receipts=r.receipts, approved=r.approved) for r in rows]
+    """Receipts uploaded / approved per week for the last WEEKS_OF_HISTORY weeks, oldest first.
+
+    Zero-filled (a quiet week is a 0 bar, not a missing one) and the week start is
+    cast to ``date`` in SQL, in the same session time zone that truncated it.
+    """
+    rows = (await session.execute(_WEEKLY_SQL, {"seller_id": seller_id})).all()
+    return [SellerWeekActivity(week_start=r.week_start, receipts=r.receipts, approved=r.approved) for r in rows]
 
 
 async def get_seller_avg_bonus(session: AsyncSession, seller_id: int) -> int:

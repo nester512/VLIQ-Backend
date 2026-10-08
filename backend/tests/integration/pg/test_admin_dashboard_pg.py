@@ -29,7 +29,8 @@ _NOW = datetime.now(UTC)
 _LAST_YEAR = _NOW - timedelta(days=400)
 
 
-def _receipt(seller_id: int, status: str, *, total: int | None = 10000, items=None, created_at=None, deleted=False):
+def _receipt(  # noqa: PLR0913
+    seller_id: int, status: str, *, total: int | None = 10000, items=None, created_at=None, deleted=False):
     return Receipt(
         seller_id=seller_id,
         brand_id=SEED_BRAND_ID,
@@ -74,9 +75,10 @@ async def seeded(session_factory: async_sessionmaker[AsyncSession]) -> None:
         await s.flush()
         liquid = [{"raw_name": "SWONQ L18000", "qty": 3, "price": 1000}]
         cart = [{"name": "Картридж", "price": 300}]  # no qty → counts as 1
+        ocr_noise = [{"raw_name": "Испаритель", "qty": "2 шт", "price": 100}]  # non-numeric qty → 1, no 500
         s.add_all(_receipt(TOP, "approved", total=20000, items=liquid) for _ in range(3))
         s.add(_receipt(TOP, "paid_out", total=10000, items=cart))
-        s.add(_receipt(SECOND, "approved", total=30000, items=cart))
+        s.add(_receipt(SECOND, "approved", total=30000, items=cart + ocr_noise))
         s.add_all(_receipt(SECOND, "rejected", items=liquid) for _ in range(5))  # rejected items don't count
         s.add_all(_receipt(SECOND, "on_review", total=None) for _ in range(2))
         s.add(_receipt(SEED_SELLER_ID, "on_review", created_at=_NOW - timedelta(days=DAILY_DAYS + 5)))
@@ -128,5 +130,5 @@ async def test_dashboard_top_sellers_and_products(session_factory, seeded) -> No
     assert all(t.telegram_id != PENDING_SELLER for t in d.top_sellers)  # no receipts → not ranked
 
     products = {p.name: p.count for p in d.top_products}
-    assert products == {"SWONQ L18000": 9.0, "Картридж": 2.0}
+    assert products == {"SWONQ L18000": 9.0, "Картридж": 2.0, "Испаритель": 1.0}
     assert d.top_products[0].name == "SWONQ L18000"
