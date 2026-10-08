@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 
+from arq import cron
 from arq.connections import RedisSettings
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -35,9 +36,12 @@ from src.ofd_client.proverkacheka import ProverkachekaClient
 from src.payout_request import models as _payout_models  # noqa: F401
 from src.promotion import models as _promo_models  # noqa: F401
 from src.receipt import models as _receipt_models  # noqa: F401
+from src.receipt_intake.pipeline import process_qr_receipt
 from src.receipt_ocr.qr_extractor import QRExtractor
 from src.receipt_ocr.storage import get_receipt_storage
 from src.receipt_pipeline.orchestrator import ReceiptPipelineOrchestrator
+from src.receipt_verification.service import retry_due
+from src.receipt_verification.verifier import get_verifier
 from src.seller import models as _seller_models  # noqa: F401
 from src.sku import models as _sku_models  # noqa: F401
 from src.sku_matcher.matcher import SkuMatcher
@@ -85,6 +89,22 @@ async def process_receipt_task(ctx: dict, receipt_id: int) -> None:
     logger.info("arq.task_done, receipt_id=%d", receipt_id)
 
 
+async def process_qr_receipt_task(ctx: dict, receipt_id: int) -> None:
+    """arq task: QR-intake receipt → fraud signals → on_review → first OFD attempt."""
+    session_factory: async_sessionmaker[AsyncSession] = ctx["sessionmaker"]
+    async with session_factory() as session:
+        await process_qr_receipt(session, receipt_id, ctx["verifier"])
+
+
+async def retry_verifications_cron(ctx: dict) -> None:
+    """Every 5 minutes: one more OFD attempt for each due receipt (docs/design/QR-INTAKE.md)."""
+    session_factory: async_sessionmaker[AsyncSession] = ctx["sessionmaker"]
+    async with session_factory() as session:
+        done = await retry_due(session, ctx["verifier"])
+    if done:
+        logger.info("arq.verification_cron, attempts=%d", done)
+
+
 # ---------------------------------------------------------------------------
 # Worker lifecycle
 # ---------------------------------------------------------------------------
@@ -117,6 +137,10 @@ async def on_startup(ctx: dict) -> None:
         # Default / test mode: FakeOFDClient + InMemoryOFDCache.
         ofd_client = FakeOFDClient()  # type: ignore[assignment]
         ofd_cache = InMemoryOFDCache()
+
+    ctx["verifier"] = get_verifier(
+        provider=provider, token=settings.PROVERKACHEKA_TOKEN, timeout=settings.OFD_TIMEOUT_SECONDS
+    )
 
     # Storage MUST match the API's backend (RECEIPT_STORAGE): otherwise photos
     # uploaded to S3/MinIO are unreadable by the worker (it would default to
@@ -161,8 +185,8 @@ class WorkerSettings:
         arq src.app.arq_worker.WorkerSettings
     """
 
-    functions = [process_receipt_task]
-    cron_jobs: list = []  # placeholder for P2 scheduled tasks (OFD retry scheduler)
+    functions = [process_receipt_task, process_qr_receipt_task]
+    cron_jobs = [cron(retry_verifications_cron, minute=set(range(0, 60, 5)), unique=True, run_at_startup=False)]
 
     on_startup = on_startup
     on_shutdown = on_shutdown

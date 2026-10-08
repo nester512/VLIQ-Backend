@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -25,10 +26,14 @@ from src.receipt.models import (
     ReceiptAttachment,
     ReceiptFileKind,
     ReceiptStatus,
+    VerificationStatus,
     attachment_kind_for_mime,
 )
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from src.receipt_intake.fiscal import FiscalData
 
 
 @dataclass(frozen=True)
@@ -150,6 +155,56 @@ def _validate_structure(attachments: list[PreparedAttachment]) -> None:
         raise PackageValidationError("attachment positions must be unique")
     if sorted(positions) != list(range(n)):
         raise PackageValidationError(f"attachment positions must be 0..{n - 1} with no gaps")
+
+
+async def create_qr_receipt(  # noqa: PLR0913
+    session: AsyncSession,
+    *,
+    seller_id: int,
+    brand_id: int,
+    data: FiscalData,
+    source: str,
+    idempotency_key: str | None = None,
+) -> tuple[Receipt, bool]:
+    """Create a receipt from validated fiscal data (QR intake — no files).
+
+    Same contract as :func:`create_receipt_package`: ``(receipt, created)``,
+    idempotent by ``idempotency_key``. The fiscal identity is known at once, so it
+    is stored immediately (duplicate warnings are exact) and the OFD check is armed.
+    """
+    receipt = Receipt(
+        seller_id=seller_id,
+        brand_id=brand_id,
+        status=ReceiptStatus.pending.value,
+        source=source,
+        qr_raw=data.canonical_qr,
+        fn=data.fn,
+        fd=data.fd,
+        fp=data.fp,
+        purchase_date=data.purchase_at.date(),
+        total_sum=data.total_sum_kop,
+        upload_idempotency_key=idempotency_key,
+        verification_status=VerificationStatus.pending.value,
+        items=[],
+        fraud_signals=[],
+        created_by=seller_id,
+    )
+    try:
+        async with session.begin():
+            if idempotency_key:
+                existing = await _find_by_idempotency_key(session, seller_id, idempotency_key)
+                if existing is not None:
+                    return existing, False
+            session.add(receipt)
+    except IntegrityError:
+        if idempotency_key:
+            existing = await _find_by_idempotency_key(session, seller_id, idempotency_key)
+            if existing is not None:
+                return existing, False
+        raise
+    await session.refresh(receipt)
+    logger.info("receipt.qr_created, receipt_id=%d, seller_id=%d, source=%s", receipt.id, seller_id, source)
+    return receipt, True
 
 
 async def _find_by_idempotency_key(session: AsyncSession, seller_id: int, key: str) -> Receipt | None:

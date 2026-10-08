@@ -35,6 +35,35 @@ class ReceiptStatus(StrEnum):
     paid_out = "paid_out"
 
 
+class ReceiptSource(StrEnum):
+    """How the seller produced the fiscal data (QR intake). NULL for legacy file uploads."""
+
+    telegram_scan = "telegram_scan"
+    camera_scan = "camera_scan"
+    image_decode = "image_decode"
+    pdf_decode = "pdf_decode"
+    manual = "manual"
+
+
+class VerificationStatus(StrEnum):
+    """Automatic OFD check of a receipt — independent of the moderation status."""
+
+    not_required = "not_required"  # legacy / no fiscal data
+    pending = "pending"  # accepted, first attempt not run yet
+    retrying = "retrying"  # an attempt failed, the cron will try again
+    verified = "verified"  # OFD returned the receipt
+    failed = "failed"  # retries exhausted — manual check only
+
+
+class VerificationOutcome(StrEnum):
+    ok = "ok"
+    not_found = "not_found"
+    invalid = "invalid"
+    rate_limited = "rate_limited"
+    error = "error"
+    blocked = "blocked"
+
+
 class ReceiptFileKind(StrEnum):
     photo = "photo"
     pdf = "pdf"
@@ -149,6 +178,17 @@ class Receipt(TimeStampedModel):
     # T4: admin internal comments — JSONB array of {author_telegram_id, text, created_at}
     admin_comments: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
 
+    # QR intake (docs/design/QR-INTAKE.md): source of the fiscal data + automatic OFD check.
+    source: Mapped[str | None] = mapped_column(String(32), default=None)
+    verification_status: Mapped[str] = mapped_column(
+        String(16), default=VerificationStatus.not_required.value, server_default="not_required", nullable=False
+    )
+    verification_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    next_verification_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
+    verified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
+    # The final («готовый») OFD answer of the successful attempt.
+    ofd_response: Mapped[dict | None] = mapped_column(JSONB, default=None)
+
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     created_by: Mapped[int | None] = mapped_column(BigInteger, default=None)
@@ -212,3 +252,27 @@ class ReceiptAttachment(IDModel):
     )
 
     receipt: Mapped[Receipt] = relationship("Receipt", back_populates="attachments")
+
+
+class ReceiptVerificationAttempt(IDModel):
+    """One OFD verification attempt (append-only history, visible to admins per receipt)."""
+
+    __tablename__ = "receipt_verification_attempt"
+    __table_args__ = {"schema": DEFAULT_SCHEMA}
+
+    receipt_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey(f"{DEFAULT_SCHEMA}.receipt.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    attempt_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    method: Mapped[str] = mapped_column(String(32), nullable=False)
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False)  # pipeline | cron | admin
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    http_status: Mapped[int | None] = mapped_column(Integer, default=None)
+    request: Mapped[dict | None] = mapped_column(JSONB, default=None)  # never contains the API token
+    response: Mapped[dict | None] = mapped_column(JSONB, default=None)
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )

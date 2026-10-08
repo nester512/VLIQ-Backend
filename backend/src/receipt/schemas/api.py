@@ -368,6 +368,13 @@ class ReceiptRead(BaseModel):
     # review card shows the real name + store instead of "Продавец #id".
     seller_name: str | None = None
     seller_store: str | None = None
+    # QR intake: where the fiscal data came from + the automatic OFD check state
+    # (history: GET /receipts/{id}/verification).
+    source: str | None = None
+    verification_status: str = "not_required"
+    verification_attempts: int = 0
+    next_verification_at: datetime | None = None
+    verified_at: datetime | None = None
     is_deleted: bool
     created_at: datetime
     updated_at: datetime | None = None

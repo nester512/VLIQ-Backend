@@ -48,6 +48,11 @@ def _make_receipt(file_url: str) -> Receipt:
     r.fraud_signals = []
     r.attachments = []
     r.admin_comments = []
+    r.source = None
+    r.verification_status = "not_required"
+    r.verification_attempts = 0
+    r.next_verification_at = None
+    r.verified_at = None
     r.is_deleted = False
     r.created_at = datetime(2025, 1, 1, 12, 0, 0)
     r.updated_at = None

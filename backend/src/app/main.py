@@ -106,7 +106,7 @@ def setup_routers(app: FastAPI) -> None:
 
 
 # Only these structured keys from AppError.extra are ever returned to the client.
-_SAFE_EXTRA_KEYS = frozenset({"existing_receipt_id"})
+_SAFE_EXTRA_KEYS = frozenset({"existing_receipt_id", "field"})
 
 # Pydantic v2 error type → localized field message (no raw English ever surfaces).
 _FIELD_ERROR_MESSAGES: dict[str, str] = {
