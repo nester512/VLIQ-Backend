@@ -6,15 +6,24 @@
 interface TgScanApi {
   showScanQrPopup?: (p: { text?: string }, cb?: (data: string) => boolean | void) => void
   closeScanQrPopup?: () => void
+  isVersionAtLeast?: (version: string) => boolean
+  platform?: string
 }
+
+// The SDK defines showScanQrPopup everywhere, but only mobile clients ≥ 6.4 can
+// scan; Desktop/Web throw WebAppMethodUnsupported or silently open nothing.
+const SCANNER_PLATFORMS = new Set(['android', 'android_x', 'ios'])
 
 function tg(): TgScanApi | undefined {
   return (window as Window & { Telegram?: { WebApp?: TgScanApi } }).Telegram?.WebApp
 }
 
-/** Telegram's native scanner — available in the mobile Telegram apps. */
+/** Telegram's native scanner — mobile Telegram apps, Bot API ≥ 6.4. */
 export function hasTelegramScanner(): boolean {
-  return typeof tg()?.showScanQrPopup === 'function'
+  const api = tg()
+  if (typeof api?.showScanQrPopup !== 'function') return false
+  if (!api.isVersionAtLeast?.('6.4')) return false
+  return SCANNER_PLATFORMS.has(api.platform ?? '')
 }
 
 /**
@@ -22,15 +31,21 @@ export function hasTelegramScanner(): boolean {
  * closes), `false` to keep scanning (e.g. someone scanned a non-receipt QR —
  * the seller just points the camera at the right one, no restart needed).
  */
-export function openTelegramScanner(text: string, onScan: (raw: string) => boolean): void {
+export function openTelegramScanner(text: string, onScan: (raw: string) => boolean): boolean {
   const api = tg()
-  api?.showScanQrPopup?.({ text }, (raw) => {
-    if (onScan(raw)) {
-      api.closeScanQrPopup?.()
-      return true
-    }
+  try {
+    api?.showScanQrPopup?.({ text }, (raw) => {
+      if (onScan(raw)) {
+        api.closeScanQrPopup?.()
+        return true
+      }
+      return false
+    })
+    return true
+  } catch {
+    // Unsupported client or a popup already open — the caller falls back.
     return false
-  })
+  }
 }
 
 export function closeTelegramScanner(): void {

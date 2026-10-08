@@ -10,40 +10,46 @@ interface CameraScannerProps {
   hint?: string | null
 }
 
-const SCAN_INTERVAL_MS = 250
+const SCAN_PAUSE_MS = 250
 
 /** Full-screen rear-camera QR scanner — the in-app fallback to Telegram's scanner. */
 export function CameraScanner({ onScan, onClose, hint }: CameraScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
   const onScanRef = useRef(onScan)
+  const onCloseRef = useRef(onClose)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     onScanRef.current = onScan
-  }, [onScan])
+    onCloseRef.current = onClose
+  }, [onScan, onClose])
+
+  // Modal: focus inside, Escape closes.
+  useEffect(() => {
+    closeRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCloseRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   useEffect(() => {
     let stream: MediaStream | null = null
-    let timer: ReturnType<typeof setInterval> | null = null
+    let timer: ReturnType<typeof setTimeout> | null = null
     let stopped = false
     const detector = createQrDetector()
+    const stopStream = () => stream?.getTracks().forEach((t) => t.stop())
 
-    async function start() {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
-      } catch {
-        setError('Нет доступа к камере. Разрешите доступ или введите данные вручную.')
-        return
-      }
-      if (stopped) return
-      const video = videoRef.current
-      if (!video || !detector) return
-      video.srcObject = stream
-      await video.play().catch(() => undefined)
-      timer = setInterval(async () => {
-        if (stopped || video.readyState < 2) return
+    // One detect at a time (a slow frame must not overlap the next), checked
+    // against `stopped` after every await so a late result never fires.
+    async function tick(video: HTMLVideoElement) {
+      if (stopped || !detector) return
+      if (video.readyState >= 2) {
         try {
           const codes = await detector.detect(video)
+          if (stopped) return
           for (const code of codes) {
             if (onScanRef.current(code.rawValue)) {
               stopped = true
@@ -53,29 +59,48 @@ export function CameraScanner({ onScan, onClose, hint }: CameraScannerProps) {
         } catch {
           /* a frame that fails to decode is normal — keep scanning */
         }
-      }, SCAN_INTERVAL_MS)
+      }
+      if (!stopped) timer = setTimeout(() => void tick(video), SCAN_PAUSE_MS)
+    }
+
+    async function start() {
+      if (!detector) {
+        setError('Камера недоступна на этом устройстве. Введите данные вручную.')
+        return
+      }
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+      } catch {
+        if (!stopped) setError('Нет доступа к камере. Разрешите доступ или введите данные вручную.')
+        return
+      }
+      const video = videoRef.current
+      if (stopped || !video) {
+        stopStream() // unmounted while the permission prompt was open
+        return
+      }
+      video.srcObject = stream
+      await video.play().catch(() => undefined)
+      if (stopped) return
+      void tick(video)
     }
 
     void start()
     return () => {
       stopped = true
-      if (timer) clearInterval(timer)
-      stream?.getTracks().forEach((t) => t.stop())
+      if (timer) clearTimeout(timer)
+      stopStream()
     }
   }, [])
 
   return (
     <div
       role="dialog"
+      aria-modal="true"
       aria-label="Сканирование QR-кода"
       style={{ position: 'fixed', inset: 0, zIndex: 100, background: '#000', display: 'flex', flexDirection: 'column' }}
     >
-      <video
-        ref={videoRef}
-        playsInline
-        muted
-        style={{ flex: 1, width: '100%', objectFit: 'cover', minHeight: 0 }}
-      />
+      <video ref={videoRef} playsInline muted style={{ flex: 1, width: '100%', objectFit: 'cover', minHeight: 0 }} />
       <div
         aria-hidden
         style={{
@@ -92,6 +117,7 @@ export function CameraScanner({ onScan, onClose, hint }: CameraScannerProps) {
           </p>
         )}
         <button
+          ref={closeRef}
           type="button"
           onClick={onClose}
           style={{

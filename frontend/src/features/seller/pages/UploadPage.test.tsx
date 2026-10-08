@@ -42,11 +42,14 @@ type ScanCb = (data: string) => boolean | void
 let scanCb: ScanCb | null = null
 const closeScanQrPopup = vi.fn()
 
-function installTelegram() {
+function installTelegram(over: Record<string, unknown> = {}) {
   ;(window as unknown as { Telegram: unknown }).Telegram = {
     WebApp: {
       showScanQrPopup: (_p: unknown, cb: ScanCb) => { scanCb = cb },
       closeScanQrPopup,
+      isVersionAtLeast: () => true,
+      platform: 'android',
+      ...over,
     },
   }
 }
@@ -125,7 +128,7 @@ describe('UploadPage — scan with the Telegram scanner', () => {
     expect(payload).toMatchObject({
       brand_id: 3, source: 'telegram_scan', fn: FN, fd: '12345', fp: '3826178549', t: today().t, s: '1450.00', n: 1,
     })
-    expect(payload.idempotency_key).toMatch(new RegExp(`:${FN}:12345:3826178549$`))
+    expect(payload.idempotency_key).toMatch(new RegExp(`:${FN}:12345:3826178549:[0-9a-f]{8}$`))
     expect(payload).not.toHaveProperty('files')
   })
 
@@ -150,7 +153,7 @@ describe('UploadPage — scan with the Telegram scanner', () => {
 describe('UploadPage — manual entry', () => {
   function fill(values: Partial<Record<'Дата' | 'Время' | 'Сумма' | 'ФН' | 'ФД' | 'ФП', string>>) {
     for (const [label, value] of Object.entries(values)) {
-      fireEvent.change(screen.getByLabelText(label), { target: { value } })
+      fireEvent.change(screen.getByLabelText(new RegExp(`^${label}`)), { target: { value } })
     }
   }
 
@@ -192,7 +195,7 @@ describe('UploadPage — manual entry', () => {
     fireEvent.click(await screen.findByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Отправить на проверку' }))
 
-    expect(await screen.findByLabelText('ФП')).toHaveValue('3826178549') // prefilled form
+    expect(await screen.findByLabelText(/^ФП/)).toHaveValue('3826178549') // prefilled form
     expect(screen.getAllByText('ФП — число до 10 цифр').length).toBeGreaterThan(0)
     expect(navigate).not.toHaveBeenCalled()
   })
@@ -204,5 +207,66 @@ describe('UploadPage — outside the Telegram app', () => {
     expect(screen.queryByRole('button', { name: /Сканировать QR-код/ })).not.toBeInTheDocument()
     expect(screen.getByText(/Сканер QR доступен в мобильном приложении Telegram/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Ввести вручную/ })).toBeInTheDocument()
+  })
+})
+
+
+describe('UploadPage — review fixes', () => {
+  it('Telegram Desktop (no mobile scanner) is not offered the Telegram scanner', () => {
+    installTelegram({ platform: 'tdesktop' })
+    renderPage()
+    expect(screen.queryByRole('button', { name: /Сканировать QR-код/ })).not.toBeInTheDocument()
+  })
+
+  it('a client below Bot API 6.4 is not offered the Telegram scanner', () => {
+    installTelegram({ isVersionAtLeast: () => false })
+    renderPage()
+    expect(screen.queryByRole('button', { name: /Сканировать QR-код/ })).not.toBeInTheDocument()
+  })
+
+  it('a throwing scanner does not break the page — the seller is told and can enter data', async () => {
+    installTelegram({ showScanQrPopup: () => { throw new Error('WebAppScanQrPopupOpened') } })
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: /Сканировать QR-код/ }))
+    expect(await screen.findByText(/Сканер недоступен на этом устройстве/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Ввести вручную/ })).toBeInTheDocument()
+  })
+
+  it('a fast double tap sends one request', async () => {
+    installTelegram()
+    let resolve: (v: unknown) => void = () => {}
+    submitQrReceipt.mockReturnValue(new Promise((r) => { resolve = r }))
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: /Сканировать QR-код/ }))
+    scanCb!(goodQr())
+    fireEvent.click(await screen.findByRole('checkbox'))
+    const send = screen.getByRole('button', { name: 'Отправить на проверку' })
+    fireEvent.click(send)
+    fireEvent.click(send)
+    resolve({ id: '9', warnings: [] })
+    await waitFor(() => expect(navigate).toHaveBeenCalledTimes(1))
+    expect(submitQrReceipt).toHaveBeenCalledTimes(1)
+  })
+
+  it('«Исправить» keeps the scanned seconds when date/time are unchanged', async () => {
+    installTelegram()
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: /Сканировать QR-код/ }))
+    scanCb!(goodQr().replace(`t=${today().t}`, `t=${today().t}07`))
+    fireEvent.click(await screen.findByRole('button', { name: 'Исправить' }))
+    fireEvent.change(screen.getByLabelText(/^Сумма/), { target: { value: '1500' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Проверить' }))
+    fireEvent.click(await screen.findByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить на проверку' }))
+    await waitFor(() => expect(submitQrReceipt).toHaveBeenCalled())
+    expect(submitQrReceipt.mock.calls[0]![0]).toMatchObject({ t: `${today().t}07`, s: '1500.00' })
+  })
+
+  it('Enter in the manual form validates (it is a real form)', async () => {
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: /Ввести вручную/ }))
+    fireEvent.submit(screen.getByLabelText(/^ФН/).closest('form')!)
+    expect((await screen.findAllByText('Заполните поле')).length).toBe(6)
+    expect(screen.getByLabelText(/^ФН/)).toHaveAttribute('aria-invalid', 'true')
   })
 })

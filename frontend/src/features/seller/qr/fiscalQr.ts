@@ -110,6 +110,6 @@ export const purchaseDateMsk = (d: FiscalData) => new Date(d.purchaseAt.getTime(
 export const isTooOld = (d: FiscalData, now: Date = new Date()) =>
   now.getTime() - d.purchaseAt.getTime() > MAX_AGE_DAYS * 86_400_000
 
-/** Build `t` from manual-entry inputs: date `YYYY-MM-DD` + time `HH:MM`. */
-export const tFromInputs = (date: string, time: string) =>
-  `${date.replaceAll('-', '')}T${time.replace(':', '').slice(0, 4)}`
+/** Build `t` from manual-entry inputs: date `YYYY-MM-DD` + time `HH:MM` (+ optional seconds `SS`). */
+export const tFromInputs = (date: string, time: string, seconds = '') =>
+  `${date.replace(/-/g, '')}T${time.replace(':', '').slice(0, 4)}${/^\d{2}$/.test(seconds) ? seconds : ''}`

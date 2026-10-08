@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Icon } from '@/components/atoms/Icon'
@@ -52,7 +52,17 @@ interface ManualValues {
   fp: string
 }
 
+/** Seconds of a scanned `t` (not editable): kept when «Исправить» leaves date/time as scanned,
+ *  so the corrected data still matches the QR the OFD knows. */
+interface ManualSeed {
+  values: ManualValues
+  seconds: string
+}
+
+type InputKey = keyof ManualValues
+const INPUT_KEYS: InputKey[] = ['date', 'time', 'sum', 'fn', 'fd', 'fp']
 const EMPTY_MANUAL: ManualValues = { date: '', time: '', sum: '', fn: '', fd: '', fp: '' }
+const EMPTY_SEED: ManualSeed = { values: EMPTY_MANUAL, seconds: '' }
 
 const SOURCE_LABEL: Record<ReceiptSource, string> = {
   telegram_scan: 'Сканер Telegram',
@@ -62,22 +72,31 @@ const SOURCE_LABEL: Record<ReceiptSource, string> = {
   manual: 'Ручной ввод',
 }
 
-/** Server/validator field → manual-form field. */
-const FIELD_TO_INPUT: Partial<Record<FiscalField, keyof ManualValues>> = {
-  fn: 'fn', fd: 'fd', fp: 'fp', s: 'sum', t: 'date',
+/** Server/validator field → manual-form fields it concerns. */
+const FIELD_TO_INPUTS: Partial<Record<FiscalField, InputKey[]>> = {
+  fn: ['fn'], fd: ['fd'], fp: ['fp'], s: ['sum'], t: ['date', 'time'],
+}
+
+function errorsFor(field: FiscalField, message: string): Partial<Record<InputKey, string>> {
+  const out: Partial<Record<InputKey, string>> = {}
+  for (const key of FIELD_TO_INPUTS[field] ?? ['fn']) out[key] = message
+  return out
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-function manualFromData(d: FiscalData): ManualValues {
+function seedFromData(d: FiscalData): ManualSeed {
   const msk = new Date(d.purchaseAt.getTime() + 3 * 3600_000)
   return {
-    date: purchaseDateMsk(d),
-    time: `${pad(msk.getUTCHours())}:${pad(msk.getUTCMinutes())}`,
-    sum: (d.totalKop / 100).toFixed(2),
-    fn: d.fn,
-    fd: d.fd,
-    fp: d.fp,
+    values: {
+      date: purchaseDateMsk(d),
+      time: `${pad(msk.getUTCHours())}:${pad(msk.getUTCMinutes())}`,
+      sum: (d.totalKop / 100).toFixed(2),
+      fn: d.fn,
+      fd: d.fd,
+      fp: d.fp,
+    },
+    seconds: d.t.length === 15 ? d.t.slice(13) : '',
   }
 }
 
@@ -121,58 +140,85 @@ function ActionCard({ icon, title, text, onClick, primary = false }: {
   )
 }
 
-function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: ReactNode }) {
-  return (
-    <label style={{ display: 'block' }}>
-      <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--vliq-text)', marginBottom: 6 }}>{label}</span>
-      {children}
-      {error ? (
-        <span role="alert" style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--color-dg)', marginTop: 5 }}>{error}</span>
-      ) : hint ? (
-        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--vliq-hint)', marginTop: 5 }}>{hint}</span>
-      ) : null}
-    </label>
-  )
-}
-
 const inputStyle = (invalid: boolean) => ({
   width: '100%', padding: '12px 14px', borderRadius: 14, fontSize: 15, fontWeight: 600, fontFamily: 'inherit',
   background: 'var(--vliq-field)', color: 'var(--vliq-text)', outline: 'none',
   border: invalid ? '1.5px solid var(--color-dg)' : '1.5px solid transparent',
 })
 
-function ManualForm({ initial, serverErrors, onDone, onCancel }: {
-  initial: ManualValues
-  serverErrors: Partial<Record<keyof ManualValues, string>>
+interface FieldProps {
+  id: InputKey
+  label: string
+  hint?: string
+  error?: string
+  value: string
+  onChange: (value: string) => void
+  type?: 'text' | 'date' | 'time'
+  inputMode?: 'numeric' | 'decimal'
+  placeholder?: string
+}
+
+/** Labelled input; the hint/error is linked via aria-describedby and marks aria-invalid. */
+function Field({ id, label, hint, error, value, onChange, type = 'text', inputMode, placeholder }: FieldProps) {
+  const inputId = `qr-${id}`
+  const noteId = `${inputId}-note`
+  return (
+    <div>
+      <label htmlFor={inputId} style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--vliq-text)', marginBottom: 6 }}>
+        {label}
+      </label>
+      <input
+        id={inputId}
+        type={type}
+        inputMode={inputMode}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error || hint ? noteId : undefined}
+        style={inputStyle(Boolean(error))}
+      />
+      {error ? (
+        <span id={noteId} role="alert" style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--color-dg)', marginTop: 5 }}>{error}</span>
+      ) : hint ? (
+        <span id={noteId} style={{ display: 'block', fontSize: 11.5, color: 'var(--vliq-hint)', marginTop: 5 }}>{hint}</span>
+      ) : null}
+    </div>
+  )
+}
+
+function ManualForm({ seed, serverErrors, onDone, onCancel }: {
+  seed: ManualSeed
+  serverErrors: Partial<Record<InputKey, string>>
   onDone: (data: FiscalData) => void
   onCancel: () => void
 }) {
-  const [v, setV] = useState(initial)
-  const [errors, setErrors] = useState<Partial<Record<keyof ManualValues, string>>>(serverErrors)
-  const set = (k: keyof ManualValues) => (e: { target: { value: string } }) => {
-    setV((prev) => ({ ...prev, [k]: e.target.value }))
+  const [v, setV] = useState(seed.values)
+  const [errors, setErrors] = useState<Partial<Record<InputKey, string>>>(serverErrors)
+  const set = (k: InputKey) => (value: string) => {
+    setV((prev) => ({ ...prev, [k]: value }))
     setErrors((prev) => ({ ...prev, [k]: undefined }))
   }
 
-  function submit() {
-    const missing: Partial<Record<keyof ManualValues, string>> = {}
-    for (const k of Object.keys(EMPTY_MANUAL) as Array<keyof ManualValues>) {
-      if (!v[k].trim()) missing[k] = 'Заполните поле'
-    }
+  function submit(e: FormEvent) {
+    e.preventDefault()
+    const missing: Partial<Record<InputKey, string>> = {}
+    for (const k of INPUT_KEYS) if (!v[k].trim()) missing[k] = 'Заполните поле'
     if (Object.keys(missing).length) {
       setErrors(missing)
       return
     }
-    const r = validateFields({ fn: v.fn, fd: v.fd, fp: v.fp, t: tFromInputs(v.date, v.time), s: v.sum, n: 1 })
+    const sameMoment = v.date === seed.values.date && v.time === seed.values.time
+    const r = validateFields({ fn: v.fn, fd: v.fd, fp: v.fp, t: tFromInputs(v.date, v.time, sameMoment ? seed.seconds : ''), s: v.sum, n: 1 })
     if (!r.ok) {
-      setErrors({ [FIELD_TO_INPUT[r.error.field] ?? 'fn']: r.error.message })
+      setErrors(errorsFor(r.error.field, r.error.message))
       return
     }
     onDone(r.data)
   }
 
   return (
-    <div className="vliq-card" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <form onSubmit={submit} noValidate className="vliq-card" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div>
         <b style={{ fontSize: 16, fontWeight: 800, color: 'var(--vliq-text)' }}>Данные с чека</b>
         <p style={{ fontSize: 12.5, color: 'var(--vliq-hint)', marginTop: 4 }}>
@@ -180,32 +226,20 @@ function ManualForm({ initial, serverErrors, onDone, onCancel }: {
         </p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <Field label="Дата" error={errors.date}>
-          <input type="date" aria-label="Дата" value={v.date} onChange={set('date')} style={inputStyle(Boolean(errors.date))} />
-        </Field>
-        <Field label="Время" error={errors.time}>
-          <input type="time" aria-label="Время" value={v.time} onChange={set('time')} style={inputStyle(Boolean(errors.time))} />
-        </Field>
+        <Field id="date" label="Дата" type="date" value={v.date} onChange={set('date')} error={errors.date} />
+        <Field id="time" label="Время" type="time" value={v.time} onChange={set('time')} error={errors.time} />
       </div>
-      <Field label="Сумма (ИТОГ), ₽" error={errors.sum}>
-        <input inputMode="decimal" aria-label="Сумма" placeholder="1450.00" value={v.sum} onChange={set('sum')} style={inputStyle(Boolean(errors.sum))} />
-      </Field>
-      <Field label="ФН" hint="16 цифр" error={errors.fn}>
-        <input inputMode="numeric" aria-label="ФН" placeholder="9960440300712345" value={v.fn} onChange={set('fn')} style={inputStyle(Boolean(errors.fn))} />
-      </Field>
+      <Field id="sum" label="Сумма (ИТОГ), ₽" inputMode="decimal" placeholder="1450.00" value={v.sum} onChange={set('sum')} error={errors.sum} />
+      <Field id="fn" label="ФН" hint="16 цифр" inputMode="numeric" placeholder="9960440300712345" value={v.fn} onChange={set('fn')} error={errors.fn} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <Field label="ФД" hint="№ документа" error={errors.fd}>
-          <input inputMode="numeric" aria-label="ФД" value={v.fd} onChange={set('fd')} style={inputStyle(Boolean(errors.fd))} />
-        </Field>
-        <Field label="ФП / ФПД" hint="до 10 цифр" error={errors.fp}>
-          <input inputMode="numeric" aria-label="ФП" value={v.fp} onChange={set('fp')} style={inputStyle(Boolean(errors.fp))} />
-        </Field>
+        <Field id="fd" label="ФД" hint="№ документа" inputMode="numeric" value={v.fd} onChange={set('fd')} error={errors.fd} />
+        <Field id="fp" label="ФП" hint="ФП / ФПД, до 10 цифр" inputMode="numeric" value={v.fp} onChange={set('fp')} error={errors.fp} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <Btn variant="ghost" onClick={onCancel}>Назад</Btn>
-        <Btn onClick={submit}>Проверить</Btn>
+        <Btn type="button" variant="ghost" onClick={onCancel}>Назад</Btn>
+        <Btn type="submit">Проверить</Btn>
       </div>
-    </div>
+    </form>
   )
 }
 
@@ -227,8 +261,10 @@ function UploadContent() {
 
   const [step, setStep] = useState<Step>('start')
   const [captured, setCaptured] = useState<Captured | null>(null)
-  const [manualInitial, setManualInitial] = useState<ManualValues>(EMPTY_MANUAL)
-  const [serverErrors, setServerErrors] = useState<Partial<Record<keyof ManualValues, string>>>({})
+  const [manualSeed, setManualSeed] = useState<ManualSeed>(EMPTY_SEED)
+  const [serverErrors, setServerErrors] = useState<Partial<Record<InputKey, string>>>({})
+  // A second fast tap lands before `isPending` re-renders the button disabled.
+  const sendingRef = useRef(false)
   const [scanHint, setScanHint] = useState<string | null>(null)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
@@ -265,34 +301,41 @@ function UploadContent() {
 
   function scan() {
     setError(null)
-    if (telegramScanner) {
-      openTelegramScanner('Наведите камеру на QR-код чека', (raw) => handleScan(raw, 'telegram_scan'))
-    } else if (cameraScanner) {
+    setScanHint(null)
+    lastRejectedRef.current = null
+    if (telegramScanner && openTelegramScanner('Наведите камеру на QR-код чека', (raw) => handleScan(raw, 'telegram_scan'))) {
+      return
+    }
+    if (cameraScanner) {
       setCameraOpen(true)
+    } else {
+      setScanHint('Сканер недоступен на этом устройстве')
     }
   }
 
   async function send() {
-    if (!captured || !confirmed) return
+    if (!captured || !confirmed || sendingRef.current) return
+    sendingRef.current = true
     setError(null)
     try {
       const res = await submit({ ...captured, brandId: profile?.brand_id })
       navigate(`/seller/status/${res.id}`)
     } catch (err) {
       const e = extractApiError(err)
-      const fieldErrors: Partial<Record<keyof ManualValues, string>> = {}
+      let fieldErrors: Partial<Record<InputKey, string>> = {}
       for (const [field, message] of Object.entries(e.fieldErrors ?? {})) {
-        const input = FIELD_TO_INPUT[field as FiscalField]
-        if (input) fieldErrors[input] = message
+        if (FIELD_TO_INPUTS[field as FiscalField]) fieldErrors = { ...fieldErrors, ...errorsFor(field as FiscalField, message) }
       }
       if (Object.keys(fieldErrors).length) {
         // The server disagrees with the data: let the seller fix it in the form.
         setServerErrors(fieldErrors)
-        setManualInitial(manualFromData(captured.data))
+        setManualSeed(seedFromData(captured.data))
         setStep('manual')
       }
       setError(e.userMessage || 'Не удалось отправить чек. Попробуйте ещё раз.')
       pushToast(e.userMessage || 'Не удалось отправить чек', 'dg')
+    } finally {
+      sendingRef.current = false
     }
   }
 
@@ -326,7 +369,7 @@ function UploadContent() {
             text="Если QR не читается: дата, сумма, ФН, ФД, ФП"
             onClick={() => {
               setServerErrors({})
-              setManualInitial(EMPTY_MANUAL)
+              setManualSeed(EMPTY_SEED)
               setStep('manual')
             }}
           />
@@ -343,8 +386,8 @@ function UploadContent() {
 
       {step === 'manual' && (
         <ManualForm
-          key={JSON.stringify(manualInitial) + JSON.stringify(serverErrors)}
-          initial={manualInitial}
+          key={JSON.stringify(manualSeed) + JSON.stringify(serverErrors)}
+          seed={manualSeed}
           serverErrors={serverErrors}
           onDone={(data) => accept(data, 'manual')}
           onCancel={() => setStep(captured ? 'confirm' : 'start')}
@@ -399,17 +442,19 @@ function UploadContent() {
             {alreadySent ? 'Отправить повторно' : 'Отправить на проверку'}
           </Btn>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {/* Locked while sending: a late response must not remount a form being edited. */}
             <Btn
               variant="ghost"
+              disabled={isPending}
               onClick={() => {
                 setServerErrors({})
-                setManualInitial(manualFromData(captured.data))
+                setManualSeed(seedFromData(captured.data))
                 setStep('manual')
               }}
             >
               Исправить
             </Btn>
-            <Btn variant="ghost" onClick={() => { setCaptured(null); setStep('start') }}>
+            <Btn variant="ghost" disabled={isPending} onClick={() => { setCaptured(null); setStep('start') }}>
               Другой чек
             </Btn>
           </div>
