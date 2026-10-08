@@ -140,6 +140,32 @@ export const getMyReceipts = (filters: ReceiptsFilters = {}): Promise<Receipt[]>
     .then((r) => r.data.items.map(mapReceipt))
 }
 
+export interface ReceiptsPage {
+  items: Receipt[]
+  total: number
+  page: number
+  has_more: boolean
+}
+
+/**
+ * Seller-facing paged list — like getMyReceipts but preserves total / has_more
+ * so callers can paginate (infinite scroll / load-more) and show the real count.
+ */
+export const getMyReceiptsPage = (filters: ReceiptsFilters = {}): Promise<ReceiptsPage> => {
+  const params: Record<string, string | number> = {}
+  if (filters.status) params['status'] = filters.status
+  if (filters.limit != null) params['limit'] = filters.limit
+  if (filters.page != null) params['page'] = filters.page
+  return api
+    .get<PagedResponse<BackendReceipt>>('/sellers/me/receipts', { params })
+    .then((r) => ({
+      items: r.data.items.map(mapReceipt),
+      total: r.data.total,
+      page: r.data.page,
+      has_more: r.data.has_more,
+    }))
+}
+
 export const getReceipt = (id: string) =>
   api.get<BackendReceipt>(`/receipts/${id}`).then((r) => mapReceipt(r.data))
 
@@ -205,6 +231,10 @@ export const uploadReceiptPackage = (
   return api
     .post<BackendReceiptUpload>('/receipts/upload', formData, {
       headers: { 'Content-Type': null },
+      // Receipt photos are multi-MB files uploaded over mobile links, where the
+      // shared 15s JSON timeout aborts a still-progressing upload (ECONNABORTED →
+      // "Сервер не ответил вовремя"). Give the upload a much larger budget.
+      timeout: 120_000,
       onUploadProgress: opts.onProgress
         ? (e) => {
             const total = e.total ?? 0
