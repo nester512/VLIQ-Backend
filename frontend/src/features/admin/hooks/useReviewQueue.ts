@@ -30,6 +30,15 @@ export function useReviewQueue() {
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.page + 1 : undefined,
     staleTime: 30_000,
+    // The deck consumes a per-session snapshot; freshness comes on re-entry
+    // (ReviewPage removes this query on unmount, so the next mount fetches from
+    // scratch and shows the skeleton, never stale cards). Disabling automatic
+    // mid-session refetch keeps the deck stable while the admin works; the deck
+    // itself is refetch-safe now (id-based consumption), so this is belt-and-
+    // suspenders rather than load-bearing.
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 }
 
@@ -54,13 +63,10 @@ export function useSwipeAction() {
       return reviseReceipt(id, comment ?? '')
     },
     onSuccess: (_, { dir }) => {
-      // Do NOT invalidate ['admin','review-queue'] here. The SwipeDeck walks a
-      // session-local `deckIdx` that increments on each swipe; refetching the
-      // queue removes the just-actioned receipt (it leaves `on_review`), so the
-      // list shrank by one WHILE deckIdx advanced by one — consuming two cards
-      // per swipe and making the rest "disappear" as if the queue ended.
-      // The local index already hides swiped cards; fresh receipts arrive via
-      // fetchNextPage / staleTime refetch on re-entry.
+      // No need to invalidate ['admin','review-queue'] here: the deck hides the
+      // just-swiped card locally by receipt id, and fresh receipts arrive via
+      // fetchNextPage or on re-entry. (A mid-session refetch would be harmless
+      // now that the deck is id-based, but it is unnecessary traffic.)
       queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] })
       // The per-seller receipts list (['admin','seller-receipts',<id>]) is a
       // SEPARATE query from the deck — it is NOT walked by deckIdx, so refreshing

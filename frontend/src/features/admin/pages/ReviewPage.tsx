@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { SwipeDeck } from '@/components/organisms/SwipeDeck'
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
@@ -23,6 +23,26 @@ function ReviewContent() {
 
   const receipts = flattenReceiptPages(data)
 
+  // Capture the backlog total ONCE per session so the deck's "N / total"
+  // counter has a STABLE denominator. Detail-sheet actions refetch the queue
+  // and shrink the live on_review total, which would otherwise desync against
+  // the cumulative session numerator and prematurely pin the counter to N/N.
+  // Resets on re-entry (this component remounts per route).
+  const rawReviewTotal = data?.pages?.[0]?.total
+  // Hold the FIRST backlog total this session stable (useState, captured once
+  // via effect — never read/write a ref during render). Detail-sheet actions
+  // refetch and shrink the live on_review total, which would otherwise desync
+  // the cumulative session numerator and prematurely pin the counter to N/N.
+  // Resets on re-entry (this component remounts per route).
+  const [capturedTotal, setCapturedTotal] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    if (capturedTotal === undefined && typeof rawReviewTotal === 'number') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- capture-once
+      setCapturedTotal(rawReviewTotal)
+    }
+  }, [rawReviewTotal, capturedTotal])
+  const reviewTotal = capturedTotal ?? rawReviewTotal
+
   // Local state for the reject reason sheet
   const [rejectingReceiptId, setRejectingReceiptId] = useState<string | null>(null)
   const [rejectError, setRejectError] = useState<string | null>(null)
@@ -33,6 +53,16 @@ function ReviewContent() {
   // mutation was rejected (e.g. 409: the receipt changed status under the admin),
   // leaving it gone in a false-success state.
   const [undoTrigger, setUndoTrigger] = useState(0)
+
+  // Keeping the review-queue cache across re-entry would re-show already-checked
+  // cards during the background refetch (and let them be swiped into a 409).
+  // Drop the query on unmount so reopening starts fresh (skeleton → refetch),
+  // which is what makes checked receipts actually leave the deck on re-entry.
+  useEffect(() => {
+    return () => {
+      queryClient.removeQueries({ queryKey: ['admin', 'review-queue'] })
+    }
+  }, [queryClient])
 
   const handleSwipe = useCallback(
     (id: string, dir: SwipeDirection) => {
@@ -60,16 +90,12 @@ function ReviewContent() {
           // The localized toast is dispatched by useSwipeAction's mutation-level
           // onError — this per-call handler only repairs the optimistic UI so we
           // don't double-toast.
-          onError: (err: unknown) => {
-            const { status } = extractApiError(err)
+          onError: () => {
             // The SwipeDeck already advanced optimistically. The action failed,
-            // so roll that advance back and re-show the card. On a 409 the card's
-            // status changed under the admin — refetch the queue so the stale
-            // card is replaced with fresh data rather than re-shown indefinitely.
+            // so roll that advance back and re-show the card. No mid-session
+            // review-queue refetch here — the stale card is refreshed on
+            // re-entry (the query is removed on unmount).
             setUndoTrigger((t) => t + 1)
-            if (status === 409) {
-              void queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
-            }
           },
         },
       )
@@ -78,7 +104,7 @@ function ReviewContent() {
         void fetchNextPage()
       }
     },
-    [swipeAction, receipts, hasNextPage, fetchNextPage, queryClient, pushToast],
+    [swipeAction, receipts, hasNextPage, fetchNextPage, pushToast],
   )
 
   const handleTap = useCallback(
@@ -107,12 +133,11 @@ function ReviewContent() {
           const { userMessage, status } = extractApiError(err)
           setRejectError(userMessage)
           pushToast(userMessage, 'dg')
-          // On a 409 the receipt changed status under the admin (already
-          // actioned elsewhere) — roll back the optimistic deck advance and
-          // refetch so the stale card isn't left gone in a false-success state.
+          // On a 409 the receipt changed status under the admin — roll back the
+          // optimistic advance. No mid-session review-queue refetch (it would skip
+          // unprocessed cards); the stale card is refreshed on re-entry.
           if (status === 409) {
             setUndoTrigger((t) => t + 1)
-            void queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
           }
         },
       },
@@ -142,13 +167,11 @@ function ReviewContent() {
           setApprovingReceiptId(null)
           prefetchIfNearEnd(id)
         },
-        onError: (err: unknown) => {
-          const { status } = extractApiError(err)
+        onError: () => {
+          // Roll back the advance. No mid-session review-queue refetch (skip hazard);
+          // refreshed on re-entry.
           setApprovingReceiptId(null)
           setUndoTrigger((t) => t + 1)
-          if (status === 409) {
-            void queryClient.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
-          }
         },
       },
     )
@@ -171,6 +194,7 @@ function ReviewContent() {
           onTap={handleTap}
           isLoading={isLoading || isFetchingNextPage}
           undoTrigger={undoTrigger}
+          totalCount={reviewTotal}
         />
       </div>
       <RejectReasonSheet

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion'
 import type { TargetAndTransition } from 'framer-motion'
 import { Icon } from '@/components/atoms/Icon'
@@ -422,43 +422,69 @@ export interface SwipeDeckProps {
   /** Increment to undo the most recent swipe (used when admin cancels the
    *  reject/revise modal — the card should reappear at top of deck). */
   undoTrigger?: number
+  /** Server-side total of the review queue (all on_review). Denominator for
+   *  the "N / total" counter; falls back to the loaded count when omitted. */
+  totalCount?: number
 }
 
-export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0 }: SwipeDeckProps) {
-  const [deckIdx, setDeckIdx] = useState(0)
+export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0, totalCount }: SwipeDeckProps) {
+  // Consume the queue by receipt ID, not by positional index. A positional
+  // index silently SKIPS cards whenever the list shrinks from the front — which
+  // happens on any mid-session refetch (window focus, a detail-sheet action, a
+  // 409). With an id set, already-actioned cards are filtered out regardless of
+  // list order, so refetches are safe and nothing is skipped. orderRef is the
+  // undo stack (most-recently-actioned id on top).
+  const [processedIds, setProcessedIds] = useState<Set<string>>(() => new Set())
+  const orderRef = useRef<Array<{ id: string; dir: SwipeDirection }>>([])
   const [processed, setProcessed] = useState({ approve: 0, reject: 0, revise: 0 })
 
-  // Watch external undoTrigger; on increment, step deckIdx back by one so the
-  // card the user just swiped away comes back into view.
-  // Also clamp deckIdx if the underlying list shrank (after refetch).
+  const pending = useMemo(
+    () => receipts.filter((r) => !processedIds.has(r.id)),
+    [receipts, processedIds],
+  )
+
+  // Watch external undoTrigger; on increment, un-process the most recently
+  // actioned card so it returns to the top of the deck. No positional clamp is
+  // needed any more — id-based consumption is inherently refetch-safe.
   // Controlled-component pattern: parent owns the undo signal, child reacts.
   const lastUndoRef = useRef(undoTrigger)
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (undoTrigger !== lastUndoRef.current) {
       lastUndoRef.current = undoTrigger
-      setDeckIdx((i) => Math.max(0, i - 1))
+      const last = orderRef.current.pop()
+      if (last !== undefined) {
+        setProcessedIds((prev) => {
+          const next = new Set(prev)
+          next.delete(last.id)
+          return next
+        })
+        // Roll back the summary stat too, else a cancelled reject/approve sheet
+        // or a 409 rollback over-counts in the DoneState summary.
+        setProcessed((prev) => ({ ...prev, [last.dir]: Math.max(0, prev[last.dir] - 1) }))
+      }
     }
-    setDeckIdx((i) => Math.min(i, receipts.length))
-  }, [undoTrigger, receipts.length])
-  /* eslint-enable react-hooks/set-state-in-effect */
+  }, [undoTrigger])
 
   const handleSwipe = useCallback(
     (dir: SwipeDirection) => {
-      const current = receipts[deckIdx]
+      const current = pending[0]
       if (!current) return
       setProcessed((prev) => ({ ...prev, [dir]: prev[dir] + 1 }))
       onSwipe(current.id, dir)
-      setDeckIdx((i) => i + 1)
+      orderRef.current.push({ id: current.id, dir })
+      setProcessedIds((prev) => new Set(prev).add(current.id))
     },
-    [receipts, deckIdx, onSwipe],
+    [pending, onSwipe],
   )
 
-  const remaining = receipts.length - deckIdx
+  const remaining = pending.length
+  // Show the real backlog size (server total of on_review), not just how many
+  // pages happen to be loaded — otherwise the counter is stuck at e.g. 20/20.
+  const totalForCounter = totalCount ?? receipts.length
   const isDone = !isLoading && remaining <= 0
   const visibleCount = Math.min(3, remaining)
-  const visibleReceipts = receipts.slice(deckIdx, deckIdx + visibleCount)
-  const currentReceipt = receipts[deckIdx]
+  const visibleReceipts = pending.slice(0, visibleCount)
+  const currentReceipt = pending[0]
 
   if (isLoading && receipts.length === 0) {
     return (
@@ -515,7 +541,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
       <DoneState
         processed={processed}
         isInitiallyEmpty={isInitiallyEmpty}
-        onReset={() => { setDeckIdx(0); setProcessed({ approve: 0, reject: 0, revise: 0 }) }}
+        onReset={() => { orderRef.current = []; setProcessedIds(new Set()); setProcessed({ approve: 0, reject: 0, revise: 0 }) }}
       />
     )
   }
@@ -554,7 +580,9 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
           </p>
         </div>
         <span style={{ flex: 'none', fontSize: 13, fontWeight: 700, color: 'var(--vliq-hint)', marginTop: 4 }}>
-          {isLoading ? '…' : `${Math.min(deckIdx + 1, receipts.length)} / ${receipts.length}`}
+          <span data-testid="deck-counter">
+            {isLoading ? '…' : `${Math.min(processedIds.size + 1, totalForCounter)} / ${totalForCounter}`}
+          </span>
         </span>
       </div>
 

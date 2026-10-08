@@ -130,8 +130,8 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
         // Actualize regardless of outcome — success OR a 409 conflict from a
         // stale-state race (e.g. an approve still in-flight, then a reject): refetch
         // the deck + seller list so the UI shows the TRUE current status, then close.
-        // This is the detail-sheet path, NOT an in-deck swipe (deckIdx untouched), so
-        // refetching the review queue here is safe and never double-consumes a card.
+        // Refetching the review queue here is safe: the deck consumes by receipt id
+        // (not by positional index), so a front-shrink never skips a card.
         onSettled: () => {
           setApproveBonusOpen(false)
           setRejectReasonOpen(false)
