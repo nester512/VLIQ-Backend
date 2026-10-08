@@ -36,7 +36,7 @@ from src.ofd_client.proverkacheka import ProverkachekaClient
 from src.payout_request import models as _payout_models  # noqa: F401
 from src.promotion import models as _promo_models  # noqa: F401
 from src.receipt import models as _receipt_models  # noqa: F401
-from src.receipt_intake.pipeline import process_qr_receipt
+from src.receipt_intake.pipeline import process_qr_receipt, stuck_pending_ids
 from src.receipt_ocr.qr_extractor import QRExtractor
 from src.receipt_ocr.storage import get_receipt_storage
 from src.receipt_pipeline.orchestrator import ReceiptPipelineOrchestrator
@@ -97,9 +97,11 @@ async def process_qr_receipt_task(ctx: dict, receipt_id: int) -> None:
 
 
 async def retry_verifications_cron(ctx: dict) -> None:
-    """Every 5 minutes: one more OFD attempt for each due receipt (docs/design/QR-INTAKE.md)."""
+    """Every 5 minutes: re-run lost intake jobs, then one more OFD attempt per due receipt."""
     session_factory: async_sessionmaker[AsyncSession] = ctx["sessionmaker"]
     async with session_factory() as session:
+        for receipt_id in await stuck_pending_ids(session):
+            await process_qr_receipt(session, receipt_id, ctx["verifier"])
         done = await retry_due(session, ctx["verifier"])
     if done:
         logger.info("arq.verification_cron, attempts=%d", done)
@@ -186,7 +188,10 @@ class WorkerSettings:
     """
 
     functions = [process_receipt_task, process_qr_receipt_task]
-    cron_jobs = [cron(retry_verifications_cron, minute=set(range(0, 60, 5)), unique=True, run_at_startup=False)]
+    cron_jobs = [
+        # timeout > CRON_TIME_BUDGET_S + one provider call: the batch stops itself in time.
+        cron(retry_verifications_cron, minute=set(range(0, 60, 5)), unique=True, run_at_startup=False, timeout=300)
+    ]
 
     on_startup = on_startup
     on_shutdown = on_shutdown

@@ -188,6 +188,8 @@ class Receipt(TimeStampedModel):
     verified_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
     # The final («готовый») OFD answer of the successful attempt.
     ofd_response: Mapped[dict | None] = mapped_column(JSONB, default=None)
+    verification_failures: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    verification_locked_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
 
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
@@ -258,7 +260,10 @@ class ReceiptVerificationAttempt(IDModel):
     """One OFD verification attempt (append-only history, visible to admins per receipt)."""
 
     __tablename__ = "receipt_verification_attempt"
-    __table_args__ = {"schema": DEFAULT_SCHEMA}
+    __table_args__ = (
+        UniqueConstraint("receipt_id", "attempt_no", name="uq_receipt_verification_attempt_no"),
+        {"schema": DEFAULT_SCHEMA},
+    )
 
     receipt_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey(f"{DEFAULT_SCHEMA}.receipt.id", ondelete="CASCADE"), nullable=False, index=True

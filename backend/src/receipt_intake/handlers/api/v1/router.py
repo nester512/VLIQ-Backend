@@ -187,5 +187,8 @@ async def force_verification(
     verifier = get_verifier(provider=cfg.OFD_PROVIDER, token=cfg.PROVERKACHEKA_TOKEN, timeout=cfg.OFD_TIMEOUT_SECONDS)
     result = await run_attempt(session, receipt_id, verifier, trigger="admin")
     if result is None:
-        raise AppError("RECEIPT_NOT_VERIFIABLE", user_message="У этого чека нет данных QR для проверки.", status_code=409)
+        current = await _verification_read(session, receipt_id)  # 404 if missing
+        if current.status == "not_required":
+            raise AppError("RECEIPT_NOT_VERIFIABLE", status_code=409)
+        raise AppError("VERIFICATION_IN_PROGRESS", status_code=409)
     return await _verification_read(session, receipt_id)

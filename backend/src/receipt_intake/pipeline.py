@@ -8,6 +8,7 @@ stays manual; the bonus is set by the admin (BRD: no automatic bonus).
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,10 @@ from src.receipt_verification.verifier import Verifier
 
 logger = logging.getLogger(__name__)
 _checker = FraudChecker()
+
+# A QR receipt still `pending` this long after creation lost its worker job
+# (worker crash, Redis flush) — the cron re-runs the step for it.
+STUCK_PENDING_AFTER = timedelta(minutes=10)
 
 
 async def _signals(session: AsyncSession, receipt: Receipt) -> list[dict]:
@@ -67,3 +72,21 @@ async def process_qr_receipt(session: AsyncSession, receipt_id: int, verifier: V
         receipt.fraud_signals = [*(receipt.fraud_signals or []), *await _signals(session, receipt)]
         receipt.status = ReceiptStatus.on_review.value
     await run_attempt(session, receipt_id, verifier, trigger="pipeline")
+
+
+async def stuck_pending_ids(session: AsyncSession, *, now: datetime | None = None, limit: int = 25) -> list[int]:
+    cutoff = (now or datetime.now(UTC)) - STUCK_PENDING_AFTER
+    rows = await session.execute(
+        select(Receipt.id)
+        .where(
+            Receipt.source.is_not(None),
+            Receipt.status == ReceiptStatus.pending.value,
+            Receipt.created_at < cutoff,
+            Receipt.is_deleted.is_(False),
+        )
+        .order_by(Receipt.id)
+        .limit(limit)
+    )
+    ids = list(rows.scalars())
+    await session.commit()
+    return ids

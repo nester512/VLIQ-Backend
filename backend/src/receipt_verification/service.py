@@ -14,9 +14,10 @@ An admin can always force an extra attempt (trigger ``admin``).
 from __future__ import annotations
 
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fraud.checks import FraudChecker
@@ -43,30 +44,51 @@ RETRY_DELAYS: tuple[timedelta, ...] = (
     timedelta(hours=24),
     timedelta(hours=48),
 )
-# While an attempt is in flight the receipt is «leased»: not due for the cron.
+# While an attempt is in flight the receipt is leased (verification_locked_until):
+# nobody else may start an attempt. A crashed attempt frees itself after the lease.
 ATTEMPT_LEASE = timedelta(minutes=10)
-CRON_BATCH = 50
+# Provider-side refusals (request limit, token blocked) are not the receipt's fault:
+# they do not spend the retry budget — retry after a pause instead.
+PROVIDER_PAUSE = timedelta(hours=1)
+_PROVIDER_SIDE = (VerificationOutcome.rate_limited, VerificationOutcome.blocked)
+# The cron runs under arq's job timeout: stop taking new receipts after this budget.
+CRON_BATCH = 25
+CRON_TIME_BUDGET_S = 90.0
 SUM_TOLERANCE = 0.01  # same 1 % as the legacy pipeline
 
 _ACTIVE = (VerificationStatus.pending.value, VerificationStatus.retrying.value)
+# Literal (not bound) so the planner can match the partial index ix_receipt_verification_due.
+_ACTIVE_SQL = text("vliq.receipt.verification_status IN ('pending', 'retrying')")
 
 
 def method_for_attempt(methods: tuple[str, ...], attempt_no: int) -> str:
     return methods[(attempt_no - 1) % len(methods)]
 
 
-def next_state(attempt_no: int, outcome: VerificationOutcome, now: datetime) -> tuple[str, datetime | None]:
-    """(verification_status, next_verification_at) after attempt ``attempt_no`` (1-based)."""
+def next_state(failures: int, outcome: VerificationOutcome, now: datetime) -> tuple[str, datetime | None]:
+    """(verification_status, next_verification_at) after an attempt.
+
+    ``failures`` — budget-counting failures INCLUDING this attempt (unchanged for
+    provider-side outcomes, which pause instead of spending the budget).
+    """
     if outcome is VerificationOutcome.ok:
         return VerificationStatus.verified.value, None
-    if attempt_no <= len(RETRY_DELAYS):
-        return VerificationStatus.retrying.value, now + RETRY_DELAYS[attempt_no - 1]
+    if outcome in _PROVIDER_SIDE:
+        return VerificationStatus.retrying.value, now + PROVIDER_PAUSE
+    if failures <= len(RETRY_DELAYS):
+        return VerificationStatus.retrying.value, now + RETRY_DELAYS[failures - 1]
     return VerificationStatus.failed.value, None
 
 
 async def _claim(session: AsyncSession, receipt_id: int, *, trigger: str, now: datetime) -> tuple[str, int] | None:
     """Lease the receipt for one attempt. Returns (qr_raw, attempt_no) or None if not eligible."""
-    conditions = [Receipt.id == receipt_id, Receipt.qr_raw.is_not(None), Receipt.is_deleted.is_(False)]
+    conditions = [
+        Receipt.id == receipt_id,
+        Receipt.qr_raw.is_not(None),
+        Receipt.is_deleted.is_(False),
+        # One attempt at a time for every trigger (cron, pipeline, admin).
+        or_(Receipt.verification_locked_until.is_(None), Receipt.verification_locked_until < now),
+    ]
     if trigger == "cron":
         conditions += [
             Receipt.verification_status.in_(_ACTIVE),
@@ -82,7 +104,7 @@ async def _claim(session: AsyncSession, receipt_id: int, *, trigger: str, now: d
             await session.execute(
                 update(Receipt)
                 .where(*conditions)
-                .values(next_verification_at=now + ATTEMPT_LEASE)
+                .values(verification_locked_until=now + ATTEMPT_LEASE)
                 .returning(Receipt.qr_raw, Receipt.verification_attempts)
             )
         ).one_or_none()
@@ -137,11 +159,14 @@ async def run_attempt(session: AsyncSession, receipt_id: int, verifier: Verifier
             )
         )
         receipt.verification_attempts = attempt_no
+        receipt.verification_locked_until = None
         if receipt.verification_status == VerificationStatus.verified.value and result.outcome is not VerificationOutcome.ok:
             # A forced re-check that failed never downgrades an already verified receipt.
             receipt.next_verification_at = None
         else:
-            status, next_at = next_state(attempt_no, result.outcome, done_at)
+            if result.outcome is not VerificationOutcome.ok and result.outcome not in _PROVIDER_SIDE:
+                receipt.verification_failures += 1
+            status, next_at = next_state(receipt.verification_failures, result.outcome, done_at)
             receipt.verification_status = status
             receipt.next_verification_at = next_at
             if result.outcome is VerificationOutcome.ok:
@@ -175,10 +200,11 @@ async def due_receipt_ids(session: AsyncSession, *, now: datetime | None = None,
     rows = await session.execute(
         select(Receipt.id)
         .where(
-            Receipt.verification_status.in_(_ACTIVE),
+            _ACTIVE_SQL,
             Receipt.next_verification_at <= now,
             Receipt.status == ReceiptStatus.on_review.value,
             Receipt.is_deleted.is_(False),
+            or_(Receipt.verification_locked_until.is_(None), Receipt.verification_locked_until < now),
         )
         .order_by(Receipt.next_verification_at)
         .limit(limit)
@@ -188,10 +214,14 @@ async def due_receipt_ids(session: AsyncSession, *, now: datetime | None = None,
     return ids
 
 
-async def retry_due(session: AsyncSession, verifier: Verifier) -> int:
-    """Cron body: one attempt for every due receipt (sequential — provider rate limits)."""
+async def retry_due(session: AsyncSession, verifier: Verifier, *, time_budget_s: float = CRON_TIME_BUDGET_S) -> int:
+    """Cron body: one attempt per due receipt, sequential (provider rate limits) and
+    time-bounded (arq job timeout) — what is left over runs on the next tick."""
     done = 0
+    started = time.monotonic()
     for receipt_id in await due_receipt_ids(session):
+        if time.monotonic() - started > time_budget_s:
+            break
         if await run_attempt(session, receipt_id, verifier, trigger="cron") is not None:
             done += 1
     return done

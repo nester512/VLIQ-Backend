@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -181,10 +182,12 @@ async def create_qr_receipt(  # noqa: PLR0913
         fn=data.fn,
         fd=data.fd,
         fp=data.fp,
-        purchase_date=data.purchase_at.date(),
+        purchase_date=data.purchase_date,
         total_sum=data.total_sum_kop,
         upload_idempotency_key=idempotency_key,
         verification_status=VerificationStatus.pending.value,
+        # Armed at once: if the worker job is lost, the cron still picks it up.
+        next_verification_at=datetime.now(UTC),
         items=[],
         fraud_signals=[],
         created_by=seller_id,
@@ -200,9 +203,11 @@ async def create_qr_receipt(  # noqa: PLR0913
         if idempotency_key:
             existing = await _find_by_idempotency_key(session, seller_id, idempotency_key)
             if existing is not None:
+                await session.commit()  # leave no read transaction open for the caller
                 return existing, False
         raise
-    await session.refresh(receipt)
+    # No refresh(): it would autobegin a transaction on the request session and the
+    # caller's next `session.begin()` would fail (expire_on_commit=False keeps id).
     logger.info("receipt.qr_created, receipt_id=%d, seller_id=%d, source=%s", receipt.id, seller_id, source)
     return receipt, True
 

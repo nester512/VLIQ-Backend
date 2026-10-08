@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.receipt.models import Receipt, ReceiptVerificationAttempt
 from src.receipt.service import create_qr_receipt
 from src.receipt_intake.fiscal import validate_fields
-from src.receipt_intake.handlers.api.v1.router import _verification_read, _warnings
-from src.receipt_intake.pipeline import process_qr_receipt
+from src.receipt_intake.handlers.api.v1.router import _fallback_to_review, _verification_read, _warnings
+from src.receipt_intake.pipeline import process_qr_receipt, stuck_pending_ids
 from src.receipt_verification.service import RETRY_DELAYS, due_receipt_ids, retry_due, run_attempt
 from src.receipt_verification.verifier import FakeVerifier, VerificationResult
 
@@ -204,3 +204,70 @@ async def test_pipeline_job_is_idempotent(session_factory) -> None:
         async with session_factory() as s:
             await process_qr_receipt(s, rid, FakeVerifier())
     assert len(await _attempts(session_factory, rid)) == 1
+
+
+async def test_enqueue_failure_fallback_works_on_the_request_session(session_factory) -> None:
+    """The SAME session that created the receipt runs the fallback — it must not be
+    left inside a transaction (refresh() used to autobegin one → 500)."""
+    async with session_factory() as s:
+        receipt, _ = await create_qr_receipt(
+            s, seller_id=SEED_SELLER_ID, brand_id=SEED_BRAND_ID, data=_data(), source="manual"
+        )
+        await _fallback_to_review(s, receipt.id)
+    r = await _get(session_factory, receipt.id)
+    assert r.status == "on_review"
+    assert r.next_verification_at is not None  # armed for the cron
+
+    async with session_factory() as s:
+        assert receipt.id in await due_receipt_ids(s)
+        await retry_due(s, FakeVerifier())
+    assert (await _get(session_factory, receipt.id)).verification_status == "verified"
+
+
+async def test_crash_between_review_and_first_attempt_is_picked_up_by_cron(session_factory) -> None:
+    rid = await _create(session_factory, _data())
+    async with session_factory() as s, s.begin():  # worker died right after this commit
+        await s.execute(update(Receipt).where(Receipt.id == rid).values(status="on_review"))
+    async with session_factory() as s:
+        assert await retry_due(s, FakeVerifier()) == 1
+    [attempt] = await _attempts(session_factory, rid)
+    assert attempt.trigger == "cron"
+
+
+async def test_lost_intake_job_is_rerun_by_the_sweep(session_factory) -> None:
+    rid = await _create(session_factory, _data())
+    async with session_factory() as s:
+        assert rid not in await stuck_pending_ids(s)  # fresh: the job may still be queued
+        assert rid in await stuck_pending_ids(s, now=datetime.now(UTC) + timedelta(minutes=11))
+
+
+async def test_attempt_in_flight_blocks_a_concurrent_admin_check(session_factory) -> None:
+    rid = await _create(session_factory, _data())
+    async with session_factory() as s, s.begin():
+        await s.execute(
+            update(Receipt).where(Receipt.id == rid).values(
+                status="on_review", verification_locked_until=datetime.now(UTC) + timedelta(minutes=5)
+            )
+        )
+    async with session_factory() as s:
+        assert await run_attempt(s, rid, FakeVerifier(), trigger="admin") is None
+        assert rid not in await due_receipt_ids(s)
+    assert await _attempts(session_factory, rid) == []
+
+
+async def test_provider_limits_do_not_burn_the_retry_budget(session_factory) -> None:
+    class Limited(FakeVerifier):
+        async def verify(self, data, method, attempt_no):
+            from src.receipt.models import VerificationOutcome  # noqa: PLC0415
+            return VerificationResult(VerificationOutcome.rate_limited, {"m": method})
+
+    rid = await _create(session_factory, _data())
+    async with session_factory() as s:
+        await process_qr_receipt(s, rid, Limited())
+    for _ in range(len(RETRY_DELAYS) + 2):
+        await _make_due(session_factory, rid)
+        async with session_factory() as s:
+            await retry_due(s, Limited())
+    r = await _get(session_factory, rid)
+    assert r.verification_status == "retrying"  # never «failed» because of the provider
+    assert r.verification_failures == 0

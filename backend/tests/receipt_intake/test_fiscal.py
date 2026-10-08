@@ -21,6 +21,7 @@ VALID_QR = [
     (f"t=20261001T0900&s=100&fn={FN}&i=1&fp=2", ("20261001T0900", 10000, "1", "2")),  # n omitted → 1
     (f"https://check.ofd.ru/rec?t=20261008T1000&s=5.00&fn={FN}&i=3&fp=4&n=1", ("20261008T1000", 500, "3", "4")),
     (f"fn={FN}&fp=4&i=3&n=1&s=12,50&t=20261008T1000", ("20261008T1000", 1250, "3", "4")),  # any order, comma
+    (f"t=20261008T1000&s=1&fn={FN}&i=00012&fp=0003826178549", ("20261008T1000", 100, "12", "3826178549")),  # padded
 ]
 
 INVALID_QR = [
@@ -37,6 +38,7 @@ INVALID_QR = [
     (f"t=20261008T1432&s=12.345&fn={FN}&i=1&fp=1&n=1", "QR_SUM_INVALID"),
     (f"t=20261008T1432&s=1450.00&fn={FN}&i=1&fp=1&n=2", "QR_NOT_INCOME"),
     (f"t=20261008T1432&s=1450.00&fn={FN}&i=1&fp=1&n=x", "QR_OPERATION_INVALID"),
+    ("t=20261008T1432&s=1&fn=\u0669\u0669\u0666\u0660\u0664\u0664\u0660\u0663\u0660\u0660\u0667\u0661\u0662\u0663\u0664\u0665&i=1&fp=1", "QR_FN_INVALID"),  # Arabic-Indic digits
 ]
 
 
@@ -75,6 +77,12 @@ def test_east_of_moscow_shop_is_not_in_the_future() -> None:
 def test_manual_fields_tolerate_spaces_in_numbers() -> None:
     data = validate_fields(fn="9960 4403 0071 2345", fd=" 12 ", fp="38261 78549", t="20261008T1432", s="1450", now=NOW)
     assert (data.fn, data.fd, data.fp) == (FN, "12", "3826178549")
+
+
+def test_purchase_date_is_the_moscow_calendar_day() -> None:
+    data = validate_fields(fn=FN, fd="1", fp="1", t="20261008T0130", s="1", now=NOW)
+    assert data.purchase_at.date().isoformat() == "2026-10-07"  # UTC
+    assert data.purchase_date.isoformat() == "2026-10-08"  # what we store
 
 
 def test_too_old_is_valid_but_flagged() -> None:

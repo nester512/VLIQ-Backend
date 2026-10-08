@@ -9,7 +9,7 @@ import pytest
 import respx
 from src.receipt.models import VerificationOutcome, VerificationStatus
 from src.receipt_intake.fiscal import validate_fields
-from src.receipt_verification.service import RETRY_DELAYS, method_for_attempt, next_state
+from src.receipt_verification.service import PROVIDER_PAUSE, RETRY_DELAYS, method_for_attempt, next_state
 from src.receipt_verification.verifier import FakeVerifier, ProverkachekaVerifier
 
 NOW = datetime(2026, 10, 8, 12, 0, tzinfo=UTC)
@@ -22,6 +22,13 @@ def test_methods_rotate_across_attempts() -> None:
     assert [method_for_attempt(methods, n) for n in range(1, 7)] == [
         "fields", "qrraw", "fields_seconds", "fields", "qrraw", "fields_seconds",
     ]
+
+
+def test_provider_side_refusals_pause_without_spending_the_budget() -> None:
+    for outcome in (VerificationOutcome.rate_limited, VerificationOutcome.blocked):
+        status, at = next_state(len(RETRY_DELAYS) + 5, outcome, NOW)  # even past the budget
+        assert status == VerificationStatus.retrying.value
+        assert at == NOW + PROVIDER_PAUSE
 
 
 def test_schedule_retries_then_fails() -> None:

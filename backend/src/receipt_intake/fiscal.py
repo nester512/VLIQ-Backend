@@ -13,14 +13,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 # ФН — 16 digits; ФД / ФП — up to 10 digits (ФП is a 32-bit number).
-_FN_RE = re.compile(r"^\d{16}$")
-_FD_RE = re.compile(r"^\d{1,10}$")
-_FP_RE = re.compile(r"^\d{1,10}$")
-_T_RE = re.compile(r"^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?$")
-_S_RE = re.compile(r"^\d{1,9}([.,]\d{1,2})?$")
+# re.ASCII: `\d` must not accept Arabic-Indic & co. digits (int() would happily parse them).
+_FN_RE = re.compile(r"^\d{16}$", re.ASCII)
+_FD_RE = re.compile(r"^\d{1,10}$", re.ASCII)
+_FP_RE = re.compile(r"^\d{1,10}$", re.ASCII)
+_T_RE = re.compile(r"^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?$", re.ASCII)
+_S_RE = re.compile(r"^\d{1,9}([.,]\d{1,2})?$", re.ASCII)
 
 OPERATION_INCOME = 1  # «приход» — the only type that earns a bonus (2 = возврат прихода, …)
 MAX_AGE_DAYS = 30
@@ -51,6 +52,11 @@ class FiscalData:
     purchase_at: datetime  # UTC
 
     @property
+    def purchase_date(self) -> date:
+        """Calendar date of the purchase in Moscow time (a 01:30 MSK receipt is that day, not the UTC day before)."""
+        return self.purchase_at.astimezone(_MSK).date()
+
+    @property
     def sum_rub(self) -> str:
         return f"{self.total_sum_kop // 100}.{self.total_sum_kop % 100:02d}"
 
@@ -68,12 +74,19 @@ def _digits(value: str | int | None) -> str:
     return re.sub(r"\s+", "", str(value or ""))
 
 
+def _number(value: str | int | None) -> str:
+    """ФД / ФП as a number: no spaces, no leading zeros (a paper receipt may pad them),
+    so «00012» and «12» are the same receipt for duplicate detection and the OFD."""
+    s = _digits(value)
+    return s.lstrip("0") or s
+
+
 def validate_fields(  # noqa: PLR0913
     *, fn: str | int, fd: str | int, fp: str | int, t: str, s: str | int | float, n: str | int = OPERATION_INCOME,
     now: datetime | None = None,
 ) -> FiscalData:
     """Validate the six QR fields and normalise them. Raises :class:`FiscalValidationError`."""
-    fn_s, fd_s, fp_s = _digits(fn), _digits(fd), _digits(fp)
+    fn_s, fd_s, fp_s = _digits(fn), _number(fd), _number(fp)
     if not _FN_RE.match(fn_s):
         raise FiscalValidationError("QR_FN_INVALID", "fn", "ФН — ровно 16 цифр")
     if not _FD_RE.match(fd_s) or int(fd_s) == 0:

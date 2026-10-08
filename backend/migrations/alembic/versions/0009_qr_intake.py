@@ -7,6 +7,9 @@ attempt is stored; a cron retries failed checks with other methods.
 Additive and backward-compatible: existing receipts get
 ``verification_status='not_required'`` and keep working unchanged.
 
+Also: a lease column so only one attempt runs at a time, and a failure counter
+that provider-side refusals (rate limit, blocked token) do not spend.
+
 Revision ID: 0009_qr_intake
 Revises: 0008_seller_outlet_count
 Create Date: 2026-10-08 00:00:00.000000
@@ -40,6 +43,15 @@ def upgrade() -> None:
     )
     op.add_column("receipt", sa.Column("verified_at", sa.TIMESTAMP(timezone=True), nullable=True), schema=SCHEMA)
     op.add_column("receipt", sa.Column("ofd_response", postgresql.JSONB(), nullable=True), schema=SCHEMA)
+    # Failed attempts that count toward the retry budget (provider-side limits/blocks don't).
+    op.add_column(
+        "receipt", sa.Column("verification_failures", sa.Integer(), nullable=False, server_default="0"), schema=SCHEMA
+    )
+    # Lease while an attempt is in flight — separate from the retry schedule, so a
+    # forced admin check and the cron never run the same receipt concurrently.
+    op.add_column(
+        "receipt", sa.Column("verification_locked_until", sa.TIMESTAMP(timezone=True), nullable=True), schema=SCHEMA
+    )
     # The retry cron scans only due checks — keep that scan tiny on a large table.
     op.create_index(
         "ix_receipt_verification_due",
@@ -71,6 +83,7 @@ def upgrade() -> None:
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column("duration_ms", sa.Integer(), nullable=True),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.UniqueConstraint("receipt_id", "attempt_no", name="uq_receipt_verification_attempt_no"),
         schema=SCHEMA,
     )
     op.create_index(
@@ -84,5 +97,5 @@ def downgrade() -> None:
     )
     op.drop_table("receipt_verification_attempt", schema=SCHEMA)
     op.drop_index("ix_receipt_verification_due", table_name="receipt", schema=SCHEMA)
-    for col in ("ofd_response", "verified_at", "next_verification_at", "verification_attempts", "verification_status", "source"):
+    for col in ("verification_locked_until", "verification_failures", "ofd_response", "verified_at", "next_verification_at", "verification_attempts", "verification_status", "source"):
         op.drop_column("receipt", col, schema=SCHEMA)
