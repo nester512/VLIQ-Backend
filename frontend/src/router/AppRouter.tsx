@@ -112,7 +112,7 @@ const SELLER_TITLES: Record<string, [string, string?, boolean?, boolean?]> = {
   '/seller/privacy': ['Согласие', undefined, false, false],
   '/seller/offer/1': ['Оферта №1', undefined, false, false],
   '/seller/offer/2': ['Оферта №2', undefined, false, false],
-  '/seller/upload':  ['Загрузить чек', undefined, false, true],
+  '/seller/upload':  ['Добавить чек', undefined, false, true],
   '/seller/balance': ['Мой баланс', undefined, false, true],
   '/seller/history': ['История чеков', undefined, false, true],
   '/seller/promo':   ['Акции', undefined, false, true],

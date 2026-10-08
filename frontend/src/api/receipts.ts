@@ -249,3 +249,30 @@ export const uploadReceiptPackage = (
       warnings: Array.isArray(r.data.warnings) ? r.data.warnings : [],
     }))
 }
+
+// ---------------------------------------------------------------------------
+// QR intake (docs/design/QR-INTAKE.md): the device sends ONLY the fiscal data.
+// ---------------------------------------------------------------------------
+
+export type ReceiptSource = 'telegram_scan' | 'camera_scan' | 'image_decode' | 'pdf_decode' | 'manual'
+
+export interface QrReceiptPayload {
+  brand_id: number
+  source: ReceiptSource
+  fn: string
+  fd: string
+  fp: string
+  /** YYYYMMDDTHHMM[SS] as in the QR. */
+  t: string
+  /** Rubles, e.g. "1450.00". */
+  s: string
+  n: number
+  qr_raw?: string
+  idempotency_key: string
+}
+
+/** `POST /receipts/qr` — 202 `{receipt_id, status, warnings}`; 422 `{code, extra: {field}}` on bad data. */
+export const submitQrReceipt = (payload: QrReceiptPayload): Promise<{ id: string; warnings: UploadWarning[] }> =>
+  api
+    .post<{ receipt_id: number; status: string; warnings?: UploadWarning[] }>('/receipts/qr', payload)
+    .then((r) => ({ id: String(r.data.receipt_id), warnings: r.data.warnings ?? [] }))

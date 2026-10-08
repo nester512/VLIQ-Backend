@@ -75,6 +75,11 @@ export function extractApiError(error: unknown): ApiError {
         }
         if (Object.keys(collected).length > 0) fieldErrors = collected
       }
+      // AppError with a culprit field (e.g. QR intake 422: `extra.field = 'fn'`).
+      const extra = data['extra']
+      if (extra && typeof extra === 'object' && typeof (extra as Record<string, unknown>)['field'] === 'string') {
+        fieldErrors = { ...fieldErrors, [(extra as Record<string, string>)['field']!]: data['user_message'] as string }
+      }
       return {
         code: typeof data['code'] === 'string' ? (data['code'] as string) : 'UNKNOWN',
         userMessage: data['user_message'] as string,

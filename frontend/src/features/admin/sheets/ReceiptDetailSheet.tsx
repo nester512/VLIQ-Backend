@@ -17,6 +17,7 @@ import { editReceiptBonus, addReceiptComment, blockSeller, deleteReceipt } from 
 import { extractApiError } from '@/api/client'
 import type { AdminReceipt } from '@/api/admin'
 import { invalidateAfterReceiptChange } from '@/features/admin/invalidate'
+import { VerificationPanel } from '@/features/admin/components/VerificationPanel'
 
 interface ReceiptDetailSheetProps {
   receiptId: string | null
@@ -184,7 +185,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
         </div>
         {!hasAttachments && (
           <div className="text-[12px] text-[var(--vliq-hint)] -mt-2 mb-3 text-center">
-            Фото чека недоступно — показан макет
+            {receipt.source ? 'Чек принят по данным QR — фото не требуется' : 'Фото чека недоступно — показан макет'}
           </div>
         )}
 
@@ -192,6 +193,10 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
             system rejection reason, OCR extraction warnings. Shared with the
             swipe-deck viewer. */}
         <ReceiptInfoCard receipt={receipt} className="mb-4" onSellerClick={goToSeller} />
+
+        {receipt.verification_status && receipt.verification_status !== 'not_required' && (
+          <VerificationPanel receiptId={receipt.id} />
+        )}
 
         <div className="grid grid-cols-2 gap-3 mx-4 mt-1 mb-4">
           {receipt.fn && receipt.fd && receipt.fp && (

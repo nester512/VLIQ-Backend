@@ -61,6 +61,17 @@ describe('extractApiError', () => {
     expect(e.userMessage).not.toMatch(/[a-z]/i)
   })
 
+  it('maps an AppError culprit field (extra.field) to a field error', () => {
+    const e = extractApiError(
+      axiosErr({
+        status: 422,
+        data: { code: 'QR_FN_INVALID', user_message: 'ФН — ровно 16 цифр', debug_id: 'q', extra: { field: 'fn' } },
+      }),
+    )
+    expect(e.code).toBe('QR_FN_INVALID')
+    expect(e.fieldErrors).toEqual({ fn: 'ФН — ровно 16 цифр' })
+  })
+
   it('NEVER returns the raw legacy {detail} English text', () => {
     const e = extractApiError(
       axiosErr({ status: 403, data: { detail: 'Not your receipt' } }),

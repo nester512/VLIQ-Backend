@@ -156,3 +156,17 @@ describe('ReceiptInfoCard — extraction warnings', () => {
     expect(screen.getByText('Низкая чёткость')).toBeInTheDocument()
   })
 })
+
+describe('ReceiptInfoCard — QR intake badges', () => {
+  it('shows where the data came from and the OFD check state', () => {
+    render(<ReceiptInfoCard receipt={base({ source: 'manual', verification_status: 'verified' })} />)
+    const badges = screen.getByTestId('receipt-intake-badges')
+    expect(badges).toHaveTextContent('Ручной ввод данных')
+    expect(badges).toHaveTextContent('Подтверждён в ОФД')
+  })
+
+  it('legacy file receipts show no intake badges', () => {
+    render(<ReceiptInfoCard receipt={base({ verification_status: 'not_required' })} />)
+    expect(screen.queryByTestId('receipt-intake-badges')).toBeNull()
+  })
+})

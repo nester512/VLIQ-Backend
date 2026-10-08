@@ -102,6 +102,41 @@ export interface AdminReceipt extends Receipt {
   detected_identities?: FiscalIdentity[]
   /** Per-attachment extraction warnings, surfaced from `ocr_raw.extraction_evidence`. */
   extraction_warnings?: string[]
+  /** QR intake: how the seller produced the data (null for legacy file uploads). */
+  source?: ReceiptSourceT
+  /** Automatic OFD check (independent of the moderation status). */
+  verification_status?: VerificationStatus
+  verification_attempts?: number
+  next_verification_at?: string
+  verified_at?: string
+}
+
+export type ReceiptSourceT = 'telegram_scan' | 'camera_scan' | 'image_decode' | 'pdf_decode' | 'manual'
+export type VerificationStatus = 'not_required' | 'pending' | 'retrying' | 'verified' | 'failed'
+
+export interface VerificationAttempt {
+  attempt_no: number
+  provider: string
+  method: string
+  trigger: 'pipeline' | 'cron' | 'admin'
+  outcome: 'ok' | 'not_found' | 'invalid' | 'rate_limited' | 'error' | 'blocked'
+  http_status: number | null
+  request: Record<string, unknown> | null
+  response: Record<string, unknown> | null
+  error: string | null
+  duration_ms: number | null
+  created_at: string
+}
+
+export interface ReceiptVerification {
+  receipt_id: number
+  source: ReceiptSourceT | null
+  status: VerificationStatus
+  attempts_count: number
+  next_attempt_at: string | null
+  verified_at: string | null
+  ofd_response: Record<string, unknown> | null
+  attempts: VerificationAttempt[]
 }
 
 /** Receipt activity + moderation risk of a seller, aggregated on the server. */
@@ -258,6 +293,11 @@ interface BackendReceipt {
   // Backend ReceiptFraudSignal shape — `signal` not `type`, plus severity + duplicate_of_id.
   fraud_signals?: BackendFraudSignal[]
   ocr_raw?: BackendOcrRaw | null
+  source?: ReceiptSourceT | null
+  verification_status?: VerificationStatus
+  verification_attempts?: number
+  next_verification_at?: string | null
+  verified_at?: string | null
   created_at: string
   updated_at?: string | null
 }
@@ -494,6 +534,11 @@ function mapAdminReceipt(r: BackendReceipt): AdminReceipt {
     extraction_warnings: warnings.length ? warnings : undefined,
     duplicate_status: dup ? 'danger' : 'ok',
     duplicate_label: dup ? 'Возможный дубль' : 'Уникален',
+    source: r.source ?? undefined,
+    verification_status: r.verification_status,
+    verification_attempts: r.verification_attempts,
+    next_verification_at: r.next_verification_at ?? undefined,
+    verified_at: r.verified_at ?? undefined,
   }
 }
 
@@ -687,3 +732,13 @@ export const unblockSeller = (telegram_id: string): Promise<AdminSeller> =>
   api
     .post<BackendSeller>(`/sellers/${telegram_id}/unblock`, {})
     .then((r) => mapAdminSeller(r.data))
+
+// ---- OFD verification (QR intake) ----
+
+/** GET /receipts/{id}/verification — status + every attempt, newest first. */
+export const getReceiptVerification = (id: string): Promise<ReceiptVerification> =>
+  api.get<ReceiptVerification>(`/receipts/${id}/verification`).then((r) => r.data)
+
+/** POST /receipts/{id}/verify — run one extra attempt now; returns the updated history. */
+export const verifyReceiptNow = (id: string): Promise<ReceiptVerification> =>
+  api.post<ReceiptVerification>(`/receipts/${id}/verify`).then((r) => r.data)

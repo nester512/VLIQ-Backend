@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { SOURCE_LABEL, VERIFICATION_KIND, VERIFICATION_LABEL } from '@/features/admin/verificationLabels'
 import { Icon } from '@/components/atoms/Icon'
 import { Pill } from '@/components/atoms/Pill'
 import { RECEIPT_STATUS } from '@/utils/receiptStatus'
@@ -136,6 +137,16 @@ export function ReceiptInfoCard({ receipt, actions, className = '', onSellerClic
             )}{' '}
             · {sellerStore}
           </div>
+          {(receipt.source || (receipt.verification_status && receipt.verification_status !== 'not_required')) && (
+            <div className="flex flex-wrap gap-1.5 mt-2" data-testid="receipt-intake-badges">
+              {receipt.source && <Pill kind="muted">{SOURCE_LABEL[receipt.source]}</Pill>}
+              {receipt.verification_status && receipt.verification_status !== 'not_required' && (
+                <Pill kind={VERIFICATION_KIND[receipt.verification_status]}>
+                  {VERIFICATION_LABEL[receipt.verification_status]}
+                </Pill>
+              )}
+            </div>
+          )}
         </div>
         <Pill kind={statusKind} className="flex-none mt-1">{statusLabel}</Pill>
       </div>
