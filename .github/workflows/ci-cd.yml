@@ -2,9 +2,9 @@ name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
 
 concurrency:
@@ -140,9 +140,16 @@ jobs:
         run: npm run build
 
   images:
-    name: Containers / build${{ github.ref == 'refs/heads/main' && ' + publish' || '' }}
+    # Built once per commit SHA and shared by both environments: develop pushes
+    # deploy the SHA to stage, main pushes deploy it to production. If the SHA
+    # was already published (e.g. a fast-forward merge develop → main), the
+    # existing images are reused instead of being rebuilt.
+    name: Containers / build${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && ' + publish' || '' }}
     needs: [backend-quality, backend-postgres, frontend]
     runs-on: ubuntu-latest
+    env:
+      PUBLISH: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') }}
+      CHANNEL_TAG: ${{ github.ref == 'refs/heads/main' && 'test-latest' || 'stage-latest' }}
     permissions:
       contents: read
       packages: write
@@ -156,39 +163,111 @@ jobs:
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
       - name: Log in to GHCR
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        if: env.PUBLISH == 'true'
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check for already published images
+        id: existing
+        if: env.PUBLISH == 'true'
+        run: |
+          if docker buildx imagetools inspect "${BACKEND_IMAGE}:${GITHUB_SHA}" >/dev/null 2>&1 \
+            && docker buildx imagetools inspect "${FRONTEND_IMAGE}:${GITHUB_SHA}" >/dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Re-tag already published images
+        if: steps.existing.outputs.found == 'true'
+        run: |
+          for image in "${BACKEND_IMAGE}" "${FRONTEND_IMAGE}"; do
+            docker buildx imagetools create --tag "${image}:${CHANNEL_TAG}" "${image}:${GITHUB_SHA}"
+          done
+
       - name: Build backend image
+        if: steps.existing.outputs.found != 'true'
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: ./backend
           target: runtime
-          push: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+          push: ${{ env.PUBLISH == 'true' }}
           tags: |
             ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
-            ${{ env.BACKEND_IMAGE }}:test-latest
+            ${{ env.BACKEND_IMAGE }}:${{ env.CHANNEL_TAG }}
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
       - name: Build frontend image
+        if: steps.existing.outputs.found != 'true'
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: ./frontend
           target: runtime
-          push: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+          push: ${{ env.PUBLISH == 'true' }}
           tags: |
             ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
-            ${{ env.FRONTEND_IMAGE }}:test-latest
+            ${{ env.FRONTEND_IMAGE }}:${{ env.CHANNEL_TAG }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
-  deploy-test:
-    name: Deploy / shamilara.fun
+  deploy-stage:
+    name: Deploy / stage
+    needs: [images]
+    if: github.ref == 'refs/heads/develop' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment:
+      name: stage
+      url: https://${{ vars.STAGE_HOSTNAME }}
+    concurrency:
+      group: deploy-stage
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STAGE_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.STAGE_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Authenticate stage server to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          SSH_HOST: ${{ secrets.STAGE_SSH_HOST }}
+          SSH_PORT: ${{ secrets.STAGE_SSH_PORT }}
+          SSH_USER: ${{ secrets.STAGE_SSH_USER }}
+        run: |
+          printf -v GHCR_USER_QUOTED '%q' "$GHCR_USER"
+          printf '%s' "$GHCR_TOKEN" | ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "docker login ghcr.io --username $GHCR_USER_QUOTED --password-stdin"
+
+      - name: Deploy immutable revision
+        env:
+          SSH_HOST: ${{ secrets.STAGE_SSH_HOST }}
+          SSH_PORT: ${{ secrets.STAGE_SSH_PORT }}
+          SSH_USER: ${{ secrets.STAGE_SSH_USER }}
+          DEPLOY_PATH: ${{ secrets.STAGE_DEPLOY_PATH }}
+          STAGE_HOSTNAME: ${{ vars.STAGE_HOSTNAME }}
+        run: |
+          [[ "$STAGE_HOSTNAME" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "vars.STAGE_HOSTNAME is missing or invalid" >&2; exit 1; }
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "set -eu; cd '$DEPLOY_PATH'; git fetch --prune origin develop; git checkout --detach '${{ github.sha }}'; COMPOSE_PROJECT_NAME=vliq-stage DEPLOY_COMPOSE_OVERLAY=docker-compose.stage.yml IMAGE_TAG='${{ github.sha }}' DEPLOY_HEALTH_URL='https://$STAGE_HOSTNAME/health' ./ops/deploy.sh"
+
+  deploy-production:
+    # Production: live sellers. Runs only for main. The GitHub Environment
+    # (still named "test" so the existing TEST_* secrets keep working) is where
+    # a required reviewer can be enabled to make the deploy manual.
+    name: Deploy / production (shamilara.fun)
     needs: [images]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
@@ -212,7 +291,7 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
-      - name: Authenticate test server to GHCR
+      - name: Authenticate production server to GHCR
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
