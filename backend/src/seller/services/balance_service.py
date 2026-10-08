@@ -4,7 +4,7 @@ Formula from docs/reviews/04-antifraud.md:
   available = SUM(amount) FILTER (WHERE kind IN accruals + payout_reverted + correction)
             + SUM(amount) FILTER (WHERE kind = payout_hold)   -- already negative
   on_hold   = ABS(SUM(amount) FILTER (WHERE kind = payout_hold))
-  total_accrued = SUM(amount) FILTER (WHERE kind IN accrual_*)
+  total_accrued = SUM(amount) FILTER (WHERE kind IN accrual_* + correction)  -- net of reversals/edits
   total_paid_out = ABS(SUM(amount) FILTER (WHERE kind = payout_completed))
 
 Note: payout_completed is NOT included in available — when payout_hold transitions
@@ -33,12 +33,22 @@ _AVAILABLE_ACCRUAL_KINDS = {
     BonusTransactionKind.correction.value,
 }
 
-# Kinds used for total_accrued metric.
+# Pure accrual kinds — bonus credited to the seller.
 _ACCRUAL_KINDS = {
     BonusTransactionKind.accrual_receipt.value,
     BonusTransactionKind.accrual_promo.value,
     BonusTransactionKind.accrual_manual.value,
 }
+
+# Kinds summed into the "total accrued" metric — the NET lifetime accrual:
+# raw accruals PLUS every ``correction`` that adjusts them. A ``correction`` is
+# written both when an approved receipt is later rejected (accrual reversed) and
+# when an admin edits the bonus of an approved receipt. Without ``correction``
+# here, "total accrued" keeps the bonus of a rejected-after-approval receipt and
+# ignores post-approval edits — desyncing it from ``available`` (which already
+# nets corrections). ``payout_reverted`` is deliberately excluded: it restores
+# spendable balance after a failed payout, it is not a new accrual.
+_TOTAL_ACCRUED_KINDS = _ACCRUAL_KINDS | {BonusTransactionKind.correction.value}
 
 
 async def get_seller_balance(*, seller_id: int, session: AsyncSession) -> SellerBalanceRead:
@@ -72,7 +82,7 @@ async def get_seller_balance(*, seller_id: int, session: AsyncSession) -> Seller
     total_accrued_sum = func.coalesce(
         func.sum(
             case(
-                (BonusTransaction.kind.in_(list(_ACCRUAL_KINDS)), BonusTransaction.amount),
+                (BonusTransaction.kind.in_(list(_TOTAL_ACCRUED_KINDS)), BonusTransaction.amount),
                 else_=0,
             )
         ),

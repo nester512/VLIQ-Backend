@@ -201,3 +201,52 @@ describe('SwipeDeck — outer approve/reject swipe still works with the Attachme
     expect(onSwipe).not.toHaveBeenCalled()
   })
 })
+
+
+describe('SwipeDeck — review-queue counter', () => {
+  it('uses the server total as the denominator, not the loaded page size', () => {
+    render(
+      <SwipeDeck
+        receipts={[receipt({ id: '1' }), receipt({ id: '2' })]}
+        onSwipe={vi.fn()}
+        onTap={vi.fn()}
+        totalCount={1567}
+      />,
+    )
+    expect(screen.getByTestId('deck-counter')).toHaveTextContent('1 / 1567')
+  })
+
+  it('falls back to the loaded count when no total is provided', () => {
+    render(
+      <SwipeDeck
+        receipts={[receipt({ id: '1' }), receipt({ id: '2' })]}
+        onSwipe={vi.fn()}
+        onTap={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('deck-counter')).toHaveTextContent('1 / 2')
+  })
+})
+
+
+describe('SwipeDeck — id-based consumption is refetch-safe (no skip)', () => {
+  it('does not skip a card when the list shrinks from the front after a swipe', () => {
+    const onSwipe = vi.fn()
+    const a = receipt({ id: 'a' })
+    const b = receipt({ id: 'b' })
+    const c = receipt({ id: 'c' })
+    const { rerender } = render(<SwipeDeck receipts={[a, b, c]} onSwipe={onSwipe} onTap={vi.fn()} />)
+
+    // Approve the top card (a).
+    fireEvent.click(screen.getByRole('button', { name: 'Одобрить' }))
+    expect(onSwipe).toHaveBeenLastCalledWith('a', 'approve')
+
+    // Simulate a mid-session refetch (detail-sheet action / window focus) that
+    // drops the already-approved 'a' from the FRONT of the list.
+    rerender(<SwipeDeck receipts={[b, c]} onSwipe={onSwipe} onTap={vi.fn()} />)
+
+    // The next card must still be 'b' — a positional index would skip it to 'c'.
+    fireEvent.click(screen.getByRole('button', { name: 'Одобрить' }))
+    expect(onSwipe).toHaveBeenLastCalledWith('b', 'approve')
+  })
+})

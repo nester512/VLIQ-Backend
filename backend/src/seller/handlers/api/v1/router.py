@@ -126,7 +126,11 @@ async def get_me_receipts(  # noqa: PLR0913
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total: int = (await session.execute(count_stmt)).scalar_one()
 
-    stmt = stmt.order_by(Receipt.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    # Newest first, with id as a stable tiebreaker: receipts upload in bursts that
+    # share a created_at down to the second, so ordering by that alone makes
+    # offset/limit pagination drop or duplicate rows between pages — a seller with
+    # 50+ receipts would then 'lose' some from the list. id is monotonic.
+    stmt = stmt.order_by(Receipt.created_at.desc(), Receipt.id.desc()).offset((page - 1) * limit).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
 
     items = [ReceiptRead.model_validate(r, from_attributes=True) for r in rows]

@@ -128,8 +128,10 @@ describe('ReviewPage — 409 rollback', () => {
     )
     expect(pushToast).toHaveBeenCalledWith('Этот чек уже обработан другим админом.', 'dg')
 
-    // 409 → refetch the queue so the stale card is replaced.
-    expect(invalidateSpy).toHaveBeenCalledWith(
+    // 409 must NOT refetch the review-queue mid-session: that shrinks the list
+    // under the deck's positional index and skips unprocessed cards. Fresh data
+    // arrives on re-entry (the query is removed on unmount) instead.
+    expect(invalidateSpy).not.toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: ['admin', 'review-queue'] }),
     )
     // The English code must never reach the user.

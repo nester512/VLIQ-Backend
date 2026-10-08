@@ -136,9 +136,13 @@ export function useAdminDashboard() {
       const chart = buildChartBuckets(receipts.map((r) => r.created_at))
 
       return {
-        sellers_total: sellers.length,
+        // Server-side total, NOT sellers.length — the page is capped at 200,
+        // so .length would silently plateau at 200 for larger datasets.
+        sellers_total: sellersPage.total,
         sellers_active,
-        receipts_loaded: receipts.length,
+        // Server-side total, NOT receipts.length — receipts is a 200-row page,
+        // so .length caps at 200 and could read BELOW receipts_pending (bug).
+        receipts_loaded: receiptsPage.total,
         receipts_pending,
         payouts_pending,
         payouts_paid_month,

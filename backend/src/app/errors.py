@@ -46,7 +46,7 @@ USER_MESSAGES: dict[str, str] = {
     "AUTH_FORBIDDEN": "У вас нет доступа к этому действию.",
     "AUTH_REGISTRATION_REQUIRED": "Завершите регистрацию, чтобы продолжить.",
     # --- Seller ---
-    "SELLER_BLOCKED": "Ваш аккаунт заблокирован. Обратитесь в поддержку: @nester256.",
+    "SELLER_BLOCKED": "Ваш аккаунт заблокирован. Обратитесь в поддержку: @kovalyova_yekaterina.",
     "SELLER_NOT_REGISTERED": "Завершите регистрацию, чтобы продолжить.",
     "SELLER_NOT_FOUND": "Продавец не найден.",
     "SELLER_PHONE_TAKEN": "Этот номер телефона уже зарегистрирован. Укажите другой.",

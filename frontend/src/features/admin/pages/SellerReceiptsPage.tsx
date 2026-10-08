@@ -80,7 +80,7 @@ function SellerReceiptsContent() {
     queryKey: ['admin', 'seller-receipts', parsedId],
     queryFn: () => {
       if (!parsedId) throw new Error('telegramId required')
-      return getAdminReceipts({ seller_id: parsedId, page: 1, limit: PAGE_LIMIT })
+      return getAdminReceipts({ seller_id: parsedId, status: ['on_review'], page: 1, limit: PAGE_LIMIT })
     },
     enabled: parsedId != null,
     staleTime: 30_000,
@@ -99,7 +99,7 @@ function SellerReceiptsContent() {
       {/* Subtitle showing whose receipts these are */}
       <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--vliq-hint)' }}>
         {sellerName}
-        {data?.total != null ? ` · ${data.total} чеков` : ''}
+        {data?.total != null ? ` · ${data.total} на проверке` : ''}
       </div>
 
       {isLoading ? (
@@ -114,8 +114,8 @@ function SellerReceiptsContent() {
         <EmptyState
           icon="receipt"
           tone="brand"
-          title="У продавца пока нет чеков"
-          description="Когда продавец загрузит первый чек — он появится здесь."
+          title="Нет чеков на проверке"
+          description="Все чеки этого продавца уже проверены."
         />
       ) : (
         <div className="vliq-list">

@@ -2,13 +2,20 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { init } from '@telegram-apps/sdk-react'
+import { init, mountViewport } from '@telegram-apps/sdk-react'
 import './index.css'
 import App from './App.tsx'
 
 // Initialize TMA SDK (safe to call outside Telegram context — no-ops gracefully)
 try {
   init()
+  // Mount the viewport component so its signals (viewport height / stable
+  // height, consumed by useTmaViewport / useTmaKeyboardInset) actually
+  // populate. Without this they stay frozen at 0. Non-blocking; the guard
+  // and catch make it a no-op outside Telegram.
+  if (mountViewport.isAvailable()) {
+    void mountViewport().catch(() => {})
+  }
 } catch {
   // Running outside Telegram — SDK init skipped
 }

@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Query, Request, Response, UploadFile, status
-from sqlalchemy import func, select, update
+from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.pagination import PagedResponse
@@ -1032,6 +1032,17 @@ async def create_receipt(
     return await _build_receipt_read(session, new_id)
 
 
+def _order_receipt_queue(stmt: Select) -> Select:
+    """Order the admin review queue oldest-first (FIFO).
+
+    ``id`` is a REQUIRED tiebreaker, not cosmetic: receipts are uploaded in
+    bursts that share a ``created_at`` down to the second, so ordering by that
+    ambiguous key alone makes ``offset``/``limit`` pagination repeat or skip
+    rows between pages. ``id`` is monotonic, making the order total and stable.
+    """
+    return stmt.order_by(Receipt.created_at.asc(), Receipt.id.asc())
+
+
 @router.get(
     "",
     response_model=PagedResponse[ReceiptRead],
@@ -1058,7 +1069,8 @@ async def list_receipts(  # noqa: PLR0913
     - ``seller_id`` — integer seller telegram_id.
     - ``from`` / ``to`` — ISO-8601 datetime bounds on ``created_at``.
 
-    Results are ordered by ``created_at DESC``.
+    Results are ordered by ``created_at ASC`` (oldest first, FIFO), with ``id``
+    as a stable tiebreaker for equal timestamps.
     The total count reflects the filtered result set, not the unfiltered table.
     """
     stmt = select(Receipt).where(Receipt.is_deleted.is_(False))
@@ -1080,7 +1092,7 @@ async def list_receipts(  # noqa: PLR0913
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total: int = (await session.execute(count_stmt)).scalar_one()
 
-    stmt = stmt.order_by(Receipt.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    stmt = _order_receipt_queue(stmt).offset((page - 1) * limit).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
 
     items = []
