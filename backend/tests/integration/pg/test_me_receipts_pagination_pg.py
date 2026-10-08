@@ -8,25 +8,25 @@ every page must yield each receipt exactly once, and the on_review subset too.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
 from src.receipt.models import Receipt
 from src.seller.handlers.api.v1.router import get_me_receipts
+
 from tests.integration.pg._ids import SEED_BRAND_ID, SEED_SELLER_ID
 
 pytestmark = pytest.mark.asyncio
 
-_TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+_TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 _TOKEN = {"user_id": SEED_SELLER_ID}
 
 
 async def _seed(s: AsyncSession, n_on_review: int, n_approved: int) -> None:
-    for i in range(n_on_review):
+    for _ in range(n_on_review):
         s.add(Receipt(seller_id=SEED_SELLER_ID, brand_id=SEED_BRAND_ID, status="on_review", created_at=_TS))
-    for i in range(n_approved):
+    for _ in range(n_approved):
         s.add(Receipt(seller_id=SEED_SELLER_ID, brand_id=SEED_BRAND_ID, status="approved", created_at=_TS))
 
 

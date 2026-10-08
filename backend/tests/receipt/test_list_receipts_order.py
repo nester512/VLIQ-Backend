@@ -7,7 +7,6 @@ inspecting the compiled statement produced by the real ``_order_receipt_queue``
 helper that ``list_receipts`` uses.
 """
 from sqlalchemy import select
-
 from src.receipt.handlers.api.v1.router import _order_receipt_queue
 from src.receipt.models import Receipt
 

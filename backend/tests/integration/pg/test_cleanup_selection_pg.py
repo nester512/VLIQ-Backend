@@ -10,9 +10,9 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
 from src.receipt.models import Receipt, ReceiptAttachment
 from src.scripts.cleanup_checked_receipts import _SELECT_SQL
+
 from tests.integration.pg._ids import SEED_BRAND_ID, SEED_SELLER_ID
 
 pytestmark = pytest.mark.asyncio

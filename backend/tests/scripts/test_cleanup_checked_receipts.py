@@ -1,6 +1,5 @@
 """Unit tests for the MinIO cleanup script's pure helpers (no DB / no S3)."""
 import pytest
-
 from src.scripts.cleanup_checked_receipts import build_placeholder, ext_format
 
 

@@ -24,9 +24,12 @@ import asyncio
 import io
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger("cleanup_checked_receipts")
+
+# How many candidate objects a dry-run lists before summarising the rest.
+_DRY_RUN_PREVIEW = 15
 
 # One object per row; ``needed`` is true if ANY non-deleted referencing receipt
 # is NOT checked — such objects are kept. Result = objects owned solely by
@@ -126,14 +129,14 @@ async def run(*, apply: bool, limit: int | None) -> None:
         return
 
     if not apply:
-        for r in rows[:15]:
+        for r in rows[:_DRY_RUN_PREVIEW]:
             logger.info("[dry-run] would replace %s (%s, %d bytes)", r["uri"], r["mime"], r["size_bytes"])
-        if total > 15:
-            logger.info("[dry-run] ... and %d more", total - 15)
+        if total > _DRY_RUN_PREVIEW:
+            logger.info("[dry-run] ... and %d more", total - _DRY_RUN_PREVIEW)
         logger.info("[dry-run] %d objects, ~%.1f MB. Re-run with --apply to overwrite.", total, reclaimable_mb)
         return
 
-    deleted_on = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    deleted_on = datetime.now(UTC).strftime("%Y-%m-%d")
     bucket = storage._bucket  # noqa: SLF001 — ops script reuses the configured client
     prefix = f"s3://{bucket}/"
     done = skipped = errors = 0

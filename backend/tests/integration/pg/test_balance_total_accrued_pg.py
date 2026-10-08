@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
 from src.bonus_transaction.models import BonusTransaction, BonusTransactionKind
 from src.seller.services.balance_service import get_seller_balance
+
 from tests.integration.pg._ids import SEED_BRAND_ID, SEED_SELLER_ID
 
 pytestmark = pytest.mark.asyncio
