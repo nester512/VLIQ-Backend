@@ -174,10 +174,9 @@ class SellerLoginTransferRequest(BaseModel):
     """Super admin: link the seller's NEW Telegram account after the identity check."""
 
     new_telegram_id: int = Field(gt=0, description="Telegram ID of the seller's new account")
-    reason: str = Field(
-        min_length=10, max_length=2000,
-        description="Основание: обращение, как и кем проверена личность (идёт в аудит)",
-    )
+    # Length is checked by the service (ACCOUNT_TRANSFER_REASON_REQUIRED, a readable message),
+    # not here — a schema min_length would answer with a generic VALIDATION_ERROR.
+    reason: str = Field(max_length=2000, description="Основание: обращение, как и кем проверена личность (≥ 10 символов, идёт в аудит)")
 
 
 class SellerLoginTransferRead(BaseModel):

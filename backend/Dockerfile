@@ -46,4 +46,6 @@ COPY . .
 
 # Default: run the FastAPI backend.
 EXPOSE 8000
-CMD ["uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Behind Caddy (the only way in — the port is not published): trust its X-Forwarded-For,
+# so per-client rate limits see the real client, not the proxy's single address.
+CMD ["uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

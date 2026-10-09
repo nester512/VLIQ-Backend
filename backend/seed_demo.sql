@@ -117,12 +117,13 @@ DELETE FROM vliq.payout_request WHERE seller_id IN (12345, 10000001, 10000002);
 
 INSERT INTO vliq.payout_request (
     seller_id, brand_id, amount, payout_kind, payout_masked, status,
-    created_at, updated_at
+    created_at, updated_at, taken_at, paid_at
 ) VALUES
-    (12345,    1, 2350, 'sbp_phone', '•••• 4117', 'new',         now() - interval '1 days',  now()),
-    (10000001, 1, 3100, 'card',      '•••• 8842', 'in_progress', now() - interval '2 days',  now()),
-    (10000002, 1, 5800, 'sbp_phone', '•••• 2093', 'new',         now() - interval '6 hours', now()),
-    (10000001, 1,  200, 'card',      '•••• 8842', 'paid',        now() - interval '13 days', now() - interval '12 days');
+    (12345,    1, 2350, 'sbp_phone', '•••• 4117', 'new',         now() - interval '1 days',  now(), NULL, NULL),
+    (10000001, 1, 3100, 'card',      '•••• 8842', 'in_progress', now() - interval '2 days',  now(), now() - interval '1 days', NULL),
+    (10000002, 1, 5800, 'sbp_phone', '•••• 2093', 'new',         now() - interval '6 hours', now(), NULL, NULL),
+    (10000001, 1,  200, 'card',      '•••• 8842', 'paid',        now() - interval '13 days', now() - interval '12 days',
+     now() - interval '13 days', now() - interval '12 days');
 
 -- ---------------------------------------------------------------------------
 -- Promotions — three active for the brand. Frontend reads via GET /promotions.

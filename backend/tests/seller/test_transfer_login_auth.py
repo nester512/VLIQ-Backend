@@ -42,3 +42,4 @@ async def test_reason_is_required(client: AsyncClient) -> None:
     resp = await client.post(URL, json={"new_telegram_id": 777, "reason": "ok"},
                              headers={"Authorization": f"Bearer {_token('super_admin')}"})  # fmt: skip
     assert resp.status_code == 422
+    assert resp.json()["code"] == "ACCOUNT_TRANSFER_REASON_REQUIRED"  # a readable message, not a generic 422

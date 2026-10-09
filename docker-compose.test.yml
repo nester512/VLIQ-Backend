@@ -19,7 +19,7 @@ services:
     command: >
       sh -c "
         python -m src.scripts.seed_dev &&
-        uvicorn src.app.main:app --host 0.0.0.0 --port 8000
+        uvicorn src.app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips '*'
       "
 
   bot:
