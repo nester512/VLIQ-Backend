@@ -540,3 +540,40 @@
 /* ===========================================================
    REDUCED MOTION: keep existing rule untouched (in index.css)
    =========================================================== */
+
+
+/* ---- «Путь чека» (receipt journey) ---- */
+.vliq-journey { margin: 0 16px 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.vliq-journey__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vliq-journey__head b { font-size: 15px; color: var(--vliq-text); }
+.vliq-journey__summary { margin: 0; display: grid; gap: 6px; background: var(--vliq-field); border-radius: 14px; padding: 10px 12px; }
+.vliq-journey__summary > div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px; font-size: 12.5px; }
+.vliq-journey__summary dt { color: var(--vliq-hint); }
+.vliq-journey__summary dd { margin: 0; font-weight: 700; color: var(--vliq-text); overflow-wrap: anywhere; }
+.vliq-journey__actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.vliq-journey__btn {
+  border: 0; border-radius: 12px; padding: 9px 12px; font: inherit; font-size: 12.5px; font-weight: 700;
+  background: var(--vliq-field); color: var(--vliq-brand); cursor: pointer;
+}
+.vliq-journey__btn.is-primary { background: var(--vliq-brand); color: #fff; }
+.vliq-journey__btn:disabled { opacity: .55; cursor: default; }
+.vliq-journey__providers { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--vliq-hint); }
+.vliq-journey__events { list-style: none; margin: 0; padding: 0 0 0 10px; border-left: 2px solid var(--vliq-sep); display: grid; gap: 4px; }
+.vliq-journey__events > li { position: relative; }
+.vliq-journey__events > li::before {
+  content: ''; position: absolute; left: -15px; top: 11px; width: 8px; height: 8px; border-radius: 50%; background: var(--vliq-hint);
+}
+.vliq-journey__events > li.is-ok::before { background: var(--vliq-ok); }
+.vliq-journey__events > li.is-dg::before { background: var(--vliq-dg); }
+.vliq-journey__events > li.is-wn::before { background: var(--vliq-wn, #f39a12); }
+.vliq-journey__event {
+  all: unset; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; width: 100%; padding: 4px 6px;
+  border-radius: 8px; font-size: 12.5px; color: var(--vliq-text);
+}
+.vliq-journey__event:not(:disabled) { cursor: pointer; }
+.vliq-journey__event:not(:disabled):hover { background: var(--vliq-field); }
+.vliq-journey__time { font-size: 11px; color: var(--vliq-hint); }
+.vliq-journey__what { overflow-wrap: anywhere; }
+.vliq-journey__who { color: var(--vliq-hint); }
+.vliq-journey__check { margin: 2px 0 6px 6px; font-size: 11.5px; color: var(--vliq-hint); }
+.vliq-journey__check pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto; color: var(--vliq-text); background: var(--vliq-field); padding: 8px; border-radius: 10px; }

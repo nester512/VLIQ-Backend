@@ -3,7 +3,7 @@ import { Icon } from '@/components/atoms/Icon'
 import { Pill } from '@/components/atoms/Pill'
 import { fmtMoney, fmtMoneyDelta, plural } from '@/utils/formatMoney'
 import { formatDate, formatDateTime } from '@/utils/formatDate'
-import { SOURCE_LABEL, VERIFICATION_KIND, VERIFICATION_LABEL } from '@/features/admin/verificationLabels'
+import { SOURCE_LABEL, VERIFICATION_KIND, verificationLabel } from '@/features/admin/verificationLabels'
 import type { AdminReceipt } from '@/api/admin'
 
 /** Short chip labels for the signals an admin must notice before deciding. */
@@ -109,7 +109,7 @@ export function ReviewCardSummary({ receipt, onDetails, onSellerClick }: ReviewC
 
       <div className="vliq-review-summary__chips">
         {receipt.source && <Pill kind="muted">{SOURCE_LABEL[receipt.source]}</Pill>}
-        {verification && <Pill kind={VERIFICATION_KIND[verification]}>{VERIFICATION_LABEL[verification]}</Pill>}
+        {verification && <Pill kind={VERIFICATION_KIND[verification]}>{verificationLabel(verification, receipt.verified_by)}</Pill>}
         {chips.slice(0, MAX_CHIPS).map((c) => <Pill key={c} kind="dg">{c}</Pill>)}
         {chips.length > MAX_CHIPS && <Pill kind="dg">+{chips.length - MAX_CHIPS}</Pill>}
       </div>

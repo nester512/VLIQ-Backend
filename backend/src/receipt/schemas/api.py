@@ -375,6 +375,8 @@ class ReceiptRead(BaseModel):
     verification_attempts: int = 0
     next_verification_at: datetime | None = None
     verified_at: datetime | None = None
+    verified_by: str | None = None  # check provider that confirmed it (journey, 0011)
+    check_rounds: int = 0
     is_deleted: bool
     created_at: datetime
     updated_at: datetime | None = None

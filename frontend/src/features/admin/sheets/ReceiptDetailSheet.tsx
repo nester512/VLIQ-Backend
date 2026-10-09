@@ -16,7 +16,7 @@ import { editReceiptBonus, addReceiptComment, blockSeller, deleteReceipt } from 
 import { extractApiError } from '@/api/client'
 import type { AdminReceipt } from '@/api/admin'
 import { invalidateAfterReceiptChange } from '@/features/admin/invalidate'
-import { VerificationPanel } from '@/features/admin/components/VerificationPanel'
+import { JourneyPanel } from '@/features/admin/components/JourneyPanel'
 
 interface ReceiptDetailSheetProps {
   receiptId: string | null
@@ -176,9 +176,8 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
             swipe-deck viewer. */}
         <ReceiptInfoCard receipt={receipt} className="mb-4" onSellerClick={goToSeller} />
 
-        {receipt.verification_status && receipt.verification_status !== 'not_required' && (
-          <VerificationPanel receiptId={receipt.id} />
-        )}
+        {/* Every receipt has its journey (older ones reconstructed from history). */}
+        <JourneyPanel receiptId={receipt.id} />
 
         <div className="grid grid-cols-2 gap-3 mx-4 mt-1 mb-4">
           {receipt.fn && receipt.fd && receipt.fp && (

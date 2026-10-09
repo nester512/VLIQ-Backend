@@ -109,34 +109,74 @@ export interface AdminReceipt extends Receipt {
   verification_attempts?: number
   next_verification_at?: string
   verified_at?: string
+  /** Check provider that confirmed the receipt. */
+  verified_by?: string
 }
 
 export type ReceiptSourceT = 'telegram_scan' | 'camera_scan' | 'image_decode' | 'pdf_decode' | 'manual'
 export type VerificationStatus = 'not_required' | 'pending' | 'retrying' | 'verified' | 'failed'
 
-export interface VerificationAttempt {
+/** One call to a check provider — exactly what was asked and answered (reproducible). */
+export interface ReceiptCheck {
+  id: number
   attempt_no: number
+  round_no: number | null
   provider: string
+  provider_role: 'main' | 'fallback' | null
+  adapter_version: string | null
   method: string
   trigger: 'pipeline' | 'cron' | 'admin'
   outcome: 'ok' | 'not_found' | 'invalid' | 'rate_limited' | 'error' | 'blocked'
   http_status: number | null
   request: Record<string, unknown> | null
   response: Record<string, unknown> | null
+  parsed: Record<string, unknown> | null
   error: string | null
   duration_ms: number | null
   created_at: string
 }
 
-export interface ReceiptVerification {
+export interface JourneyEvent {
+  seq: number
+  at: string
+  kind: string
+  actor_type: 'seller' | 'system' | 'admin'
+  actor_id: number | null
+  source: string | null
+  outcome: string | null
+  data: Record<string, unknown> | null
+  check: ReceiptCheck | null
+}
+
+export interface CheckProvider {
+  code: string
+  title: string
+  role: 'main' | 'fallback'
+  priority: number
+  enabled: boolean
+  /** An adapter with credentials exists in this deployment. */
+  available: boolean
+  disabled_until: string | null
+  consecutive_failures: number
+}
+
+export interface ReceiptJourney {
   receipt_id: number
-  source: ReceiptSourceT | null
-  status: VerificationStatus
-  attempts_count: number
-  next_attempt_at: string | null
-  verified_at: string | null
-  ofd_response: Record<string, unknown> | null
-  attempts: VerificationAttempt[]
+  summary: {
+    received_at: string | null
+    intake_source: string | null
+    status: ReceiptStatus
+    verification_status: VerificationStatus
+    verified_by: string | null
+    verified_at: string | null
+    check_rounds: number
+    next_check_at: string | null
+    decision: 'approved' | 'rejected' | 'sent_to_revision' | null
+    decided_at: string | null
+    decided_by: number | null
+  }
+  events: JourneyEvent[]
+  providers: CheckProvider[]
 }
 
 /** Receipt activity + moderation risk of a seller, aggregated on the server. */
@@ -298,6 +338,7 @@ interface BackendReceipt {
   verification_attempts?: number
   next_verification_at?: string | null
   verified_at?: string | null
+  verified_by?: string | null
   created_at: string
   updated_at?: string | null
 }
@@ -539,6 +580,7 @@ function mapAdminReceipt(r: BackendReceipt): AdminReceipt {
     verification_attempts: r.verification_attempts,
     next_verification_at: r.next_verification_at ?? undefined,
     verified_at: r.verified_at ?? undefined,
+    verified_by: r.verified_by ?? undefined,
   }
 }
 
@@ -733,12 +775,12 @@ export const unblockSeller = (telegram_id: string): Promise<AdminSeller> =>
     .post<BackendSeller>(`/sellers/${telegram_id}/unblock`, {})
     .then((r) => mapAdminSeller(r.data))
 
-// ---- OFD verification (QR intake) ----
+// ---- Receipt journey (docs/design/RECEIPT-JOURNEY.md) ----
 
-/** GET /receipts/{id}/verification — status + every attempt, newest first. */
-export const getReceiptVerification = (id: string): Promise<ReceiptVerification> =>
-  api.get<ReceiptVerification>(`/receipts/${id}/verification`).then((r) => r.data)
+/** GET /receipts/{id}/journey — every step from intake to the decision, with each provider check. */
+export const getReceiptJourney = (id: string): Promise<ReceiptJourney> =>
+  api.get<ReceiptJourney>(`/receipts/${id}/journey`).then((r) => r.data)
 
-/** POST /receipts/{id}/verify — run one extra attempt now; returns the updated history. */
-export const verifyReceiptNow = (id: string): Promise<ReceiptVerification> =>
-  api.post<ReceiptVerification>(`/receipts/${id}/verify`).then((r) => r.data)
+/** POST /receipts/{id}/verify — a new check round now, or only at `provider`. */
+export const verifyReceiptNow = (id: string, provider?: string): Promise<ReceiptJourney> =>
+  api.post<ReceiptJourney>(`/receipts/${id}/verify`, provider ? { provider } : {}).then((r) => r.data)

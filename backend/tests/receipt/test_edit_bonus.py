@@ -53,6 +53,8 @@ def _make_receipt(receipt_id: int = 1, status: str = "on_review", bonus_amount: 
     r.verification_attempts = 0
     r.next_verification_at = None
     r.verified_at = None
+    r.verified_by = None
+    r.check_rounds = 0
     r.is_deleted = False
     r.created_at = datetime(2025, 1, 1, 12, 0, 0)
     r.updated_at = None

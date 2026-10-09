@@ -162,7 +162,7 @@ describe('ReceiptInfoCard — QR intake badges', () => {
     render(<ReceiptInfoCard receipt={base({ source: 'manual', verification_status: 'verified' })} />)
     const badges = screen.getByTestId('receipt-intake-badges')
     expect(badges).toHaveTextContent('Ручной ввод данных')
-    expect(badges).toHaveTextContent('Подтверждён в ОФД')
+    expect(badges).toHaveTextContent('Подтверждён')
   })
 
   it('legacy file receipts show no intake badges', () => {

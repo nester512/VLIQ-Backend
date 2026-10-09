@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { SOURCE_LABEL, VERIFICATION_KIND, VERIFICATION_LABEL } from '@/features/admin/verificationLabels'
+import { SOURCE_LABEL, VERIFICATION_KIND, verificationLabel } from '@/features/admin/verificationLabels'
 import { Icon } from '@/components/atoms/Icon'
 import { Pill } from '@/components/atoms/Pill'
 import { RECEIPT_STATUS } from '@/utils/receiptStatus'
@@ -142,7 +142,7 @@ export function ReceiptInfoCard({ receipt, actions, className = '', onSellerClic
               {receipt.source && <Pill kind="muted">{SOURCE_LABEL[receipt.source]}</Pill>}
               {receipt.verification_status && receipt.verification_status !== 'not_required' && (
                 <Pill kind={VERIFICATION_KIND[receipt.verification_status]}>
-                  {VERIFICATION_LABEL[receipt.verification_status]}
+                  {verificationLabel(receipt.verification_status, receipt.verified_by)}
                 </Pill>
               )}
             </div>

@@ -1,4 +1,4 @@
-import type { ReceiptSourceT, VerificationAttempt, VerificationStatus } from '@/api/admin'
+import type { ReceiptCheck, ReceiptSourceT, VerificationStatus } from '@/api/admin'
 
 export const SOURCE_LABEL: Record<ReceiptSourceT, string> = {
   telegram_scan: 'QR · сканер Telegram',
@@ -8,13 +8,27 @@ export const SOURCE_LABEL: Record<ReceiptSourceT, string> = {
   manual: 'Ручной ввод данных',
 }
 
+/** Check providers — short names for chips and the timeline. */
+export const PROVIDER_LABEL: Record<string, string> = {
+  fns: 'ФНС',
+  proverkacheka: 'proverkacheka',
+  platformaofd: 'Платформа ОФД',
+  taxcom: 'Такском',
+  fake: 'заглушка (стенд)',
+}
+export const providerLabel = (code: string | null | undefined) => (code ? PROVIDER_LABEL[code] ?? code : '—')
+
 export const VERIFICATION_LABEL: Record<VerificationStatus, string> = {
   not_required: 'Не проверяется',
-  pending: 'Проверка в ОФД…',
-  retrying: 'ОФД: повтор по расписанию',
-  verified: 'Подтверждён в ОФД',
-  failed: 'ОФД: не подтверждён',
+  pending: 'Проверка…',
+  retrying: 'Проверка: повтор по расписанию',
+  verified: 'Подтверждён',
+  failed: 'Не подтверждён',
 }
+
+/** «Подтверждён · ФНС» when we know who confirmed it. */
+export const verificationLabel = (status: VerificationStatus, verifiedBy?: string | null) =>
+  status === 'verified' && verifiedBy ? `Подтверждён · ${providerLabel(verifiedBy)}` : VERIFICATION_LABEL[status]
 
 export const VERIFICATION_KIND: Record<VerificationStatus, 'ok' | 'wn' | 'dg' | 'muted'> = {
   not_required: 'muted',
@@ -24,17 +38,17 @@ export const VERIFICATION_KIND: Record<VerificationStatus, 'ok' | 'wn' | 'dg' | 
   failed: 'dg',
 }
 
-export const OUTCOME_LABEL: Record<VerificationAttempt['outcome'], string> = {
+export const OUTCOME_LABEL: Record<ReceiptCheck['outcome'], string> = {
   ok: 'найден',
   not_found: 'нет данных',
   invalid: 'чек некорректен',
-  rate_limited: 'лимит провайдера',
-  error: 'ошибка',
+  rate_limited: 'лимит источника',
+  error: 'ошибка источника',
   blocked: 'доступ отклонён',
 }
 
-export const TRIGGER_LABEL: Record<VerificationAttempt['trigger'], string> = {
-  pipeline: 'при загрузке',
+export const TRIGGER_LABEL: Record<ReceiptCheck['trigger'], string> = {
+  pipeline: 'при приёме',
   cron: 'по расписанию',
   admin: 'вручную',
 }
@@ -43,4 +57,42 @@ export const METHOD_LABEL: Record<string, string> = {
   fields: 'по реквизитам',
   qrraw: 'по строке QR',
   fields_seconds: 'по реквизитам (с секундами)',
+}
+
+/** One line per journey step, in the admin's words. */
+export const EVENT_LABEL: Record<string, string> = {
+  received: 'Чек получен',
+  validated: 'Данные проверены на телефоне и сервере',
+  risk_flagged: 'Отмечены сигналы риска',
+  sent_to_moderation: 'Передан на модерацию',
+  check_round_started: 'Раунд проверки',
+  provider_checked: 'Проверка у источника',
+  provider_skipped: 'Источник пропущен (временно отключён)',
+  verified: 'Подтверждён',
+  check_round_failed: 'Раунд без подтверждения',
+  check_exhausted: 'Автопроверка исчерпана — нужна ручная',
+  recheck_requested: 'Запрошена повторная проверка',
+  approved: 'Одобрен',
+  rejected: 'Отклонён',
+  sent_to_revision: 'Отправлен на доработку',
+  bonus_changed: 'Изменён бонус',
+  comment_added: 'Комментарий',
+  edited: 'Данные изменены',
+  reprocess_requested: 'Отправлен на повторную обработку',
+  deleted: 'Удалён',
+  included_in_payout: 'Включён в выплату',
+  paid_out: 'Выплачен',
+}
+
+export const EVENT_KIND: Record<string, 'ok' | 'wn' | 'dg' | 'muted'> = {
+  verified: 'ok',
+  approved: 'ok',
+  paid_out: 'ok',
+  risk_flagged: 'dg',
+  rejected: 'dg',
+  check_exhausted: 'dg',
+  deleted: 'dg',
+  check_round_failed: 'wn',
+  provider_skipped: 'wn',
+  sent_to_revision: 'wn',
 }

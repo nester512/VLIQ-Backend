@@ -210,7 +210,7 @@ describe('SwipeDeck — decision card without the photo', () => {
   const full = () => receipt({
     id: 'r1', seller_name: 'Анна Петрова', seller_store: 'ТЦ Радуга', amount: 145000, bonus_amount: 5000,
     purchase_date: '2026-10-08', shop_name: 'ООО Ромашка', fn: '9960440300712345', fd: '12345', fp: '3826178549',
-    source: 'telegram_scan', verification_status: 'verified', duplicate_status: 'danger',
+    source: 'telegram_scan', verification_status: 'verified', verified_by: 'fns', duplicate_status: 'danger',
     fraud_signal: [
       { type: 'historical_duplicate_fn_fd_fp', details: 'x' },
       { type: 'receipt_too_old', details: 'y' },
@@ -228,7 +228,7 @@ describe('SwipeDeck — decision card without the photo', () => {
     expect(card).toHaveTextContent('ООО Ромашка')
     expect(card).toHaveTextContent('…2345 · 12345 · 3826178549')
     expect(card).toHaveTextContent('QR · сканер Telegram')
-    expect(card).toHaveTextContent('Подтверждён в ОФД')
+    expect(card).toHaveTextContent('Подтверждён · ФНС') // who confirmed it
     expect(card).toHaveTextContent('Повтор чека')
     expect(card).toHaveTextContent('Старше 30 дней')
     expect(card).not.toHaveTextContent('hidden') // demo_mode is noise
