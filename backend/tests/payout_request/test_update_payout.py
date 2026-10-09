@@ -25,7 +25,9 @@ PREFIX = "/api/v1/payout-requests"
 @pytest.fixture(autouse=True)
 def _allocate():
     """Receipt coverage is exercised against real PostgreSQL (tests/integration/pg/test_payouts_pg.py)."""
-    with patch("src.payout_request.service._allocate", new=AsyncMock()) as m:
+    with patch("src.payout_request.service._allocate", new=AsyncMock(return_value={})) as m, \
+         patch("src.payout_request.service._links", new=AsyncMock(return_value=[])), \
+         patch("src.payout_request.service._forbid_blocked_seller", new=AsyncMock()):
         yield m
 
 
@@ -122,19 +124,19 @@ def _override_session(app, session_mock: MagicMock) -> None:
 
 @pytest.mark.asyncio
 async def test_decrease_amount_releases_hold_and_notifies(client: AsyncClient, app) -> None:
-    """Amount 2350₽ → 2000₽: +350₽ hold release and seller notification."""
-    payout = _make_payout(status="new", amount=235000)
+    """Amount 3 350₽ → 3 000₽ (the minimum): +350₽ hold release and seller notification."""
+    payout = _make_payout(status="new", amount=335000)
     session_mock = _make_session(_lock_result(payout))
     _override_session(app, session_mock)
 
     resp = await client.patch(
         f"{PREFIX}/1",
-        json={"amount": 200000},
+        json={"amount": 300000},
         headers={"Authorization": f"Bearer {_admin_token()}"},
     )
 
     assert resp.status_code == 200
-    assert payout.amount == 200000
+    assert payout.amount == 300000
     added = [call.args[0] for call in session_mock.add.call_args_list]
     holds = [x for x in added if isinstance(x, BonusTransaction)]
     outbox_rows = [x for x in added if isinstance(x, NotificationOutbox)]
@@ -146,8 +148,8 @@ async def test_decrease_amount_releases_hold_and_notifies(client: AsyncClient, a
     assert outbox_rows[0].recipient_id == 12345
     assert outbox_rows[0].template == "payout.amount_changed"
     assert outbox_rows[0].payload == {
-        "amount": 200000,
-        "old_amount": 235000,
+        "amount": 300000,
+        "old_amount": 335000,
         "payout_masked": "•••• 4117",
     }
 

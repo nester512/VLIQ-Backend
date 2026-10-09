@@ -287,6 +287,28 @@ async def test_amount_edit_moves_the_reserve_and_recomputes_coverage(session_fac
     assert (bal.available, bal.on_hold) == (150_000, 450_000)
 
 
+async def test_amount_edit_obeys_the_rules_and_tells_released_receipts(session_factory) -> None:
+    sm = session_factory
+    r1, r2 = await _approved(sm, 300_000), await _approved(sm, 300_000)
+    payout = await _create(sm, 450_000)  # r1 300 000 + r2 150 000
+    with pytest.raises(AppError) as err:
+        async with sm() as s:
+            await update_payout_request(payout_id=payout.id, admin_id=777, amount=100, min_amount=MIN, session=s)
+    assert err.value.code == "PAYOUT_BELOW_MINIMUM"
+
+    async with sm() as s:
+        await update_payout_request(payout_id=payout.id, admin_id=777, amount=300_000, min_amount=MIN, session=s)
+    assert (await _kinds(sm, r2))[-1] == "payout_reverted"  # r2 no longer in the request — said so
+    assert (await _kinds(sm, r1)).count("included_in_payout") == 1  # r1 unchanged: no duplicate step
+
+    async with sm() as s, s.begin():
+        await s.execute(text("UPDATE vliq.seller SET status = 'blocked' WHERE telegram_id = :t"), {"t": SEED_SELLER_ID})
+    with pytest.raises(AppError) as err:
+        async with sm() as s:
+            await update_payout_request(payout_id=payout.id, admin_id=777, amount=310_000, min_amount=MIN, session=s)
+    assert err.value.code == "PAYOUT_SELLER_BLOCKED"
+
+
 # ---- receipt side: money already moved ---------------------------------------
 
 

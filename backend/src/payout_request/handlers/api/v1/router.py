@@ -361,8 +361,10 @@ async def update_payout_request_endpoint(
     payload: PayoutRequestUpdate,
     token: Annotated[JwtTokenT, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_pg_session)],
+    cfg: Annotated[Settings, Depends(get_config)],
 ) -> PayoutRequestRead:
     return await update_payout_request(
+        min_amount=cfg.PAYOUT_MIN_AMOUNT,
         payout_id=payout_request_id,
         admin_id=token["user_id"],
         amount=payload.amount,

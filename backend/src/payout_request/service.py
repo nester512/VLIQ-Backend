@@ -154,8 +154,10 @@ async def active_payout_of(session: AsyncSession, receipt_id: int) -> int | None
     ).scalar_one_or_none()
 
 
-async def _allocate(session: AsyncSession, payout: PayoutRequest, *, actor_type: str, actor_id: int) -> None:
-    """Cover ``payout.amount`` with the seller's approved receipts, oldest first."""
+async def _allocate(
+    session: AsyncSession, payout: PayoutRequest, *, actor_type: str, actor_id: int, record_events: bool = True
+) -> dict[int, int]:
+    """Cover ``payout.amount`` with the seller's approved receipts, oldest first → {receipt_id: part}."""
     receipts = list(
         (
             await session.execute(
@@ -173,6 +175,7 @@ async def _allocate(session: AsyncSession, payout: PayoutRequest, *, actor_type:
     )
     covered = await covered_by_live_payouts(session, [r.id for r in receipts])
     left = payout.amount
+    parts: dict[int, int] = {}
     for receipt in receipts:
         if left <= 0:
             break
@@ -182,10 +185,14 @@ async def _allocate(session: AsyncSession, payout: PayoutRequest, *, actor_type:
         part = min(free, left)
         left -= part
         session.add(PayoutReceipt(payout_id=payout.id, receipt_id=receipt.id, amount=part))
+        parts[receipt.id] = part
+        if not record_events:
+            continue
         await journey.record(
             session, receipt.id, EventKind.included_in_payout, actor_type=actor_type, actor_id=actor_id,
             data={"payout_id": payout.id, "amount": part, "partial": part < receipt.bonus_amount},
         )
+    return parts
 
 
 async def _links(session: AsyncSession, payout_id: int) -> list[PayoutReceipt]:
@@ -438,16 +445,21 @@ async def reject_payout_request(
     return result
 
 
-async def update_payout_request(  # noqa: PLR0913
+async def update_payout_request(  # noqa: PLR0912, PLR0913
     *,
     payout_id: int,
     admin_id: int,
     amount: int | None = None,
     admin_comment: str | None = None,
     external_txn_id: str | None = None,
+    min_amount: int = 0,
     session: AsyncSession,
 ) -> PayoutRequestRead:
-    """Edit a payout in progress (KAN-22): amount Δ is reserved / released and coverage recomputed."""
+    """Edit a payout in progress (KAN-22): amount Δ is reserved / released and coverage recomputed.
+
+    The new amount obeys the same rules as a new request (minimum, blocked seller); receipts
+    whose coverage changed get a journey step — released ones ``payout_reverted``.
+    """
     async with session.begin():
         payout = await _lock_payout(session, payout_id)
         if payout.status not in ACTIVE_PAYOUT_STATUSES:
@@ -456,6 +468,13 @@ async def update_payout_request(  # noqa: PLR0913
         old_amount = payout.amount
         changes: dict[str, Any] = {}
         if amount is not None and amount != old_amount:
+            if amount < min_amount:
+                raise AppError(
+                    "PAYOUT_BELOW_MINIMUM",
+                    user_message=f"Минимальная сумма выплаты — {format_kopecks(min_amount)} ₽.",
+                    status_code=422,
+                )
+            await _forbid_blocked_seller(session, payout.seller_id)
             delta = amount - old_amount
             if delta > 0:
                 await _lock_seller(session, payout.seller_id)
@@ -472,9 +491,22 @@ async def update_payout_request(  # noqa: PLR0913
             payout.amount = amount
             # Coverage of a payout in progress is recomputed from scratch; the receipts'
             # journey keeps both the old and the new inclusion.
+            before = {link.receipt_id: link.amount for link in await _links(session, payout.id)}
             await session.execute(delete(PayoutReceipt).where(PayoutReceipt.payout_id == payout.id))
             await session.flush()
-            await _allocate(session, payout, actor_type="admin", actor_id=admin_id)
+            after = await _allocate(session, payout, actor_type="admin", actor_id=admin_id, record_events=False)
+            for rid, part in after.items():
+                if before.get(rid) != part:
+                    await journey.record(
+                        session, rid, EventKind.included_in_payout, actor_type="admin", actor_id=admin_id,
+                        data={"payout_id": payout.id, "amount": part, "changed_from": before.get(rid), "reason": "сумма заявки изменена"},
+                    )
+            for rid, part in before.items():
+                if rid not in after:
+                    await journey.record(
+                        session, rid, EventKind.payout_reverted, actor_type="admin", actor_id=admin_id,
+                        data={"payout_id": payout.id, "amount": part, "reason": "сумма заявки изменена"},
+                    )
             if delta > 0 and (await get_seller_balance(seller_id=payout.seller_id, session=session)).available < 0:
                 raise _insufficient(0)  # a receipt was cancelled meanwhile (see create)
             await notification_outbox.enqueue(
