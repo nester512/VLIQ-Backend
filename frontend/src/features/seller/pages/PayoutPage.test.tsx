@@ -74,4 +74,21 @@ describe('PayoutPage', () => {
     expect(first![0].payload).toEqual({ amount: 300_000, method: 'sbp_phone', phone: '+79991234567' })
     expect(second![0].idempotencyKey).toBe(first![0].idempotencyKey)
   })
+
+  it('a changed amount is a new request — a new key', async () => {
+    const user = userEvent.setup()
+    requestPayout.mockReset()
+    requestPayout.mockRejectedValueOnce(new Error('network'))
+    renderPage()
+
+    await user.type(screen.getByLabelText('Сумма выплаты, ₽'), '3000')
+    await user.type(screen.getByLabelText('Номер телефона для СБП'), '+79991234567')
+    await user.click(screen.getByRole('button', { name: /^Запросить/ }))
+    await user.clear(screen.getByLabelText('Сумма выплаты, ₽'))
+    await user.type(screen.getByLabelText('Сумма выплаты, ₽'), '3500')
+    await user.click(screen.getByRole('button', { name: /^Запросить/ }))
+
+    const [first, second] = requestPayout.mock.calls
+    expect(second![0].idempotencyKey).not.toBe(first![0].idempotencyKey)
+  })
 })

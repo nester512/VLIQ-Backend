@@ -24,8 +24,10 @@ export function PayoutPage() {
   const navigate = useNavigate()
   const { data: balance, isLoading: balanceLoading } = useBalance()
   const { mutateAsync: requestPayout, isPending } = useRequestPayout()
-  // One key per filled-in form: a double tap / retry cannot create a second request.
+  // One key per filled-in form: a double tap / retry of the SAME values cannot create a
+  // second request; changing the amount or phone is a new request → a new key.
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID())
+  const newForm = () => setIdempotencyKey(crypto.randomUUID())
 
   const available = balance?.available ?? 0
 
@@ -76,7 +78,7 @@ export function PayoutPage() {
         placeholder={String(Math.floor(available / 100))}
         error={amountError}
         hint={`Доступно ${fmtMoney(available)} · минимум 3 000 ₽`}
-        onChange={(e) => setAmountStr(e.target.value.replace(/[^\d]/g, ''))}
+        onChange={(e) => { setAmountStr(e.target.value.replace(/[^\d]/g, '')); newForm() }}
       />
 
       {/* S5.3 — requisites entered per request, not from profile */}
@@ -90,7 +92,7 @@ export function PayoutPage() {
         value={phone}
         placeholder="+7 900 000-00-00"
         error={phone !== '' && !phoneValid ? 'Номер мобильного: +7 9XX XXX-XX-XX' : undefined}
-        onChange={(e) => setPhone(e.target.value)}
+        onChange={(e) => { setPhone(e.target.value); newForm() }}
         className="mt-3"
       />
 

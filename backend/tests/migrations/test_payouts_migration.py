@@ -100,6 +100,16 @@ def test_idempotency_key_is_unique_per_seller(migrated) -> None:
     sql("UPDATE vliq.payout_request SET idempotency_key = NULL WHERE id = 3")
 
 
+def test_rerun_after_a_failed_concurrent_index_step(migrated) -> None:
+    """CONCURRENTLY runs after a commit: if it fails, 0012 stays unapplied with its DDL in place."""
+    before = coverage()
+    sql(f"DROP INDEX vliq.{m0012.IDEM_INDEX}", "UPDATE public.alembic_version SET version_num = '0011_receipt_journey'")
+    _alembic("upgrade", "head")
+    assert indexes().get(m0012.IDEM_INDEX) is True
+    assert coverage() == before
+    assert fingerprint() == migrated
+
+
 def test_downgrade_removes_only_what_it_added(migrated) -> None:
     _alembic("downgrade", "0011_receipt_journey")
     assert sql("SELECT to_regclass('vliq.payout_receipt')")[0][0] is None

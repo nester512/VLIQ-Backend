@@ -251,6 +251,11 @@ async def create_payout_request(  # noqa: PLR0913
                 )
             )
             await _allocate(session, payout, actor_type="seller", actor_id=seller_id)
+            # Defence in depth: a receipt cancellation's ledger row takes FOR KEY SHARE on the
+            # seller (FK), so it already serialises with our seller FOR UPDATE — but re-read
+            # the balance now that the receipts are ours: never reserve unbacked money.
+            if (await get_seller_balance(seller_id=seller_id, session=session)).available < 0:
+                raise _insufficient(balance.available - amount)
             _audit(session, actor_id=seller_id, actor_type="seller", action="create_payout", payout_id=payout.id,
                    payload={"amount": amount})  # fmt: skip
             result = await _fresh(session, payout)
@@ -325,7 +330,10 @@ async def approve_payout_request(
         receipts = {
             r.id: r
             for r in (
-                await session.execute(select(Receipt).where(Receipt.id.in_(receipt_ids)).with_for_update())
+                await session.execute(
+                    # Same lock order as _allocate (oldest first) — no deadlock between them.
+                    select(Receipt).where(Receipt.id.in_(receipt_ids)).order_by(Receipt.created_at, Receipt.id).with_for_update()
+                )
             ).scalars()
         } if receipt_ids else {}  # fmt: skip
         paid_cover = dict(
@@ -454,6 +462,8 @@ async def update_payout_request(  # noqa: PLR0913
             await session.execute(delete(PayoutReceipt).where(PayoutReceipt.payout_id == payout.id))
             await session.flush()
             await _allocate(session, payout, actor_type="admin", actor_id=admin_id)
+            if delta > 0 and (await get_seller_balance(seller_id=payout.seller_id, session=session)).available < 0:
+                raise _insufficient(0)  # a receipt was cancelled meanwhile (see create)
             await notification_outbox.enqueue(
                 session, recipient_id=payout.seller_id, channel="telegram", template="payout.amount_changed",
                 payload={"amount": amount, "old_amount": old_amount, "payout_masked": payout.payout_masked},
