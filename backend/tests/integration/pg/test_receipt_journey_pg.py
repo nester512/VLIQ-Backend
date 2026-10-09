@@ -195,5 +195,6 @@ async def test_verified_receipt_carries_its_composition_to_the_seller(session_fa
     async with session_factory() as s:
         receipt = await s.get(Receipt, rid)
         status = ReceiptStatusResponse.model_validate(receipt)
-    assert receipt.items and receipt.items[0]["raw_name"]
+    assert receipt.items
+    assert receipt.items[0]["raw_name"]
     assert [(i.raw_name, i.qty) for i in status.items] == [(receipt.items[0]["raw_name"], receipt.items[0]["qty"])]
