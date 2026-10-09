@@ -26,9 +26,10 @@ def _seller_token(telegram_id: int = SELLER_ID) -> str:
     return jwt_auth.create_token(seller)
 
 
-def _session_with_status(status: str | None) -> MagicMock:
+def _session_with_status(status: str | None, *, moved: bool = False) -> MagicMock:
+    """The guard reads the status (and, for the seller's own account, the recovery flag)."""
     session = MagicMock(spec=AsyncSession)
-    session.scalar = AsyncMock(return_value=status)
+    session.scalar = AsyncMock(side_effect=[status, moved])
     session.execute = AsyncMock(side_effect=AssertionError("handler must not run for a blocked seller"))
     return session
 
@@ -103,8 +104,7 @@ async def test_blocked_seller__old_token__action_refused(client: AsyncClient, ap
 @pytest.mark.asyncio
 @pytest.mark.parametrize("body", [{"status": "active"}, {"block_reason": "none"}, {"status": "blocked"}])
 async def test_seller_patch_self__moderation_fields__forbidden(client: AsyncClient, app, body):
-    session = _session_with_status(SellerStatus.blocked.value)
-    session.scalar = AsyncMock(return_value=SellerStatus.active.value)  # pretend the guard passed
+    session = _session_with_status(SellerStatus.active.value)  # the guard passes
     _override(app, session)
 
     response = await client.patch(
@@ -139,3 +139,32 @@ async def test_forbid_blocked_seller__keeps_an_outer_transaction():
     await forbid_blocked_seller({"user_id": SELLER_ID, "role": "seller"}, session)
 
     session.rollback.assert_not_awaited()
+
+
+
+# --- account recovery: the lost account's old tokens stop working at once ------
+
+
+@pytest.mark.asyncio
+async def test_lost_account_token__after_recovery__account_moved():
+    session = _session_with_status(SellerStatus.active.value, moved=True)
+    with pytest.raises(AppError) as exc:
+        # an old token: issued to the seller's own (now lost) Telegram account
+        await forbid_blocked_seller({"user_id": SELLER_ID, "role": "seller", "login_id": SELLER_ID}, session)
+    assert (exc.value.code, exc.value.status_code) == ("ACCOUNT_MOVED", 403)
+
+
+@pytest.mark.asyncio
+async def test_lost_account_token_without_login_claim__account_moved():
+    """Tokens issued before the claim existed count as the seller's own account."""
+    session = _session_with_status(SellerStatus.active.value, moved=True)
+    with pytest.raises(AppError):
+        await forbid_blocked_seller({"user_id": SELLER_ID, "role": "seller"}, session)
+
+
+@pytest.mark.asyncio
+async def test_recovered_account_token__passes():
+    token = {"user_id": SELLER_ID, "role": "seller", "login_id": 990777}
+    session = _session_with_status(SellerStatus.active.value, moved=True)
+    assert await forbid_blocked_seller(token, session) is token
+    assert session.scalar.await_count == 1  # the recovered account never even reads the flag

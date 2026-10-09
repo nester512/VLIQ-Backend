@@ -73,7 +73,7 @@ async def _issue_token_for_telegram_id(
         if seller.status == "blocked":
             raise AppError("SELLER_BLOCKED", status_code=403)
         logger.info("auth.login.seller_recovered", telegram_id=telegram_id, seller_id=linked)
-        return LoginResponse(access_token=jwt_auth.create_token(seller), role="seller")
+        return LoginResponse(access_token=jwt_auth.create_token(seller, login_telegram_id=telegram_id), role="seller")
 
     seller = await _find_seller(session, telegram_id)
     if seller is not None:

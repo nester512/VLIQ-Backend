@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 
 import structlog
 from fastapi import Depends, Request, Security
@@ -30,6 +30,7 @@ class JwtTokenT(TypedDict):
     exp: int
     user_id: int  # telegram_id (PK of Admin or Seller)
     role: str  # "admin" | "super_admin" | "seller"
+    login_id: NotRequired[int]  # Telegram account that logged in (≠ user_id after account recovery)
 
 
 @dataclass
@@ -38,7 +39,10 @@ class JwtAuth:
     algorithm: str = "HS256"
     lifetime: timedelta = timedelta(days=6)
 
-    def create_token(self, user: Admin | Seller) -> str:
+    def create_token(self, user: Admin | Seller, *, login_telegram_id: int | None = None) -> str:
+        """``login_telegram_id``: the Telegram account that actually logged in, when it differs
+        from the seller's own id (account recovery) — lets a switched-off lost account's
+        tokens be told apart from the recovered one's."""
         now = datetime.now(UTC)
 
         if isinstance(user, Admin):
@@ -56,6 +60,7 @@ class JwtAuth:
             "exp": int((now + self.lifetime).timestamp()),
             "user_id": user_id,
             "role": str(role),
+            "login_id": login_telegram_id if login_telegram_id is not None else user_id,
         }
         return jwt.encode(payload, self.secret, algorithm=self.algorithm)
 

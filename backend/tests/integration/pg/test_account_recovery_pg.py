@@ -126,3 +126,22 @@ async def test_input_is_validated(session_factory, new, reason, code) -> None:
     with pytest.raises(AppError) as err:
         await _transfer(session_factory, new=new, reason=reason)
     assert err.value.code == code
+
+
+async def test_lost_accounts_old_token_cannot_act_after_recovery(session_factory) -> None:
+    """The lost account may be in someone else's hands: its token, issued BEFORE the
+    recovery, must not be able to request a payout for the next 6 days."""
+    from src.seller.depends import forbid_blocked_seller
+
+    sm = session_factory
+    old_token = jwt.decode((await _login(sm, SEED_SELLER_ID)).access_token, jwt_auth.secret, algorithms=[jwt_auth.algorithm])
+    fresh = 990779  # an id no other test registers
+    await _transfer(sm, new=fresh)
+    new_token = jwt.decode((await _login(sm, fresh)).access_token, jwt_auth.secret, algorithms=[jwt_auth.algorithm])
+
+    async with sm() as s:
+        with pytest.raises(AppError) as err:
+            await forbid_blocked_seller(old_token, s)
+    assert err.value.code == "ACCOUNT_MOVED"
+    async with sm() as s:
+        assert await forbid_blocked_seller(new_token, s) is new_token
