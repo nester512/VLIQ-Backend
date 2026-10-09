@@ -7,6 +7,7 @@ import { receiptCheckUrl } from '@/utils/receiptCheckUrl'
 import { fmtMoney, fmtMoneyDelta } from '@/utils/formatMoney'
 import { formatDate, formatDateTime } from '@/utils/formatDate'
 import type { AdminReceipt, FiscalIdentity } from '@/api/admin'
+import { DuplicateOf } from '@/features/admin/components/DuplicateOf'
 
 function fiscalLine(idn: FiscalIdentity): string {
   const fn = idn.fn ? idn.fn.slice(-6) : '—'
@@ -235,9 +236,7 @@ export function ReceiptInfoCard({ receipt, actions, className = '', onSellerClic
                 <Icon name="alert" size={16} className="flex-none mt-0.5" />
                 <span className="min-w-0">
                   {translateAdminText(s.details)}
-                  {s.duplicate_of_id != null && (
-                    <span className="opacity-80"> (чек #{s.duplicate_of_id})</span>
-                  )}
+                  {s.duplicate_of_id != null && <DuplicateOf receiptId={s.duplicate_of_id} />}
                 </span>
               </div>
             ))}

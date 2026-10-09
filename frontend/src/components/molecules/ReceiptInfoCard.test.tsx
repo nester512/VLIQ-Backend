@@ -1,9 +1,23 @@
-import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
-import { ReceiptInfoCard } from './ReceiptInfoCard'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { render as rtlRender, screen, cleanup, fireEvent } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactElement } from 'react'
 import type { AdminReceipt } from '@/api/admin'
 
-afterEach(cleanup)
+const { getAdminReceipt, openSheet } = vi.hoisted(() => ({ getAdminReceipt: vi.fn(), openSheet: vi.fn() }))
+vi.mock('@/api/admin', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/admin')>()),
+  getAdminReceipt,
+}))
+vi.mock('@/store/uiStore', () => ({ useUiStore: (sel: (s: object) => unknown) => sel({ openSheet }) }))
+
+import { ReceiptInfoCard } from './ReceiptInfoCard'
+
+// The duplicate signal loads the original receipt → the card needs a query client.
+const render = (ui: ReactElement) =>
+  rtlRender(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>)
+
+afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 function base(over: Partial<AdminReceipt> = {}): AdminReceipt {
   return {
@@ -95,6 +109,29 @@ describe('ReceiptInfoCard — duplicate / fraud signals', () => {
     )
     expect(screen.getByText(/Дубль по ФН/)).toBeInTheDocument()
     expect(screen.getByText(/#77/)).toBeInTheDocument()
+  })
+
+  it('shows WHICH receipt it duplicates — whose, status, when, bonus — and opens it', async () => {
+    const original = base({ id: '77', seller_name: 'Другой продавец', status: 'paid_out', created_at: '2026-09-05T09:30:00Z', bonus_amount: 30000 })
+    getAdminReceipt.mockResolvedValue(original)
+    render(
+      <ReceiptInfoCard
+        receipt={base({ fraud_signal: [{ type: 'cross_seller_duplicate', details: 'Чек другого продавца', duplicate_of_id: 77 }] })}
+      />,
+    )
+    const line = await screen.findByTestId('duplicate-of')
+    expect(getAdminReceipt).toHaveBeenCalledWith(77)
+    expect(line).toHaveTextContent('Совпадает с чеком #77: Другой продавец')
+    expect(line).toHaveTextContent('05.09.2026')
+    expect(line).toHaveTextContent('300')
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть' }))
+    expect(openSheet).toHaveBeenCalledWith('detail', { receiptId: '77', receipt: original })
+  })
+
+  it('a deleted original is said so, not hidden', async () => {
+    getAdminReceipt.mockRejectedValue(new Error('404'))
+    render(<ReceiptInfoCard receipt={base({ fraud_signal: [{ type: 'historical_duplicate_fn_fd_fp', details: 'Дубль', duplicate_of_id: 5 }] })} />)
+    expect(await screen.findByText(/чек #5 — удалён или недоступен/)).toBeInTheDocument()
   })
 
   it('translates technical duplicate rejection reasons for admins', () => {

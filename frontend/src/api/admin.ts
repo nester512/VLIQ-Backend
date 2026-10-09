@@ -652,6 +652,10 @@ export const approveReceipt = (id: string, payload: ReceiptReviewActionPayload =
     bonus_amount: payload.bonusAmountKopecks ?? null,
   }).then((r) => r.data)
 
+/** GET /receipts/{id} (admin) — one receipt, e.g. the original a duplicate points to. 404 if deleted. */
+export const getAdminReceipt = (id: string | number) =>
+  api.get<BackendReceipt>(`/receipts/${id}`).then((r) => mapAdminReceipt(r.data))
+
 export const rejectReceipt = (id: string, comment?: string) =>
   api.post<void>(`/receipts/${id}/reject`, { comment: comment ?? null }).then((r) => r.data)
 
