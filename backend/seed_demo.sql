@@ -51,6 +51,12 @@ ON CONFLICT (telegram_id) DO UPDATE SET
 --   file_url / file_hash are NOT NULL — we mint synthetic values.
 -- ---------------------------------------------------------------------------
 
+-- Payout ↔ receipt coverage (0012, ON DELETE RESTRICT — financial history) goes first,
+-- or re-seeding the demo receipts / payouts below would fail the backend boot.
+DELETE FROM vliq.payout_receipt
+WHERE receipt_id IN (SELECT id FROM vliq.receipt WHERE seller_id IN (12345, 10000001, 10000002, 10000003))
+   OR payout_id IN (SELECT id FROM vliq.payout_request WHERE seller_id IN (12345, 10000001, 10000002, 10000003));
+
 DELETE FROM vliq.receipt WHERE seller_id IN (12345, 10000001, 10000002, 10000003);
 
 INSERT INTO vliq.receipt (

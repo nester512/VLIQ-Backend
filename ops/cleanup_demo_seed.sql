@@ -17,6 +17,11 @@ BEGIN;
 DELETE FROM vliq.notification_outbox
 WHERE recipient_id IN (12345, 10000001, 10000002, 10000003, 10000004, 10000005);
 
+-- Payout ↔ receipt coverage (migration 0012) is ON DELETE RESTRICT — remove it first.
+DELETE FROM vliq.payout_receipt
+WHERE receipt_id IN (SELECT id FROM vliq.receipt WHERE seller_id IN (12345, 10000001, 10000002, 10000003, 10000004, 10000005))
+   OR payout_id IN (SELECT id FROM vliq.payout_request WHERE seller_id IN (12345, 10000001, 10000002, 10000003, 10000004, 10000005));
+
 DELETE FROM vliq.seller
 WHERE telegram_id IN (12345, 10000001, 10000002, 10000003, 10000004, 10000005);
 
