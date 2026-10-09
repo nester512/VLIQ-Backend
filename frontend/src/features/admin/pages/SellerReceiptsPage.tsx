@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { AdminReceipt, AdminSellerDetail } from '@/api/admin'
 import { Avatar } from '@/components/atoms/Avatar'
 import { Pill } from '@/components/atoms/Pill'
@@ -142,7 +142,17 @@ function SellerPageContent() {
   const parsedId = telegramId ? parseInt(telegramId, 10) : undefined
   const sellerId = parsedId != null && Number.isFinite(parsedId) ? parsedId : undefined
   const openSheet = useUiStore((s) => s.openSheet)
-  const [statusFilter, setStatusFilter] = useState('')
+  const navigate = useNavigate()
+  // In the URL, not in state: «назад» from a receipt / payout keeps the chosen filter.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const statusFilter = searchParams.get('status') ?? ''
+  const setStatusFilter = (next: string) =>
+    setSearchParams((cur) => {
+      const p = new URLSearchParams(cur)
+      if (next) p.set('status', next)
+      else p.delete('status')
+      return p
+    }, { replace: true })
 
   const { data: seller, isLoading: sellerLoading, isError: sellerError } = useSellerDetail(sellerId)
   const { data, isLoading, isFetchNextPageError, fetchNextPage, hasNextPage, isFetchingNextPage } =
@@ -163,6 +173,14 @@ function SellerPageContent() {
         <>
           <SellerHeader seller={seller} />
           <SellerStatsPanel seller={seller} />
+          <button type="button" onClick={() => navigate(`/admin/payouts?seller=${seller.telegram_id ?? sellerId}`)}
+            className="vliq-row" aria-label="Выплаты продавца">
+            <div className="vliq-row-ic" style={{ background: 'var(--vliq-field)', color: 'var(--vliq-brand)' }}>
+              <Icon name="cashout" size={21} />
+            </div>
+            <div className="vliq-row-tx"><b>Выплаты продавца</b><span>Заявки и история выплат</span></div>
+            <Icon name="chev" size={18} />
+          </button>
         </>
       )}
 

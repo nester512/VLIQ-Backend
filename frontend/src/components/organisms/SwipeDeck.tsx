@@ -288,9 +288,22 @@ export interface SwipeDeckProps {
   onSkip?: (receiptId: string) => void
   /** An approve / reject is being sent: every action is locked until it settles. */
   isActing?: boolean
+  /** Keep the skipped receipts across leaving the screen (card → seller page → back). */
+  persistSkippedKey?: string
 }
 
-export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0, totalCount, onSellerClick, onSkip, isActing = false }: SwipeDeckProps) {
+function loadSkipped(key?: string): string[] {
+  if (!key) return []
+  try {
+    const raw = sessionStorage.getItem(key)
+    const ids = raw ? (JSON.parse(raw) as unknown) : []
+    return Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0, totalCount, onSellerClick, onSkip, isActing = false, persistSkippedKey }: SwipeDeckProps) {
   // Consume the queue by receipt ID, not by positional index. A positional
   // index silently SKIPS cards whenever the list shrinks from the front — which
   // happens on any mid-session refetch (window focus, a detail-sheet action, a
@@ -304,7 +317,15 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
   // Skipped ids in skip order. A skipped card is NOT processed: it stays in the
   // queue (server untouched) and simply moves behind every not-yet-skipped card,
   // so the admin can come back to it later in the session.
-  const [skippedIds, setSkippedIds] = useState<string[]>([])
+  const [skippedIds, setSkippedIds] = useState<string[]>(() => loadSkipped(persistSkippedKey))
+  useEffect(() => {
+    if (!persistSkippedKey) return
+    try {
+      sessionStorage.setItem(persistSkippedKey, JSON.stringify(skippedIds))
+    } catch {
+      /* private mode / storage off: skipping still works for this visit */
+    }
+  }, [persistSkippedKey, skippedIds])
 
   const pending = useMemo(() => {
     const open = receipts.filter((r) => !processedIds.has(r.id))

@@ -1,20 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { PayoutRequest } from '@/types/models'
 
-const { takePayoutRequest, approvePayoutRequest, rejectPayoutRequest, getPayoutReceipts } = vi.hoisted(() => ({
+const { takePayoutRequest, approvePayoutRequest, rejectPayoutRequest, getPayoutReceipts, getAdminReceipt, openSheet } = vi.hoisted(() => ({
+  getAdminReceipt: vi.fn(),
+  openSheet: vi.fn(),
   takePayoutRequest: vi.fn(),
   approvePayoutRequest: vi.fn(),
   rejectPayoutRequest: vi.fn(),
   getPayoutReceipts: vi.fn(),
 }))
 vi.mock('@/api/admin', () => ({
-  takePayoutRequest, approvePayoutRequest, rejectPayoutRequest, getPayoutReceipts,
+  takePayoutRequest, approvePayoutRequest, rejectPayoutRequest, getPayoutReceipts, getAdminReceipt,
   getAdminPayouts: vi.fn(), getPayoutSummary: vi.fn(),
 }))
 vi.mock('@/store/uiStore', () => ({
-  useUiStore: (sel: (s: object) => unknown) => sel({ pushToast: vi.fn(), closeSheet: vi.fn() }),
+  useUiStore: (sel: (s: object) => unknown) => sel({ pushToast: vi.fn(), closeSheet: vi.fn(), openSheet }),
 }))
 vi.mock('@/components/molecules/RejectReasonSheet', () => ({
   RejectReasonSheet: ({ open, onConfirm }: { open: boolean; onConfirm: (r: string) => void }) =>
@@ -23,6 +26,10 @@ vi.mock('@/components/molecules/RejectReasonSheet', () => ({
 
 import { PayoutDetailSheet } from './PayoutDetailSheet'
 
+function Where() {
+  return <div data-testid="where">{useLocation().pathname}</div>
+}
+
 const payout = (over: Partial<PayoutRequest> = {}): PayoutRequest => ({
   id: '5', seller_id: 9, seller_name: 'Продавец', amount: 300_000, method: 'sbp_phone', details: '+79990000000',
   status: 'new', created_at: '2026-10-09T10:00:00Z', seller_status: 'active', ...over,
@@ -30,7 +37,16 @@ const payout = (over: Partial<PayoutRequest> = {}): PayoutRequest => ({
 
 function renderSheet(p: PayoutRequest) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={qc}><PayoutDetailSheet payoutId={p.id} payout={p} /></QueryClientProvider>)
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={['/admin/payouts']}>
+        <Routes>
+          <Route path="/admin/payouts" element={<PayoutDetailSheet payoutId={p.id} payout={p} />} />
+          <Route path="/admin/sellers/:id/receipts" element={<Where />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
 }
 
 afterEach(() => { cleanup(); vi.clearAllMocks() })
@@ -73,5 +89,20 @@ describe('PayoutDetailSheet', () => {
     expect(screen.queryByRole('button', { name: /Выплачено/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /Взять в работу/ })).toBeNull()
     expect(screen.getByRole('button', { name: /Отклонить/ })).toBeEnabled()
+  })
+
+  it('KAN-3: payout → seller page, payout → each covered receipt', async () => {
+    const r = { id: '11', seller_id: 9, status: 'approved' }
+    getPayoutReceipts.mockResolvedValue([
+      { receipt_id: 11, amount: 300_000, bonus_amount: 300_000, receipt_status: 'approved', purchase_date: null, total_sum: null },
+    ])
+    getAdminReceipt.mockResolvedValue(r)
+    renderSheet(payout())
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Открыть чек #11' }))
+    await waitFor(() => expect(openSheet).toHaveBeenCalledWith('detail', { receiptId: '11', receipt: r }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Продавец' }))
+    expect(await screen.findByTestId('where')).toHaveTextContent('/admin/sellers/9/receipts')
   })
 })

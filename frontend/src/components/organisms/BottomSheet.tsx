@@ -2,7 +2,6 @@ import { Drawer } from 'vaul'
 import { useUiStore } from '@/store/uiStore'
 import { NotifSheet } from '@/features/admin/sheets/NotifSheet'
 import { ReceiptDetailSheet } from '@/features/admin/sheets/ReceiptDetailSheet'
-import { SellerDetailSheet } from '@/features/admin/sheets/SellerDetailSheet'
 import { PayoutDetailSheet } from '@/features/admin/sheets/PayoutDetailSheet'
 import type { AdminReceipt } from '@/api/admin'
 import type { PayoutRequest } from '@/types/models'
@@ -12,7 +11,6 @@ import type { PayoutRequest } from '@/types/models'
  *
  * Sheet payload contracts:
  *   'detail'  → { receiptId: string; receipt?: AdminReceipt }
- *   'seller'  → { telegram_id: number }
  *   'payout'  → { payoutId: string; payout?: PayoutRequest }
  *   'notif'   → no payload
  */
@@ -20,6 +18,8 @@ export function BottomSheet() {
   const activeSheet = useUiStore((s) => s.activeSheet)
   const sheetPayload = useUiStore((s) => s.sheetPayload)
   const closeSheet = useUiStore((s) => s.closeSheet)
+  const backSheet = useUiStore((s) => s.backSheet)
+  const depth = useUiStore((s) => s.sheetStack.length)
 
   const isOpen = activeSheet !== null
 
@@ -31,11 +31,6 @@ export function BottomSheet() {
       case 'detail': {
         const p = sheetPayload as { receiptId: string; receipt?: AdminReceipt } | null
         return <ReceiptDetailSheet receiptId={p?.receiptId ?? null} receipt={p?.receipt} />
-      }
-
-      case 'seller': {
-        const p = sheetPayload as { telegram_id: number } | null
-        return <SellerDetailSheet telegram_id={p?.telegram_id ?? null} />
       }
 
       case 'payout': {
@@ -94,11 +89,25 @@ export function BottomSheet() {
               flex: 'none',
             }}
           />
+          {depth > 0 && (
+            <button
+              type="button"
+              onClick={backSheet}
+              className="vliq-pad"
+              style={{
+                flex: 'none', textAlign: 'left', background: 'none', border: 0, padding: '2px 16px 6px',
+                color: 'var(--vliq-brand)', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              ← Назад
+            </button>
+          )}
           <div
             className="no-scrollbar"
             style={{ overflowY: 'auto', overflowX: 'hidden', minHeight: 0 }}
           >
-            {renderContent()}
+            {/* key: a sheet re-opened from the stack starts fresh (its own local state). */}
+            <div key={depth}>{renderContent()}</div>
           </div>
         </Drawer.Content>
       </Drawer.Portal>

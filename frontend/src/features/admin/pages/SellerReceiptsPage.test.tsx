@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { AdminReceipt, AdminSellerDetail } from '@/api/admin'
 
 const { getAdminSellerById, getAdminReceipts, blockSeller, unblockSeller, openSheet } = vi.hoisted(() => ({
@@ -68,13 +68,19 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function renderPage() {
+function Where() {
+  const loc = useLocation()
+  return <div data-testid="where">{loc.pathname + loc.search}</div>
+}
+
+function renderPage(entry = '/admin/sellers/555/receipts') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/admin/sellers/555/receipts']}>
+      <MemoryRouter initialEntries={[entry]}>
         <Routes>
           <Route path="/admin/sellers/:telegramId/receipts" element={<SellerReceiptsPage />} />
+          <Route path="/admin/payouts" element={<Where />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -121,6 +127,18 @@ describe('SellerReceiptsPage — seller page with stats, risk and full history',
     const ids = await screen.findAllByTestId('receipt-id')
     expect(ids.map((el) => el.textContent)).toEqual(['Чек #7', 'Чек #42'])
     expect(ids[0]!.parentElement).toHaveTextContent('Чек #7 · Магазин 7')
+  })
+
+  it('KAN-3: the status filter lives in the URL (survives «назад»), seller → his payouts', async () => {
+    getAdminSellerById.mockResolvedValue(detail())
+    getAdminReceipts.mockResolvedValue({ items: [receipt(1, 'rejected')], total: 1, page: 1, limit: 30, has_more: false })
+    renderPage('/admin/sellers/555/receipts?status=rejected')
+
+    await screen.findByText(/Магазин 1/)
+    expect(getAdminReceipts).toHaveBeenCalledWith(expect.objectContaining({ status: ['rejected'] }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Выплаты продавца' }))
+    expect(await screen.findByTestId('where')).toHaveTextContent('/admin/payouts?seller=555')
   })
 
   it('pages through the history', async () => {

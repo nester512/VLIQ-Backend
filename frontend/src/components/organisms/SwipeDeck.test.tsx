@@ -215,6 +215,20 @@ describe('SwipeDeck — skip without a decision', () => {
     expect(onSwipe).toHaveBeenCalledTimes(2) // nothing else was sent for the skipped card
   })
 
+  it('skipped receipts survive leaving the screen (card → seller page → back)', () => {
+    sessionStorage.clear()
+    const first = render(<SwipeDeck receipts={three()} onSwipe={vi.fn()} onTap={vi.fn()} persistSkippedKey="k" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Пропустить чек' })) // a skipped
+    first.unmount()
+
+    const onSwipe = vi.fn()
+    render(<SwipeDeck receipts={three()} onSwipe={onSwipe} onTap={vi.fn()} persistSkippedKey="k" />)
+    expect(screen.getByText(/пропущено 1/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Одобрить' }))
+    expect(onSwipe).toHaveBeenCalledWith('b', 'approve') // a is still at the end
+    sessionStorage.clear()
+  })
+
   it('the last card can be skipped too — straight to the gate', () => {
     render(<SwipeDeck receipts={[receipt({ id: 'only' })]} onSwipe={vi.fn()} onTap={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Пропустить чек' }))

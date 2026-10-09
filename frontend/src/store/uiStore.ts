@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type SheetKind = 'detail' | 'seller' | 'payout' | 'notif'
+export type SheetKind = 'detail' | 'payout' | 'notif'
 export type ToastKind = 'ok' | 'dg' | 'wn' | 'info'
 
 export interface Toast {
@@ -10,13 +10,23 @@ export interface Toast {
   icon?: string
 }
 
+interface SheetEntry {
+  sheet: SheetKind
+  payload: unknown
+}
+
 interface UiState {
   activeSheet: SheetKind | null
   sheetPayload: unknown
+  /** Sheets opened FROM another sheet stack up (duplicate → original, payout → receipt):
+   *  «← Назад» returns to the previous one instead of losing it. */
+  sheetStack: SheetEntry[]
   toastQueue: Toast[]
 
   openSheet: (sheet: SheetKind, payload?: unknown) => void
   closeSheet: () => void
+  /** Back to the sheet this one was opened from (no-op without one). */
+  backSheet: () => void
   pushToast: (message: string, kind?: ToastKind, icon?: string, duration?: number) => void
   dismissToast: (id: string) => void
 }
@@ -26,14 +36,27 @@ let toastCounter = 0
 export const useUiStore = create<UiState>()((set) => ({
   activeSheet: null,
   sheetPayload: null,
+  sheetStack: [],
   toastQueue: [],
 
   openSheet: (sheet, payload) => {
-    set({ activeSheet: sheet, sheetPayload: payload ?? null })
+    set((state) => ({
+      activeSheet: sheet,
+      sheetPayload: payload ?? null,
+      sheetStack: state.activeSheet ? [...state.sheetStack, { sheet: state.activeSheet, payload: state.sheetPayload }] : [],
+    }))
   },
 
   closeSheet: () => {
-    set({ activeSheet: null, sheetPayload: null })
+    set({ activeSheet: null, sheetPayload: null, sheetStack: [] })
+  },
+
+  backSheet: () => {
+    set((state) => {
+      const prev = state.sheetStack.at(-1)
+      if (!prev) return state
+      return { activeSheet: prev.sheet, sheetPayload: prev.payload, sheetStack: state.sheetStack.slice(0, -1) }
+    })
   },
 
   pushToast: (message, kind = 'info', icon, duration) => {

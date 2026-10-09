@@ -27,10 +27,10 @@ export function usePayoutsInfinite(filters: Omit<AdminPayoutsFilters, 'page' | '
 }
 
 /** Totals over every request (server-side) — not the sum of a loaded page. */
-export function usePayoutSummary() {
+export function usePayoutSummary(sellerId?: number) {
   return useQuery({
-    queryKey: ['admin', 'payouts', 'summary'],
-    queryFn: () => getPayoutSummary(),
+    queryKey: ['admin', 'payouts', 'summary', sellerId ?? null],
+    queryFn: () => getPayoutSummary({ seller_id: sellerId }),
     staleTime: 20_000,
   })
 }

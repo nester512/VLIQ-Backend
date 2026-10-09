@@ -35,6 +35,9 @@ export interface AdminPayoutsFilters {
   search?: string
   /** By creation time: newest first (default) or oldest first. */
   order?: 'desc' | 'asc'
+  seller_id?: number
+  /** Requests in progress of BLOCKED sellers: left out by default (cannot be paid). */
+  blocked?: 'exclude' | 'only' | 'include'
 }
 
 export type SellerRiskLevel = 'low' | 'medium' | 'high'
@@ -682,6 +685,8 @@ export const getAdminPayouts = (filters: AdminPayoutsFilters = {}) => {
   if (filters.limit != null) params['limit'] = filters.limit
   if (filters.search) params['search'] = filters.search
   if (filters.order) params['order'] = filters.order
+  if (filters.seller_id != null) params['seller_id'] = filters.seller_id
+  if (filters.blocked) params['blocked'] = filters.blocked
   return api
     .get<PaginatedResponse<BackendPayoutRequest>>('/payout-requests', { params })
     .then((r) => mapPagedPayouts(r.data))
@@ -695,12 +700,16 @@ export interface PayoutSummary {
   paid: PayoutStatusTotal
   rejected: PayoutStatusTotal
   paid_this_month: PayoutStatusTotal
+  /** Requests in progress of BLOCKED sellers — not in the totals above. */
+  blocked_in_progress: PayoutStatusTotal
 }
 
-export const getPayoutSummary = (filters: Pick<AdminPayoutsFilters, 'search'> = {}) =>
-  api
-    .get<PayoutSummary>('/payout-requests/summary', { params: filters.search ? { search: filters.search } : {} })
-    .then((r) => r.data)
+export const getPayoutSummary = (filters: Pick<AdminPayoutsFilters, 'search' | 'seller_id'> = {}) => {
+  const params: Record<string, string | number> = {}
+  if (filters.search) params['search'] = filters.search
+  if (filters.seller_id != null) params['seller_id'] = filters.seller_id
+  return api.get<PayoutSummary>('/payout-requests/summary', { params }).then((r) => r.data)
+}
 
 /** A receipt covered by a payout (BRD В-8-A). */
 export interface PayoutCoverage {

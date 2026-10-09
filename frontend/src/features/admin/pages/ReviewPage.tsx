@@ -199,6 +199,7 @@ function ReviewContent() {
           totalCount={reviewTotal}
           onSellerClick={(sellerId) => navigate(`/admin/sellers/${sellerId}/receipts`)}
           isActing={isSwipePending}
+          persistSkippedKey="vliq.review.skipped"
           onSkip={(id) => {
             // Skipping walks the deck like a decision does: keep the next page coming.
             if (receipts.length - receipts.findIndex((r) => r.id === id) < 5 && hasNextPage) void fetchNextPage()

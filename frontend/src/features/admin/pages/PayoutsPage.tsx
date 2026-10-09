@@ -135,12 +135,31 @@ function PayoutsContent() {
     }, { replace: true })
   }
 
+  // «Выплаты продавца» from the seller page: ?seller=<telegram_id> (his whole history,
+  // incl. requests held because he is blocked).
+  const sellerParam = Number(searchParams.get('seller'))
+  const sellerId = Number.isFinite(sellerParam) && sellerParam > 0 ? sellerParam : undefined
+  // «Заблокированные»: requests in progress of blocked sellers — out of the main queue.
+  const onlyBlocked = searchParams.get('blocked') === 'only'
+  function setParam(key: string, value: string | null) {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current)
+      if (value === null) params.delete(key)
+      else params.set(key, value)
+      return params
+    }, { replace: true })
+  }
+
   // Totals come from the server over EVERY request (not the sum of a loaded page).
-  const { data: summary, isLoading: aggLoading } = usePayoutSummary()
+  const { data: summary, isLoading: aggLoading } = usePayoutSummary(sellerId)
   const apiStatus = statusFilter === 'all' ? undefined : statusFilter
   const {
     data: pages, isLoading: listLoading, fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError,
-  } = usePayoutsInfinite({ status: apiStatus, order })
+  } = usePayoutsInfinite({
+    status: apiStatus, order, seller_id: sellerId,
+    blocked: onlyBlocked ? 'only' : sellerId != null ? 'include' : 'exclude',
+  })
+  const blockedHeld = summary?.blocked_in_progress?.count ?? 0
 
   const items = pages?.pages.flatMap((p) => p.items) ?? []
   const listTotal = pages?.pages[0]?.total
@@ -191,6 +210,20 @@ function PayoutsContent() {
 
       {/* Filter pills */}
       <div className="vliq-pad" style={{ marginTop: 14, marginBottom: 14 }}>
+        {sellerId != null && (
+          <button type="button" onClick={() => setParam('seller', null)} aria-label="Сбросить фильтр по продавцу"
+            style={{ marginBottom: 10, padding: '7px 12px', borderRadius: 20, border: 0, background: 'var(--vliq-brand)',
+              color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+            Продавец #{sellerId} ×
+          </button>
+        )}
+        {sellerId == null && (blockedHeld > 0 || onlyBlocked) && (
+          <button type="button" onClick={() => setParam('blocked', onlyBlocked ? null : 'only')}
+            style={{ display: 'block', marginBottom: 10, padding: '7px 12px', borderRadius: 20, border: 0, fontWeight: 700, fontSize: 13,
+              cursor: 'pointer', background: onlyBlocked ? 'var(--vliq-dg)' : 'var(--vliq-dg-bg)', color: onlyBlocked ? '#fff' : 'var(--vliq-dg-ink)' }}>
+            {onlyBlocked ? 'Заблокированные продавцы ×' : `Заблокированные продавцы: ${blockedHeld} — не в очереди`}
+          </button>
+        )}
         <FilterPills
           options={FILTER_PILLS}
           value={statusFilter}

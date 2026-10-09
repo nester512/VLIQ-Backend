@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Icon } from '@/components/atoms/Icon'
 import { Spinner } from '@/components/atoms/Spinner'
 import { KVRow } from '@/components/molecules/KVRow'
@@ -6,6 +7,8 @@ import { RejectReasonSheet } from '@/components/molecules/RejectReasonSheet'
 import { fmtMoney } from '@/utils/formatMoney'
 import { formatDate, formatDateTime } from '@/utils/formatDate'
 import { usePayoutActions, usePayoutReceipts } from '@/features/admin/hooks/usePayoutsList'
+import { useOpenReceipt } from '@/features/admin/hooks/useOpenReceipt'
+import { useUiStore } from '@/store/uiStore'
 import type { PayoutRequest } from '@/types/models'
 
 const PAYOUT_STATUS_LABEL: Record<string, string> = {
@@ -58,6 +61,9 @@ export function PayoutDetailSheet({ payoutId, payout: initial }: PayoutDetailShe
   const [rejectOpen, setRejectOpen] = useState(false)
   const { take, approve, reject } = usePayoutActions(setPayout)
   const { data: covered, isLoading: coveredLoading } = usePayoutReceipts(payoutId)
+  const navigate = useNavigate()
+  const closeSheet = useUiStore((s) => s.closeSheet)
+  const openReceipt = useOpenReceipt()
 
   if (!payout || !payoutId) {
     return (
@@ -82,7 +88,16 @@ export function PayoutDetailSheet({ payoutId, payout: initial }: PayoutDetailShe
       </h2>
 
       <div className="vliq-card" style={{ padding: '0 16px', marginBottom: 16 }}>
-        <KVRow label="Продавец" value={sellerLabel} />
+        <KVRow
+          label="Продавец"
+          value={
+            <button type="button" className="vliq-link"
+              onClick={() => { closeSheet(); navigate(`/admin/sellers/${payout.seller_id}/receipts`) }}
+              style={{ background: 'none', border: 0, padding: 0, font: 'inherit', fontWeight: 700, color: 'var(--vliq-brand)', cursor: 'pointer' }}>
+              {sellerLabel}
+            </button>
+          }
+        />
         {payout.seller_store && <KVRow label="Точка" value={payout.seller_store} />}
         <KVRow label="Сумма" value={fmtMoney(payout.amount)} valueStyle={{ fontSize: 15 }} />
         <KVRow label="Способ" value={methodLabel} />
@@ -103,11 +118,14 @@ export function PayoutDetailSheet({ payoutId, payout: initial }: PayoutDetailShe
           <div style={{ display: 'grid', placeItems: 'center', padding: 12 }}><Spinner size={20} /></div>
         ) : covered && covered.length > 0 ? (
           covered.map((c) => (
-            <KVRow
-              key={c.receipt_id}
-              label={`Чек #${c.receipt_id}${c.purchase_date ? ` · ${formatDate(c.purchase_date)}` : ''}`}
-              value={`${fmtMoney(c.amount)}${c.amount < c.bonus_amount ? ` из ${fmtMoney(c.bonus_amount)}` : ''} · ${RECEIPT_STATUS_LABEL[c.receipt_status] ?? c.receipt_status}`}
-            />
+            <button key={c.receipt_id} type="button" onClick={() => void openReceipt(c.receipt_id)}
+              aria-label={`Открыть чек #${c.receipt_id}`}
+              style={{ display: 'block', width: '100%', background: 'none', border: 0, padding: 0, textAlign: 'inherit', font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
+              <KVRow
+                label={`Чек #${c.receipt_id}${c.purchase_date ? ` · ${formatDate(c.purchase_date)}` : ''} ›`}
+                value={`${fmtMoney(c.amount)}${c.amount < c.bonus_amount ? ` из ${fmtMoney(c.bonus_amount)}` : ''} · ${RECEIPT_STATUS_LABEL[c.receipt_status] ?? c.receipt_status}`}
+              />
+            </button>
           ))
         ) : (
           <p style={{ fontSize: 13, color: 'var(--vliq-hint)', margin: '10px 0' }}>

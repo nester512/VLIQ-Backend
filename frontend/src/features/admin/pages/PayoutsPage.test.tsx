@@ -24,12 +24,12 @@ const row = (id: number): PayoutRequest => ({
 })
 const total = { count: 0, amount: 0 }
 
-function renderPage() {
+function renderPage(entry = '/admin/payouts') {
   getPayoutSummary.mockResolvedValue({
     new: { count: 120, amount: 36_000_000 }, in_progress: total, paid: total, rejected: total, paid_this_month: total,
   })
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={qc}><MemoryRouter><PayoutsPage /></MemoryRouter></QueryClientProvider>)
+  return render(<QueryClientProvider client={qc}><MemoryRouter initialEntries={[entry]}><PayoutsPage /></MemoryRouter></QueryClientProvider>)
 }
 
 afterEach(() => { cleanup(); vi.clearAllMocks() })
@@ -57,5 +57,15 @@ describe('PayoutsPage (admin)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Сначала старые' }))
     await waitFor(() => expect(getAdminPayouts).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, order: 'asc' })))
+  })
+
+  it('KAN-3: ?seller=<id> shows that seller\'s whole payout history (incl. blocked) with a reset chip', async () => {
+    getAdminPayouts.mockResolvedValue({ items: [row(1)], total: 1, page: 1, limit: 50, has_more: false })
+    renderPage('/admin/payouts?seller=555')
+    await screen.findByText('Продавец 1')
+    expect(getAdminPayouts).toHaveBeenLastCalledWith(expect.objectContaining({ seller_id: 555, blocked: 'include' }))
+    expect(getPayoutSummary).toHaveBeenCalledWith({ seller_id: 555 })
+    fireEvent.click(screen.getByRole('button', { name: 'Сбросить фильтр по продавцу' }))
+    await waitFor(() => expect(getAdminPayouts).toHaveBeenLastCalledWith(expect.objectContaining({ seller_id: undefined, blocked: 'exclude' })))
   })
 })
