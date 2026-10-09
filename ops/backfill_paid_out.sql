@@ -1,8 +1,8 @@
--- One-off: «Выплачен» on receipts already fully paid BEFORE migration 0012 (BRD В-8-A).
+-- Manual re-run of migration 0014: «Выплачен» on receipts fully covered by PAID payouts.
 --
--- Migration 0012 rebuilt the payout ↔ receipt coverage of old payouts (FIFO) but left
--- receipt statuses alone — a mass status change on prod needs the owner's explicit «да».
--- New payouts mark their receipts themselves; this closes the history.
+-- Migration 0014 does this automatically on rollout (owner decision 2026-10-09). Use this
+-- script only for leftovers — e.g. a payout marked paid by the OLD code between the
+-- migration and the new code starting. New payouts mark their receipts themselves.
 --
 -- Run ONLY after `ops/deploy.sh` took its backup, and only with the owner's go-ahead:
 --   docker compose exec -T postgres psql -U vliq -d vliq -v apply=0 < ops/backfill_paid_out.sql   -- dry run
