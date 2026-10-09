@@ -50,7 +50,8 @@ from tests.integration.pg._ids import SEED_BRAND_ID, SEED_SELLER_ID  # noqa: E40
 
 _TRUNCATE = (
     "TRUNCATE vliq.receipt_attachment, vliq.receipt, vliq.notification_outbox, "
-    "vliq.bonus_transaction, vliq.payout_receipt, vliq.payout_request, vliq.audit_log RESTART IDENTITY CASCADE"
+    "vliq.bonus_transaction, vliq.payout_receipt, vliq.payout_request, vliq.audit_log, vliq.seller_login "
+    "RESTART IDENTITY CASCADE"
 )
 
 
@@ -113,7 +114,7 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession]]:
             text(
                 "INSERT INTO vliq.seller (telegram_id, brand_id, phone_e164, status, created_at) "
                 "VALUES (:tid,:bid,'+79990000001','active',now()) "
-                "ON CONFLICT (telegram_id) DO UPDATE SET status='active'"
+                "ON CONFLICT (telegram_id) DO UPDATE SET status='active', primary_login_disabled=false"
             ),
             {"tid": SEED_SELLER_ID, "bid": SEED_BRAND_ID},
         )

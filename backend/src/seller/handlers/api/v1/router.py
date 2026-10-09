@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from src.app.api.pagination import PagedResponse
-from src.app.auth.jwt import JwtTokenT, require_admin, require_seller, validate_token_dependency
+from src.app.auth.jwt import JwtTokenT, require_admin, require_seller, require_super_admin, validate_token_dependency
 from src.app.crypto import PayoutCrypto
 from src.app.depends import get_config, get_pg_session
 from src.app.errors import AppError
@@ -32,6 +32,7 @@ from src.notification.models import Notification
 from src.notification.schemas.api import NotificationRead
 from src.receipt.models import Receipt, ReceiptStatus
 from src.receipt.schemas.api import SellerReceiptRead
+from src.seller.account_recovery import transfer_login
 from src.seller.depends import forbid_blocked_seller, get_seller_repository
 from src.seller.errors import is_phone_conflict
 from src.seller.models import Seller, SellerStatus
@@ -41,6 +42,8 @@ from src.seller.schemas.api import (
     SellerBlockRequest,
     SellerCreate,
     SellerListItem,
+    SellerLoginTransferRead,
+    SellerLoginTransferRequest,
     SellerRead,
     SellerReadAdmin,
     SellerTgUpsertRequest,
@@ -648,3 +651,28 @@ async def unblock_seller(
 @router.delete("/{telegram_id}", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False)
 async def delete_seller(telegram_id: int) -> None:
     raise AppError("NOT_IMPLEMENTED", status_code=501)
+
+
+@router.post(
+    "/{telegram_id}/transfer-login",
+    response_model=SellerLoginTransferRead,
+    summary="Восстановление доступа: привязать новый Telegram-аккаунт продавца (super_admin)",
+    description=(
+        "Только после проверки личности по docs/procedures/ACCOUNT-RECOVERY.md. Данные продавца не "
+        "переносятся — новый аккаунт входит как этот продавец, потерянный отключается. Аудит: старый и "
+        "новый Telegram ID, исполнитель, дата, основание. Отказ: заявка на выплату в работе, новый "
+        "аккаунт занят (другой продавец / админ / активный аккаунт)."
+    ),
+)
+async def transfer_seller_login(
+    telegram_id: int,
+    body: SellerLoginTransferRequest,
+    token: Annotated[JwtTokenT, Depends(require_super_admin)],
+    session: Annotated[AsyncSession, Depends(get_pg_session)],
+) -> SellerLoginTransferRead:
+    result = await transfer_login(
+        session, seller_id=telegram_id, new_telegram_id=body.new_telegram_id, reason=body.reason,
+        actor_id=token["user_id"],
+    )  # fmt: skip
+    logger.info("seller.login_transferred", seller_id=telegram_id, by=token["user_id"])
+    return SellerLoginTransferRead(**result)

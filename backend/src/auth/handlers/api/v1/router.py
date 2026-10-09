@@ -27,6 +27,7 @@ from src.auth.schemas.api import (
     SellerInfoResponse,
     TmaVerifyRequest,
 )
+from src.seller.account_recovery import login_seller_id
 from src.seller.models import Seller
 
 logger = structlog.get_logger(__name__)
@@ -62,8 +63,22 @@ async def _issue_token_for_telegram_id(
         logger.info("auth.login.admin", telegram_id=telegram_id, role=admin.role)
         return LoginResponse(access_token=token, role=admin.role)  # type: ignore[arg-type]
 
+    # Recovered account (docs/procedures/ACCOUNT-RECOVERY.md): this Telegram account was
+    # linked by a super_admin to an existing seller — log in as that seller.
+    linked = await login_seller_id(session, telegram_id)
+    if linked is not None:
+        seller = await _find_seller(session, linked)
+        if seller is None:
+            raise AppError("SELLER_NOT_FOUND", status_code=404)
+        if seller.status == "blocked":
+            raise AppError("SELLER_BLOCKED", status_code=403)
+        logger.info("auth.login.seller_recovered", telegram_id=telegram_id, seller_id=linked)
+        return LoginResponse(access_token=jwt_auth.create_token(seller), role="seller")
+
     seller = await _find_seller(session, telegram_id)
     if seller is not None:
+        if seller.primary_login_disabled:  # the lost account, moved to a new one
+            raise AppError("ACCOUNT_MOVED", status_code=403)
         if seller.status == "blocked":
             raise AppError("SELLER_BLOCKED", status_code=403)
         token = jwt_auth.create_token(seller)

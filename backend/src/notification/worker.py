@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from src.notification import outbox as notification_outbox
 from src.notification.formatting import render_money_payload
 from src.notification.models import Notification, NotificationDeliveryStatus, NotificationType
+from src.seller.account_recovery import chat_id_for
 
 _HTTP_TOO_MANY_REQUESTS = 429
 _HTTP_CLIENT_ERROR_MIN = 400
@@ -125,7 +126,8 @@ async def _process_row(
             await _send_telegram(
                 http_client,
                 bot_token=bot_token,
-                chat_id=row.recipient_id,
+                # A recovered seller gets his messages on his NEW Telegram account.
+                chat_id=await chat_id_for(session, row.recipient_id),
                 text=text,
             )
             await notification_outbox.mark_sent(session, row)

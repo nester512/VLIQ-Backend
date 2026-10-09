@@ -170,6 +170,22 @@ class SellerReadAdmin(SellerRead):
     weekly_activity: list[SellerWeekActivity] = Field(default_factory=list)
 
 
+class SellerLoginTransferRequest(BaseModel):
+    """Super admin: link the seller's NEW Telegram account after the identity check."""
+
+    new_telegram_id: int = Field(gt=0, description="Telegram ID of the seller's new account")
+    reason: str = Field(
+        min_length=10, max_length=2000,
+        description="Основание: обращение, как и кем проверена личность (идёт в аудит)",
+    )
+
+
+class SellerLoginTransferRead(BaseModel):
+    seller_id: int
+    telegram_id: int
+    already_linked: bool
+
+
 class SellerBlockRequest(BaseModel):
     """Body for POST /sellers/{telegram_id}/block (T2)."""
 

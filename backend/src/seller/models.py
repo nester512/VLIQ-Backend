@@ -6,6 +6,7 @@ from enum import Enum
 from sqlalchemy import (
     TIMESTAMP,
     BigInteger,
+    Boolean,
     ForeignKey,
     Integer,
     String,
@@ -92,3 +93,22 @@ class Seller(BaseModel):
     )
     created_by: Mapped[int | None] = mapped_column(BigInteger, default=None)
     updated_by: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    # Account recovery (0013): the original Telegram account was lost and is switched off;
+    # the seller logs in through seller_login. Data keeps pointing at telegram_id.
+    primary_login_disabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
+
+
+class SellerLogin(BaseModel):
+    """Another Telegram account allowed to log in as ``seller_id`` (added by a super_admin only)."""
+
+    __tablename__ = "seller_login"
+    __table_args__ = {"schema": DEFAULT_SCHEMA}
+
+    telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    seller_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey(f"{DEFAULT_SCHEMA}.seller.telegram_id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now())
+    revoked_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
