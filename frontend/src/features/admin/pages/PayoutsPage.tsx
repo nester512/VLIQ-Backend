@@ -7,7 +7,7 @@ import { Pill } from '@/components/atoms/Pill'
 import { FilterPills } from '@/components/molecules/FilterPills'
 import { EmptyState } from '@/components/molecules/EmptyState'
 import { useUiStore } from '@/store/uiStore'
-import { usePayoutsList } from '@/features/admin/hooks/usePayoutsList'
+import { usePayoutsList, usePayoutSummary } from '@/features/admin/hooks/usePayoutsList'
 import { fmtMoney } from '@/utils/formatMoney'
 import type { PayoutRequest } from '@/types/models'
 
@@ -112,23 +112,17 @@ function PayoutsContent() {
     }, { replace: true })
   }
 
-  // Aggregate metrics computed from the full list (independent of the visible
-  // status filter); the visible list comes from a second filtered query.
-  const { data: allPage, isLoading: aggLoading } = usePayoutsList({ limit: 200 })
+  // Totals come from the server over EVERY request (not the sum of a loaded page).
+  const { data: summary, isLoading: aggLoading } = usePayoutSummary()
   const apiStatus = statusFilter === 'all' ? undefined : statusFilter
   const { data: visible, isLoading: listLoading } = usePayoutsList({ status: apiStatus, limit: 100 })
 
-  const allItems = allPage?.items ?? []
   const items = visible?.items ?? []
-
-  const pendingTotal = allItems
-    .filter((p) => p.status === 'new' || p.status === 'in_progress')
-    .reduce((acc, p) => acc + p.amount, 0)
-  const paidTotal = allItems
-    .filter((p) => p.status === 'paid')
-    .reduce((acc, p) => acc + p.amount, 0)
-  const paidCount = allItems.filter((p) => p.status === 'paid').length
-  const newCount  = allItems.filter((p) => p.status === 'new').length
+  const pendingTotal = (summary?.new.amount ?? 0) + (summary?.in_progress.amount ?? 0)
+  const newCount = summary?.new.count ?? 0
+  const inProgressCount = summary?.in_progress.count ?? 0
+  const paidTotal = summary?.paid_this_month.amount ?? 0
+  const paidCount = summary?.paid_this_month.count ?? 0
 
   return (
     <div>
@@ -140,7 +134,7 @@ function PayoutsContent() {
           paddingTop: 14, paddingBottom: 4,
         }}
       >
-        {aggLoading && allItems.length === 0 ? (
+        {aggLoading && !summary ? (
           <>
             <MetricCardSkeleton />
             <MetricCardSkeleton />
@@ -150,7 +144,11 @@ function PayoutsContent() {
             <MetricCard
               title="К выплате"
               value={fmtMoney(pendingTotal)}
-              delta={newCount > 0 ? `${newCount} новых заявок` : 'нет новых заявок'}
+              delta={
+                newCount + inProgressCount > 0
+                  ? [newCount > 0 && `новых ${newCount}`, inProgressCount > 0 && `в работе ${inProgressCount}`].filter(Boolean).join(' · ')
+                  : 'нет заявок к выплате'
+              }
               deltaColor={newCount > 0 ? 'wn' : 'hint'}
               tween
             />

@@ -11,7 +11,7 @@ import { HeroSkeleton, MetricCardSkeleton, ReceiptRowSkeleton } from '@/componen
 import { useBalance } from '../hooks/useBalance'
 import { useReceipts } from '../hooks/useReceipts'
 import { listMyBonusTransactions } from '@/api/bonusTransactions'
-import { fmtMoney, fmtInt } from '@/utils/formatMoney'
+import { fmtMoney, fmtInt, plural } from '@/utils/formatMoney'
 import { isApprovedStatus, isPendingStatus } from '@/utils/receiptStatus'
 
 type TxFilter = 'all' | 'bonus' | 'payout'
@@ -71,7 +71,8 @@ function BalanceContent() {
           <>
             <MetricCard
               title="На проверке"
-              value={receipts === undefined ? '—' : fmtInt(receiptsPending)}
+              value={fmtMoney(balance?.pending)}
+              delta={receipts === undefined ? undefined : `${fmtInt(receiptsPending)} ${plural(receiptsPending, ['чек', 'чека', 'чеков'])}`}
               deltaColor="wn"
             />
             <MetricCard
@@ -83,8 +84,12 @@ function BalanceContent() {
             <MetricCard
               title="Всего выплачено"
               value={fmtMoney(balance?.total_paid)}
-              delta={balance && balance.total_paid > 0 ? 'на реквизиты' : 'пока ничего'}
-              deltaColor={balance && balance.total_paid > 0 ? 'ok' : 'hint'}
+              delta={
+                balance && balance.on_hold > 0
+                  ? `ещё ${fmtMoney(balance.on_hold)} в заявках`
+                  : balance && balance.total_paid > 0 ? 'на реквизиты' : 'пока ничего'
+              }
+              deltaColor={balance && (balance.total_paid > 0 || balance.on_hold > 0) ? 'ok' : 'hint'}
             />
             <MetricCard
               title="Чеков одобрено"

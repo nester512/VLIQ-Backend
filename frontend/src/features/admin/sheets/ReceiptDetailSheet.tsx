@@ -12,11 +12,44 @@ import { AddCommentSheet } from '@/components/molecules/AddCommentSheet'
 import { BlockSellerSheet } from '@/components/molecules/BlockSellerSheet'
 import { useUiStore } from '@/store/uiStore'
 import { useSwipeAction } from '@/features/admin/hooks/useReviewQueue'
-import { editReceiptBonus, addReceiptComment, blockSeller, deleteReceipt } from '@/api/admin'
+import { editReceiptBonus, addReceiptComment, blockSeller, deleteReceipt, rejectReceipt } from '@/api/admin'
 import { extractApiError } from '@/api/client'
 import type { AdminReceipt } from '@/api/admin'
 import { invalidateAfterReceiptChange } from '@/features/admin/invalidate'
 import { JourneyPanel } from '@/features/admin/components/JourneyPanel'
+
+/** «Only with a reason» actions on a receipt that already moved money (docs/design/PAYOUTS.md). */
+type ReasonAction =
+  | { kind: 'cancel' }
+  | { kind: 'delete' }
+  | { kind: 'lower_bonus'; amountKopecks: number }
+
+const REASON_COPY = {
+  cancel: {
+    title: 'Отменить чек',
+    note: 'Бонус по чеку спишется с баланса продавца отдельной операцией с этой причиной. Если чек уже выплачен — у продавца появится долг.',
+    placeholder: 'Почему чек отменяется…',
+    confirmLabel: 'Отменить чек',
+    submittingLabel: 'Отмена…',
+    quickPicks: ['Дубль чека', 'Фиктивный чек', 'Ошибка модерации'],
+  },
+  delete: {
+    title: 'Удалить чек',
+    note: 'Если по чеку был бонус — он спишется с баланса продавца с этой причиной.',
+    placeholder: 'Почему чек удаляется…',
+    confirmLabel: 'Удалить',
+    submittingLabel: 'Удаление…',
+    quickPicks: ['Загружен по ошибке', 'Дубль чека'],
+  },
+  lower_bonus: {
+    title: 'Причина уменьшения бонуса',
+    note: 'Разница спишется с баланса продавца отдельной операцией с этой причиной.',
+    placeholder: 'Почему бонус уменьшается…',
+    confirmLabel: 'Сохранить',
+    submittingLabel: 'Сохранение…',
+    quickPicks: ['Ошиблись ставкой', 'Не все товары по акции'],
+  },
+} as const
 
 interface ReceiptDetailSheetProps {
   receiptId: string | null
@@ -36,13 +69,15 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false)
   const [addCommentOpen, setAddCommentOpen] = useState(false)
   const [blockSellerOpen, setBlockSellerOpen] = useState(false)
+  const [reasonAction, setReasonAction] = useState<ReasonAction | null>(null)
 
   // ---- Mutation: edit bonus ----
   const { mutate: doEditBonus, isPending: editBonusPending } = useMutation({
-    mutationFn: ({ id, amountKopecks }: { id: string; amountKopecks: number }) =>
-      editReceiptBonus(id, amountKopecks),
+    mutationFn: ({ id, amountKopecks, reason }: { id: string; amountKopecks: number; reason?: string }) =>
+      editReceiptBonus(id, amountKopecks, reason),
     onSuccess: () => {
       setEditBonusOpen(false)
+      setReasonAction(null)
       invalidateAfterReceiptChange(queryClient)
       pushToast('Сумма бонуса обновлена', 'ok')
     },
@@ -85,8 +120,9 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
 
   // ---- Mutation: A6 soft-delete (processed receipts) ----
   const { mutate: doDelete, isPending: deletePending } = useMutation({
-    mutationFn: (id: string) => deleteReceipt(id),
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => deleteReceipt(id, reason),
     onSuccess: () => {
+      setReasonAction(null)
       invalidateAfterReceiptChange(queryClient)
       pushToast('Чек удалён', 'ok')
       closeSheet()
@@ -94,6 +130,21 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     onError: (err: unknown) => {
       const { userMessage } = extractApiError(err)
       pushToast(userMessage, 'dg')
+    },
+  })
+
+  // ---- Mutation: cancel an approved / paid out receipt (money back, with a reason) ----
+  const { mutate: doCancel, isPending: cancelPending } = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => rejectReceipt(id, reason),
+    onSuccess: () => {
+      setReasonAction(null)
+      invalidateAfterReceiptChange(queryClient)
+      pushToast('Чек отменён, бонус списан', 'ok')
+      closeSheet()
+    },
+    onError: (err: unknown) => {
+      setReasonAction(null)
+      pushToast(extractApiError(err).userMessage, 'dg')
     },
   })
 
@@ -256,12 +307,23 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
               <Icon name="shield" size={16} />
               <span>Чек уже обработан — действия недоступны</span>
             </div>
+            {/* Money already moved: cancelling gives the bonus back — only with a reason. */}
+            {(receipt.status === 'approved' || receipt.status === 'paid_out') && (
+              <button
+                type="button"
+                disabled={cancelPending}
+                onClick={() => setReasonAction({ kind: 'cancel' })}
+                className="flex items-center justify-center gap-2 w-full mt-2 py-[11px] rounded-[12px] text-[13px] font-semibold bg-[var(--vliq-dg-bg)] text-[var(--vliq-dg-ink)] border-0 cursor-pointer disabled:opacity-50"
+              >
+                <Icon name="x" size={16} /> Отменить чек — списать бонус
+              </button>
+            )}
             {/* A6 soft-delete — only for processed (Отклонён / Выплачен) receipts. */}
             {(receipt.status === 'rejected' || receipt.status === 'paid_out') && (
               <button
                 type="button"
                 disabled={deletePending}
-                onClick={() => doDelete(receiptId)}
+                onClick={() => setReasonAction({ kind: 'delete' })}
                 className="flex items-center justify-center gap-2 w-full mt-2 py-[11px] rounded-[12px] text-[13px] font-semibold bg-[var(--vliq-dg-bg)] text-[var(--vliq-dg-ink)] border-0 cursor-pointer disabled:opacity-50"
               >
                 <Icon name="x" size={16} /> Удалить чек
@@ -325,6 +387,12 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
         onClose={() => setEditBonusOpen(false)}
         onConfirm={(amountKopecks) => {
           if (!receiptId) return
+          // Lowering the bonus of an approved receipt takes money back → ask why first.
+          if (receipt.status === 'approved' && amountKopecks < (receipt.bonus_amount ?? 0)) {
+            setEditBonusOpen(false)
+            setReasonAction({ kind: 'lower_bonus', amountKopecks })
+            return
+          }
           doEditBonus({ id: receiptId, amountKopecks })
         }}
         isSubmitting={editBonusPending}
@@ -349,6 +417,19 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
         onClose={() => setRejectReasonOpen(false)}
         onConfirm={(reason) => submitReviewAction('reject', reason)}
         isSubmitting={isPending}
+      />
+
+      <RejectReasonSheet
+        open={reasonAction !== null}
+        onClose={() => setReasonAction(null)}
+        copy={reasonAction ? REASON_COPY[reasonAction.kind] : undefined}
+        isSubmitting={cancelPending || deletePending || editBonusPending}
+        onConfirm={(reason) => {
+          if (!receiptId || !reasonAction) return
+          if (reasonAction.kind === 'cancel') doCancel({ id: receiptId, reason })
+          else if (reasonAction.kind === 'delete') doDelete({ id: receiptId, reason })
+          else doEditBonus({ id: receiptId, amountKopecks: reasonAction.amountKopecks, reason })
+        }}
       />
 
       <AddCommentSheet

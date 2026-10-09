@@ -15,6 +15,7 @@ Transitions (from OCR plan § 6):
   on_review        → ocr_in_progress         (system: OFD retry after unblock)
   approved         → paid_out               (system: payout completed)
   approved         → rejected               (admin: cancellation with reason)
+  paid_out         → rejected               (admin: cancellation with reason → seller's debt, PAYOUTS.md)
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ _TRANSITIONS: dict[tuple[str, str], frozenset[str]] = {
     (ReceiptStatus.on_review.value, "ocr_in_progress"): frozenset({"system"}),
     (ReceiptStatus.approved.value, ReceiptStatus.paid_out.value): frozenset({"system"}),
     (ReceiptStatus.approved.value, ReceiptStatus.rejected.value): frozenset({"admin"}),
+    (ReceiptStatus.paid_out.value, ReceiptStatus.rejected.value): frozenset({"admin"}),
 }
 
 

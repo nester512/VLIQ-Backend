@@ -57,11 +57,17 @@ function PayoutRequestsContent() {
             const st = STATUS[r.status] ?? { label: r.status, kind: 'wn' as const }
             const method = r.method ? METHOD_LABEL[r.method] ?? r.method : ''
             const dest = r.details ? `•••• ${r.details.slice(-4)}` : ''
+            const when = r.status === 'paid' && r.paid_at ? `выплачена ${fmtDate(r.paid_at)}` : r.created_at ? fmtDate(r.created_at) : ''
             return (
-              <div key={r.id} className="vliq-row is-static" style={{ alignItems: 'center' }}>
+              <div key={r.id} className="vliq-row is-static" style={{ alignItems: 'center' }} data-testid="payout-request">
                 <div className="vliq-row-tx" style={{ minWidth: 0 }}>
                   <b style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtMoney(r.amount)}</b>
-                  <span>{[method, dest].filter(Boolean).join(' · ')}{r.created_at ? ` · ${fmtDate(r.created_at)}` : ''}</span>
+                  <span>{[method, dest, when].filter(Boolean).join(' · ')}</span>
+                  {r.status === 'rejected' && r.admin_comment && (
+                    <span style={{ color: 'var(--vliq-dg-ink)', whiteSpace: 'normal' }}>
+                      Причина: {r.admin_comment}. Сумма вернулась на баланс.
+                    </span>
+                  )}
                 </div>
                 <div style={{ flex: 'none', marginRight: 2 }}>
                   <Pill kind={st.kind}>{st.label}</Pill>

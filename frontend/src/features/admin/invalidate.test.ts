@@ -12,7 +12,7 @@ function keys(fn: (qc: QueryClient) => void) {
 describe('admin cache invalidation', () => {
   it('a receipt change refreshes every receipt-dependent view', () => {
     expect(keys((qc) => invalidateAfterReceiptChange(qc))).toEqual(
-      ['admin/dashboard', 'admin/receipts', 'admin/review-queue', 'admin/seller-detail', 'admin/seller-receipts', 'admin/sellers'],
+      ['admin/dashboard', 'admin/receipt-journey', 'admin/receipts', 'admin/review-queue', 'admin/seller-detail', 'admin/seller-receipts', 'admin/sellers'],
     )
   })
 
@@ -20,7 +20,9 @@ describe('admin cache invalidation', () => {
     expect(keys((qc) => invalidateAfterReceiptChange(qc, { reviewQueue: false }))).not.toContain('admin/review-queue')
   })
 
-  it('a payout change also refreshes the seller card (balance / paid out)', () => {
-    expect(keys(invalidateAfterPayoutChange)).toEqual(['admin/dashboard', 'admin/payouts', 'admin/seller-detail'])
+  it('a payout change refreshes the seller card and the receipts it covers («Выплачен», their journey)', () => {
+    expect(keys(invalidateAfterPayoutChange)).toEqual([
+      'admin/dashboard', 'admin/payouts', 'admin/receipt-journey', 'admin/receipts', 'admin/seller-detail', 'admin/seller-receipts',
+    ])
   })
 })

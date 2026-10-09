@@ -58,7 +58,20 @@ function eventDetail(e: JourneyEvent): string | null {
     case 'rejected':
       return typeof d.reason === 'string' ? d.reason : null
     case 'bonus_changed':
-      return `${kop(d.before)} → ${kop(d.after)}`
+      return [`${kop(d.before)} → ${kop(d.after)}`, typeof d.reason === 'string' && d.reason].filter(Boolean).join(' · ')
+    case 'included_in_payout':
+    case 'paid_out':
+    case 'payout_reverted': {
+      const part = d.partial === true ? ' (частично)' : ''
+      return [
+        typeof d.payout_id === 'number' && `заявка #${d.payout_id}`,
+        typeof d.amount === 'number' && `${kop(d.amount)}${part}`,
+        typeof d.reason === 'string' && d.reason,
+      ].filter(Boolean).join(' · ') || null
+    }
+    case 'deleted':
+      return [typeof d.reason === 'string' && d.reason, typeof d.bonus_reversed === 'number' && `списано ${kop(d.bonus_reversed)}`]
+        .filter(Boolean).join(' · ') || null
     case 'comment_added':
       return typeof d.text === 'string' ? d.text : null
     default:

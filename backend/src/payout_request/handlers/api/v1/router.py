@@ -1,8 +1,8 @@
-"""Payout request API router.
+"""Payout request API (docs/design/PAYOUTS.md).
 
-H13: Real atomic payout flow (create, approve, reject) with SELECT FOR UPDATE.
-H15: Idempotency-Key header required on POST — stored in Redis 24 h.
-H25: Pagination + filters on GET list.
+Seller: create (Idempotency-Key — one request per key, enforced by the DB), «Мои заявки».
+Admin: list + totals over ALL matching requests, take / approve / reject / edit,
+receipts covered by a request.
 """
 
 from __future__ import annotations
@@ -12,31 +12,35 @@ from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, Header, Query, status
-from redis.asyncio import Redis
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.pagination import PagedResponse
 from src.app.auth.jwt import JwtTokenT, require_admin, require_seller, validate_token_dependency
-from src.app.depends import get_pg_session
+from src.app.depends import get_config, get_pg_session
 from src.app.errors import AppError
-from src.notification import outbox as notification_outbox
-from src.payout_request.depends import get_redis
-from src.payout_request.models import PayoutRequest
+from src.app.settings import Settings
+from src.payout_request.models import PayoutReceipt, PayoutRequest, PayoutRequestStatus
 from src.payout_request.schemas.api import (
+    PayoutCoverageRead,
     PayoutRequestApprove,
     PayoutRequestCreate,
     PayoutRequestRead,
     PayoutRequestReject,
     PayoutRequestUpdate,
+    PayoutStatusTotal,
+    PayoutSummaryRead,
 )
 from src.payout_request.service import (
     approve_payout_request,
     create_payout_request,
     reject_payout_request,
+    take_payout_request,
     update_payout_request,
 )
+from src.receipt.models import Receipt
 from src.seller.depends import forbid_blocked_seller
+from src.seller.handlers.api.v1.router import seller_search_condition
 from src.seller.models import Seller
 
 logger = structlog.get_logger(__name__)
@@ -69,86 +73,95 @@ async def _attach_seller_info(
     return items
 
 
+def _filtered(  # noqa: PLR0913
+    stmt: Select,
+    *,
+    seller_id: int | None,
+    brand_id: int | None,
+    req_status: str | None,
+    date_from: datetime | None,
+    date_to: datetime | None,
+    search: str | None,
+) -> Select:
+    if seller_id is not None:
+        stmt = stmt.where(PayoutRequest.seller_id == seller_id)
+    if brand_id is not None:
+        stmt = stmt.where(PayoutRequest.brand_id == brand_id)
+    if req_status is not None:
+        stmt = stmt.where(PayoutRequest.status == req_status)
+    if date_from is not None:
+        stmt = stmt.where(PayoutRequest.created_at >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(PayoutRequest.created_at <= date_to)
+    if search and search.strip():
+        term = search.strip()
+        by_seller = PayoutRequest.seller_id.in_(select(Seller.telegram_id).where(seller_search_condition(term)))
+        if term.isascii() and term.isdigit() and len(term) <= 18:  # noqa: PLR2004
+            by_seller = by_seller | (PayoutRequest.id == int(term))
+        stmt = stmt.where(by_seller)
+    return stmt
+
+
 @router.post(
     "",
     response_model=PayoutRequestRead,
     dependencies=[Depends(forbid_blocked_seller)],
     status_code=status.HTTP_201_CREATED,
-    summary="Создать заявку на выплату (H13, H15)",
+    summary="Создать заявку на выплату",
     description=(
-        "Атомарно создаёт PayoutRequest + payout_hold транзакцию. "
-        "Требует заголовок `Idempotency-Key` — повторный запрос с тем же ключом вернёт исходный ответ."
+        "Одной транзакцией: заявка, резерв суммы, покрытие одобренных чеков (с самых старых). "
+        "`Idempotency-Key` уникален в пределах продавца — повтор вернёт ту же заявку."
     ),
 )
 async def create_payout_request_endpoint(
     body: PayoutRequestCreate,
     token: Annotated[JwtTokenT, Depends(require_seller)],
     session: Annotated[AsyncSession, Depends(get_pg_session)],
-    redis: Annotated[Redis, Depends(get_redis)],
+    cfg: Annotated[Settings, Depends(get_config)],
     idempotency_key: str = Header(
         ...,
         alias="Idempotency-Key",
-        description="Client-generated unique key (UUID recommended). Stored 24 h to prevent duplicate requests.",
+        min_length=8,
+        max_length=64,
+        description="One key per submitted form (UUID).",
     ),
 ) -> PayoutRequestRead:
-    # NB: do NOT query the session here before delegating — a read autobegins a
-    # transaction and the service's `session.begin()` would then raise
-    # "A transaction is already begun". The service resolves the seller itself
-    # (locked SELECT ... FOR UPDATE) and derives brand_id + payout account.
     return await create_payout_request(
         seller_id=token["user_id"],
         amount=body.amount,
         payout_kind=body.payout_kind.value,
-        payout_masked_override=body.payout_masked,
-        session=session,
-        redis=redis,
+        phone=body.phone or body.payout_masked,
         idempotency_key=idempotency_key,
+        min_amount=cfg.PAYOUT_MIN_AMOUNT,
+        session=session,
     )
 
 
-@router.post(
-    "/{payout_request_id}/approve",
-    response_model=PayoutRequestRead,
-    summary="Одобрить заявку (admin)",
-)
+@router.post("/{payout_request_id}/take", response_model=PayoutRequestRead, summary="Взять заявку в работу (admin)")
+async def take_payout(
+    payout_request_id: int,
+    token: Annotated[JwtTokenT, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_pg_session)],
+) -> PayoutRequestRead:
+    return await take_payout_request(payout_id=payout_request_id, admin_id=token["user_id"], session=session)
+
+
+@router.post("/{payout_request_id}/approve", response_model=PayoutRequestRead, summary="Отметить «Выплачено» (admin)")
 async def approve_payout(
     payout_request_id: int,
     body: PayoutRequestApprove,
     token: Annotated[JwtTokenT, Depends(require_admin)],
     session: Annotated[AsyncSession, Depends(get_pg_session)],
 ) -> PayoutRequestRead:
-    result = await approve_payout_request(
+    return await approve_payout_request(
         payout_id=payout_request_id,
         admin_id=token["user_id"],
         external_txn_id=body.external_txn_id,
         session=session,
     )
 
-    # Enqueue Telegram notification via outbox.
-    # approve_payout_request already committed its own transaction; the session
-    # has auto-begun a new implicit transaction (from the post-commit refresh).
-    # Calling session.begin() again would raise InvalidRequestError — use the
-    # live implicit transaction directly and commit it explicitly instead.
-    await notification_outbox.enqueue(
-        session,
-        recipient_id=result.seller_id,
-        channel="telegram",
-        template="payout.sent",
-        payload={
-            "amount": result.amount,
-            "payout_masked": result.payout_masked,
-        },
-    )
-    await session.commit()
 
-    return result
-
-
-@router.post(
-    "/{payout_request_id}/reject",
-    response_model=PayoutRequestRead,
-    summary="Отклонить заявку (admin)",
-)
+@router.post("/{payout_request_id}/reject", response_model=PayoutRequestRead, summary="Отклонить с причиной (admin)")
 async def reject_payout(
     payout_request_id: int,
     body: PayoutRequestReject,
@@ -166,7 +179,7 @@ async def reject_payout(
 @router.get(
     "",
     response_model=PagedResponse[PayoutRequestRead],
-    summary="Список заявок (admin) с пагинацией и фильтрами (H25)",
+    summary="Список заявок (admin) с пагинацией и фильтрами",
 )
 async def list_payout_requests(  # noqa: PLR0913
     token: Annotated[JwtTokenT, Depends(require_admin)],
@@ -175,27 +188,17 @@ async def list_payout_requests(  # noqa: PLR0913
     limit: int = Query(default=50, ge=1, le=200),
     seller_id: int | None = Query(default=None),
     brand_id: int | None = Query(default=None),
-    req_status: str | None = Query(default=None, alias="status"),
+    req_status: PayoutRequestStatus | None = Query(default=None, alias="status"),
     date_from: datetime | None = Query(default=None),  # noqa: B008
     date_to: datetime | None = Query(default=None),  # noqa: B008
+    search: str | None = Query(default=None, max_length=100),
 ) -> PagedResponse[PayoutRequestRead]:
-    stmt = select(PayoutRequest)
-
-    if seller_id is not None:
-        stmt = stmt.where(PayoutRequest.seller_id == seller_id)
-    if brand_id is not None:
-        stmt = stmt.where(PayoutRequest.brand_id == brand_id)
-    if req_status is not None:
-        stmt = stmt.where(PayoutRequest.status == req_status)
-    if date_from is not None:
-        stmt = stmt.where(PayoutRequest.created_at >= date_from)
-    if date_to is not None:
-        stmt = stmt.where(PayoutRequest.created_at <= date_to)
-
-    count_stmt = select(func.count()).select_from(stmt.subquery())
-    total: int = (await session.execute(count_stmt)).scalar_one()
-
-    stmt = stmt.order_by(PayoutRequest.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    stmt = _filtered(
+        select(PayoutRequest), seller_id=seller_id, brand_id=brand_id,
+        req_status=req_status.value if req_status else None, date_from=date_from, date_to=date_to, search=search,
+    )  # fmt: skip
+    total: int = (await session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    stmt = stmt.order_by(PayoutRequest.created_at.desc(), PayoutRequest.id.desc()).offset((page - 1) * limit).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
 
     items = [PayoutRequestRead.model_validate(r, from_attributes=True) for r in rows]
@@ -204,24 +207,67 @@ async def list_payout_requests(  # noqa: PLR0913
 
 
 @router.get(
+    "/summary",
+    response_model=PayoutSummaryRead,
+    summary="Итоги по ВСЕМ заявкам под фильтрами (admin)",
+    description="Количество и сумма по каждому статусу — считается в БД, а не по загруженной странице.",
+)
+async def payout_summary(  # noqa: PLR0913
+    token: Annotated[JwtTokenT, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_pg_session)],
+    seller_id: int | None = Query(default=None),
+    brand_id: int | None = Query(default=None),
+    date_from: datetime | None = Query(default=None),  # noqa: B008
+    date_to: datetime | None = Query(default=None),  # noqa: B008
+    search: str | None = Query(default=None, max_length=100),
+) -> PayoutSummaryRead:
+    stmt = _filtered(
+        select(PayoutRequest.status, func.count(), func.coalesce(func.sum(PayoutRequest.amount), 0)),
+        seller_id=seller_id, brand_id=brand_id, req_status=None, date_from=date_from, date_to=date_to, search=search,
+    ).group_by(PayoutRequest.status)  # fmt: skip
+    totals = {
+        str(getattr(st, "value", st)): PayoutStatusTotal(count=int(n), amount=int(s))
+        for st, n, s in (await session.execute(stmt)).all()
+    }
+    month = _filtered(
+        select(func.count(), func.coalesce(func.sum(PayoutRequest.amount), 0)).where(
+            PayoutRequest.status == PayoutRequestStatus.paid.value,
+            func.coalesce(PayoutRequest.paid_at, PayoutRequest.updated_at) >= func.date_trunc("month", func.now()),
+        ),
+        seller_id=seller_id, brand_id=brand_id, req_status=None, date_from=None, date_to=None, search=search,
+    )  # fmt: skip
+    n_month, sum_month = (await session.execute(month)).one()
+    return PayoutSummaryRead(**totals, paid_this_month=PayoutStatusTotal(count=int(n_month), amount=int(sum_month)))
+
+
+@router.get(
     "/me",
     response_model=list[PayoutRequestRead],
     summary="Мои заявки на выплату (seller) — S5.5",
-    description="Список заявок текущего продавца со статусами (new → in_progress → paid/rejected), новые сверху.",
+    description="Заявки продавца со статусами и причиной отказа, новые сверху.",
 )
 async def list_my_payout_requests(
     token: Annotated[JwtTokenT, Depends(require_seller)],
     session: Annotated[AsyncSession, Depends(get_pg_session)],
 ) -> list[PayoutRequestRead]:
-    """Seller-scoped payout-requests list (S5.5 «Мои заявки на выплату»)."""
-    seller_id = token["user_id"]
     stmt = (
         select(PayoutRequest)
-        .where(PayoutRequest.seller_id == seller_id)
-        .order_by(PayoutRequest.created_at.desc())
+        .where(PayoutRequest.seller_id == token["user_id"])
+        .order_by(PayoutRequest.created_at.desc(), PayoutRequest.id.desc())
     )
     rows = (await session.execute(stmt)).scalars().all()
     return [PayoutRequestRead.model_validate(r, from_attributes=True) for r in rows]
+
+
+async def _get_visible(session: AsyncSession, payout_request_id: int, token: JwtTokenT) -> PayoutRequest:
+    row = (
+        await session.execute(select(PayoutRequest).where(PayoutRequest.id == payout_request_id))
+    ).scalar_one_or_none()
+    if row is None:
+        raise AppError("PAYOUT_NOT_FOUND", status_code=404)
+    if token.get("role") == "seller" and row.seller_id != token["user_id"]:
+        raise AppError("AUTH_FORBIDDEN", status_code=403)
+    return row
 
 
 @router.get("/{payout_request_id}", response_model=PayoutRequestRead)
@@ -230,30 +276,50 @@ async def get_payout_request(
     token: Annotated[JwtTokenT, Depends(validate_token_dependency)],
     session: Annotated[AsyncSession, Depends(get_pg_session)],
 ) -> PayoutRequestRead:
-    row = (
-        await session.execute(select(PayoutRequest).where(PayoutRequest.id == payout_request_id))
-    ).scalar_one_or_none()
-    if row is None:
-        raise AppError("RECEIPT_NOT_FOUND", status_code=404)
-
-    # Sellers can only view their own requests.
-    if token.get("role") == "seller" and row.seller_id != token["user_id"]:
-        raise AppError("AUTH_FORBIDDEN", status_code=403)
-
+    row = await _get_visible(session, payout_request_id, token)
     item = PayoutRequestRead.model_validate(row, from_attributes=True)
     if token.get("role") != "seller":
         await _attach_seller_info(session, [item])
     return item
 
 
+@router.get(
+    "/{payout_request_id}/receipts",
+    response_model=list[PayoutCoverageRead],
+    summary="Чеки, покрытые заявкой (admin) — В-8-A",
+)
+async def payout_receipts(
+    payout_request_id: int,
+    token: Annotated[JwtTokenT, Depends(require_admin)],
+    session: Annotated[AsyncSession, Depends(get_pg_session)],
+) -> list[PayoutCoverageRead]:
+    await _get_visible(session, payout_request_id, token)
+    rows = (
+        await session.execute(
+            select(PayoutReceipt.receipt_id, PayoutReceipt.amount, Receipt.bonus_amount, Receipt.status,
+                   Receipt.purchase_date, Receipt.total_sum)  # fmt: skip
+            .join(Receipt, Receipt.id == PayoutReceipt.receipt_id)
+            .where(PayoutReceipt.payout_id == payout_request_id)
+            .order_by(PayoutReceipt.id)
+        )
+    ).all()
+    return [
+        PayoutCoverageRead(
+            receipt_id=r.receipt_id, amount=r.amount, bonus_amount=r.bonus_amount,
+            receipt_status=str(getattr(r.status, "value", r.status)), purchase_date=r.purchase_date,
+            total_sum=r.total_sum,
+        )
+        for r in rows
+    ]
+
+
 @router.patch(
     "/{payout_request_id}",
     response_model=PayoutRequestRead,
-    summary="Изменить заявку (admin): сумма / комментарий — KAN-22",
+    summary="Изменить заявку (admin): сумма / комментарий / номер транзакции — KAN-22",
     description=(
-        "Правка заявки в статусе new/in_progress. При изменении суммы hold корректируется "
-        "дельта-транзакцией, продавцу уходит уведомление с новой суммой. "
-        "Смена статуса — только через /approve и /reject."
+        "Только для заявок «новая / в обработке». Изменение суммы резервирует / освобождает разницу "
+        "и пересчитывает покрытие чеков. Смена статуса — только через /take, /approve, /reject."
     ),
 )
 async def update_payout_request_endpoint(

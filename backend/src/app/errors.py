@@ -73,6 +73,13 @@ USER_MESSAGES: dict[str, str] = {
     "PAYOUT_INVALID_AMOUNT": "Укажите сумму больше нуля и не больше доступного баланса.",
     "PAYOUT_INSUFFICIENT_BALANCE": "Недостаточно средств для выплаты.",
     "PAYOUT_INVALID_STATE": "Заявка уже обработана. Обновите список.",
+    "PAYOUT_PHONE_INVALID": "Укажите номер мобильного телефона для СБП: +7 9XX XXX-XX-XX.",
+    "PAYOUT_METHOD_UNSUPPORTED": "Выплата возможна только по СБП.",
+    "PAYOUT_BELOW_MINIMUM": "Сумма меньше минимальной суммы выплаты.",
+    "PAYOUT_REJECT_REASON_REQUIRED": "Укажите причину отказа.",
+    "SELLER_NOT_ACTIVE": "Выплаты доступны после подтверждения аккаунта.",
+    "RECEIPT_IN_ACTIVE_PAYOUT": "Чек входит в заявку на выплату — сначала выплатите или отклоните её.",
+    "RECEIPT_CHANGE_REASON_REQUIRED": "Укажите причину.",
     # --- General ---
     "NOT_IMPLEMENTED": "Функция ещё не реализована.",
     "INTERNAL_ERROR": "Что-то пошло не так. Попробуйте ещё раз.",

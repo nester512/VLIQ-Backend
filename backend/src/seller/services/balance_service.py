@@ -1,15 +1,16 @@
-"""Balance aggregation service for sellers (H23).
+"""Seller balance (docs/design/PAYOUTS.md «Деньги»).
 
-Formula from docs/reviews/04-antifraud.md:
-  available = SUM(amount) FILTER (WHERE kind IN accruals + payout_reverted + correction)
-            + SUM(amount) FILTER (WHERE kind = payout_hold)   -- already negative
-  on_hold   = ABS(SUM(amount) FILTER (WHERE kind = payout_hold))
-  total_accrued = SUM(amount) FILTER (WHERE kind IN accrual_* + correction)  -- net of reversals/edits
-  total_paid_out = ABS(SUM(amount) FILTER (WHERE kind = payout_completed))
+  available      = SUM(accrual_* + correction + payout_reverted + payout_hold)   -- hold is negative
+  on_hold        = SUM(payout_request.amount) of requests new / in_progress
+  total_accrued  = SUM(accrual_* + correction)                                 -- net of reversals/edits
+  total_paid_out = ABS(SUM(payout_completed))
+  on_review      = SUM(receipt.bonus_amount) of receipts not decided yet (S4: «на проверке»)
 
-Note: payout_completed is NOT included in available — when payout_hold transitions
-to payout_completed the hold record is already reflected. The ledger invariant
-requires total balance (SUM of all amounts) to never go negative.
+payout_completed does not touch ``available``: the money left it at hold time.
+``on_hold`` is read from the requests themselves — the ledger keeps the hold row
+after a payout is paid / rejected (append-only), so summing holds never went down.
+``available`` < 0 only after an admin cancelled an already paid receipt (with a
+reason): the seller's debt, covered by future accruals.
 """
 
 from __future__ import annotations
@@ -20,7 +21,17 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bonus_transaction.models import BonusTransaction, BonusTransactionKind
+from src.payout_request.models import ACTIVE_PAYOUT_STATUSES, PayoutRequest
+from src.receipt.models import Receipt, ReceiptStatus
 from src.seller.schemas.api import SellerBalanceRead
+
+# Receipts the admin has not decided on yet.
+_UNDECIDED = (
+    ReceiptStatus.pending.value,
+    ReceiptStatus.ocr_in_progress.value,
+    ReceiptStatus.on_review.value,
+    ReceiptStatus.needs_revision.value,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,11 +109,23 @@ async def get_seller_balance(*, seller_id: int, session: AsyncSession) -> Seller
         0,
     )
 
+    active_holds = (
+        select(func.coalesce(func.sum(PayoutRequest.amount), 0))
+        .where(PayoutRequest.seller_id == seller_id, PayoutRequest.status.in_(ACTIVE_PAYOUT_STATUSES))
+        .scalar_subquery()
+    )
+    undecided = (
+        select(func.coalesce(func.sum(Receipt.bonus_amount), 0))
+        .where(Receipt.seller_id == seller_id, Receipt.is_deleted.is_(False), Receipt.status.in_(_UNDECIDED))
+        .scalar_subquery()
+    )
     stmt = select(
         available_accruals_sum.label("available_accruals"),
         payout_hold_sum.label("payout_hold"),
         total_accrued_sum.label("total_accrued"),
         payout_completed_sum.label("payout_completed"),
+        active_holds.label("on_hold"),
+        undecided.label("on_review"),
     ).where(BonusTransaction.seller_id == seller_id)
 
     result = await session.execute(stmt)
@@ -115,7 +138,7 @@ async def get_seller_balance(*, seller_id: int, session: AsyncSession) -> Seller
 
     # available = positive accruals + negative hold amounts (hold is already negative)
     available = available_accruals + payout_hold
-    on_hold = abs(payout_hold)
+    on_hold = int(row.on_hold)
     total_paid_out = abs(payout_completed)
 
     logger.debug(
@@ -130,4 +153,5 @@ async def get_seller_balance(*, seller_id: int, session: AsyncSession) -> Seller
         on_hold=on_hold,
         total_accrued=total_accrued,
         total_paid_out=total_paid_out,
+        on_review=int(row.on_review),
     )

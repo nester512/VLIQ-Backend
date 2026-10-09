@@ -1,18 +1,32 @@
 import { useState, useEffect, useRef } from 'react'
 import { Drawer } from 'vaul'
 
+export interface ReasonCopy {
+  title: string
+  placeholder: string
+  confirmLabel: string
+  submittingLabel: string
+  quickPicks: readonly string[]
+  /** Optional line under the title — what happens on confirm. */
+  note?: string
+}
+
 export interface RejectReasonSheetProps {
   open: boolean
   onClose: () => void
   onConfirm: (reason: string) => void
   isSubmitting?: boolean
+  /** Same sheet for every «only with a reason» action; defaults to receipt rejection. */
+  copy?: Partial<ReasonCopy>
 }
 
-const QUICK_PICKS = [
-  'Дубль чека',
-  'Чек не от продавца',
-  'Сумма не совпадает с QR',
-]
+const DEFAULT_COPY: ReasonCopy = {
+  title: 'Причина отклонения',
+  placeholder: 'Опишите причину отклонения…',
+  confirmLabel: 'Отклонить',
+  submittingLabel: 'Отклонение…',
+  quickPicks: ['Дубль чека', 'Чек не от продавца', 'Сумма не совпадает с QR'],
+}
 
 /**
  * Inner form — rendered as a child so it remounts (and resets state)
@@ -22,10 +36,12 @@ function RejectForm({
   onClose,
   onConfirm,
   isSubmitting,
+  copy,
 }: {
   onClose: () => void
   onConfirm: (reason: string) => void
   isSubmitting: boolean
+  copy: ReasonCopy
 }) {
   const [reason, setReason] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -70,8 +86,11 @@ function RejectForm({
           letterSpacing: '-0.3px',
         }}
       >
-        Причина отклонения
+        {copy.title}
       </h2>
+      {copy.note && (
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--vliq-hint)', lineHeight: 1.4 }}>{copy.note}</p>
+      )}
 
       {/* Textarea */}
       <textarea
@@ -81,7 +100,7 @@ function RejectForm({
         onChange={(e) => setReason(e.target.value)}
         rows={4}
         disabled={isSubmitting}
-        placeholder="Опишите причину отклонения…"
+        placeholder={copy.placeholder}
         style={{
           width: '100%',
           resize: 'vertical',
@@ -101,7 +120,7 @@ function RejectForm({
 
       {/* Quick-pick chips */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-        {QUICK_PICKS.map((chip) => (
+        {copy.quickPicks.map((chip) => (
           <button
             key={chip}
             type="button"
@@ -165,7 +184,7 @@ function RejectForm({
             transition: 'opacity 0.15s',
           }}
         >
-          {isSubmitting ? 'Отклонение…' : 'Отклонить'}
+          {isSubmitting ? copy.submittingLabel : copy.confirmLabel}
         </button>
       </div>
     </div>
@@ -177,7 +196,9 @@ export function RejectReasonSheet({
   onClose,
   onConfirm,
   isSubmitting = false,
+  copy,
 }: RejectReasonSheetProps) {
+  const text: ReasonCopy = { ...DEFAULT_COPY, ...copy }
   return (
     <Drawer.Root
       open={open}
@@ -205,7 +226,7 @@ export function RejectReasonSheet({
             overflow: 'hidden',
           }}
         >
-          <Drawer.Title className="sr-only">Причина отклонения</Drawer.Title>
+          <Drawer.Title className="sr-only">{text.title}</Drawer.Title>
 
           {/* Grab handle */}
           <div
@@ -226,6 +247,7 @@ export function RejectReasonSheet({
               onClose={onClose}
               onConfirm={onConfirm}
               isSubmitting={isSubmitting}
+              copy={text}
             />
           )}
         </Drawer.Content>

@@ -78,6 +78,8 @@ def _make_session_mock_for_seller(
     balance_row.payout_hold = 0
     balance_row.total_accrued = balance_available
     balance_row.payout_completed = 0
+    balance_row.on_hold = 0
+    balance_row.on_review = 0
     balance_result = MagicMock()
     balance_result.one.return_value = balance_row
 

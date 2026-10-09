@@ -10,7 +10,7 @@ receipt. Rejecting an ``on_review`` receipt (the normal path) touches no bonus.
 from __future__ import annotations
 
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -20,6 +20,14 @@ from src.bonus_transaction.models import BonusTransaction, BonusTransactionKind
 from src.receipt.models import Receipt, ReceiptFileKind
 
 PREFIX = "/api/v1/receipts"
+_ACTIVE_PAYOUT = "src.receipt.handlers.api.v1.router.active_payout_of"
+
+
+@pytest.fixture(autouse=True)
+def active_payout():
+    """By default the receipt is not covered by a payout in progress."""
+    with patch(_ACTIVE_PAYOUT, new=AsyncMock(return_value=None)) as m:
+        yield m
 
 
 def _make_receipt(status: str, bonus_amount: int) -> Receipt:
@@ -145,3 +153,44 @@ async def test_revise_after_approve_also_reverses_bonus(client: AsyncClient, app
     assert len(txns) == 1
     assert txns[0].amount == -1500
     assert txns[0].kind == BonusTransactionKind.correction.value
+
+
+@pytest.mark.asyncio
+async def test_cancel_approved_without_reason__422_and_no_money_moved(client: AsyncClient, app) -> None:
+    receipt = _make_receipt(status="approved", bonus_amount=2000)
+    session_mock = _make_session(receipt, accrued=2000)
+    _use_session(app, session_mock)
+
+    resp = await client.post(f"{PREFIX}/1/reject", json={"comment": "  "}, headers={"Authorization": f"Bearer {_admin_token()}"})
+
+    assert resp.status_code == 422
+    assert resp.json()["code"] == "RECEIPT_CHANGE_REASON_REQUIRED"
+    assert _bonus_txns(session_mock) == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_receipt_under_payout_in_progress__409(client: AsyncClient, app, active_payout) -> None:
+    active_payout.return_value = 42
+    receipt = _make_receipt(status="approved", bonus_amount=2000)
+    session_mock = _make_session(receipt, accrued=2000)
+    _use_session(app, session_mock)
+
+    resp = await client.post(f"{PREFIX}/1/reject", json={"comment": "дубль"}, headers={"Authorization": f"Bearer {_admin_token()}"})
+
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "RECEIPT_IN_ACTIVE_PAYOUT"
+    assert _bonus_txns(session_mock) == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_paid_out_receipt_with_reason__reversed_with_that_reason(client: AsyncClient, app) -> None:
+    receipt = _make_receipt(status="paid_out", bonus_amount=2000)
+    session_mock = _make_session(receipt, accrued=2000)
+    _use_session(app, session_mock)
+
+    resp = await client.post(f"{PREFIX}/1/reject", json={"comment": "фрод"}, headers={"Authorization": f"Bearer {_admin_token()}"})
+
+    assert resp.status_code == 200
+    (reversal,) = _bonus_txns(session_mock)
+    assert reversal.amount == -2000
+    assert reversal.reason.endswith(": фрод")

@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # No default — startup fails if missing.
     PAYOUT_ENCRYPTION_KEY: str = ""
 
+    # Minimum payout request, kopecks (owner decision 2026-10-09: 3 000 ₽, BRD S5).
+    PAYOUT_MIN_AMOUNT: int = 300_000
+
     # H6 / H13: Redis URL for rate limiting and idempotency key storage.
     # Example: redis://localhost:6379/0
     REDIS_URL: str = "redis://localhost:6379/0"

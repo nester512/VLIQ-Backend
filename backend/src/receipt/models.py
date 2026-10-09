@@ -315,6 +315,7 @@ class EventKind(StrEnum):
     reprocess_requested = "reprocess_requested"
     deleted = "deleted"
     included_in_payout = "included_in_payout"
+    payout_reverted = "payout_reverted"
     paid_out = "paid_out"
 
 

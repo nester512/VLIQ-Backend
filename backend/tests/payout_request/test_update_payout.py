@@ -8,7 +8,7 @@ notification for the seller.
 from __future__ import annotations
 
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -20,6 +20,13 @@ from src.payout_request.models import PayoutRequest
 from src.seller.models import Seller
 
 PREFIX = "/api/v1/payout-requests"
+
+
+@pytest.fixture(autouse=True)
+def _allocate():
+    """Receipt coverage is exercised against real PostgreSQL (tests/integration/pg/test_payouts_pg.py)."""
+    with patch("src.payout_request.service._allocate", new=AsyncMock()) as m:
+        yield m
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +49,8 @@ def _make_payout(payout_id: int = 1, status: str = "new", amount: int = 235000) 
     p.updated_at = None
     p.created_by = None
     p.updated_by = None
+    p.taken_at = p.paid_at = p.rejected_at = None
+    p.idempotency_key = None
     return p
 
 
@@ -73,6 +82,8 @@ def _balance_result(*, available_accruals: int, payout_hold: int) -> MagicMock:
     row.payout_hold = payout_hold
     row.total_accrued = available_accruals
     row.payout_completed = 0
+    row.on_hold = -payout_hold
+    row.on_review = 0
     res = MagicMock()
     res.one.return_value = row
     return res
@@ -80,7 +91,8 @@ def _balance_result(*, available_accruals: int, payout_hold: int) -> MagicMock:
 
 def _make_session(*execute_results: MagicMock) -> MagicMock:
     session_mock = MagicMock(spec=AsyncSession)
-    session_mock.execute = AsyncMock(side_effect=list(execute_results))
+    # Trailing results serve the coverage recompute (DELETE of the old links).
+    session_mock.execute = AsyncMock(side_effect=[*execute_results, MagicMock(), MagicMock()])
     session_mock.flush = AsyncMock()
     session_mock.refresh = AsyncMock()
     session_mock.add = MagicMock()

@@ -275,6 +275,9 @@ interface BackendPayoutRequest {
   external_txn_id?: string | null
   created_at: string
   updated_at?: string | null
+  taken_at?: string | null
+  paid_at?: string | null
+  rejected_at?: string | null
 }
 
 /** Wire shape for a single receipt attachment (backend ReceiptAttachmentRead). */
@@ -398,7 +401,12 @@ function mapPayout(p: BackendPayoutRequest): PayoutRequest {
     method: p.payout_kind,
     details: p.payout_masked,
     status: p.status,
+    admin_comment: p.admin_comment ?? null,
+    external_txn_id: p.external_txn_id ?? null,
     created_at: p.created_at,
+    taken_at: p.taken_at ?? null,
+    paid_at: p.paid_at ?? null,
+    rejected_at: p.rejected_at ?? null,
   }
 }
 
@@ -647,8 +655,9 @@ export const reviseReceipt = (id: string, comment: string) =>
   api.post<void>(`/receipts/${id}/revise`, { comment }).then((r) => r.data)
 
 /** A6 soft-delete: hide a processed receipt (Отклонён / Выплачен). */
-export const deleteReceipt = (id: string) =>
-  api.delete<void>(`/receipts/${id}`).then((r) => r.data)
+/** Soft-delete; an approved / paid out receipt gives its bonus back — reason required. */
+export const deleteReceipt = (id: string, reason?: string) =>
+  api.delete<void>(`/receipts/${id}`, reason ? { data: { reason } } : undefined).then((r) => r.data)
 
 // ---- Payout admin endpoints ----
 
@@ -663,15 +672,47 @@ export const getAdminPayouts = (filters: AdminPayoutsFilters = {}) => {
     .then((r) => mapPagedPayouts(r.data))
 }
 
-export const approvePayoutRequest = (id: string, externalTxnId?: string) =>
-  api.post<void>(`/payout-requests/${id}/approve`, {
-    external_txn_id: externalTxnId ?? null,
-  }).then((r) => r.data)
+export interface PayoutStatusTotal { count: number; amount: number }
+/** Totals over ALL requests matching the filters — computed in the DB, not from a page. */
+export interface PayoutSummary {
+  new: PayoutStatusTotal
+  in_progress: PayoutStatusTotal
+  paid: PayoutStatusTotal
+  rejected: PayoutStatusTotal
+  paid_this_month: PayoutStatusTotal
+}
 
-export const rejectPayoutRequest = (id: string, adminComment?: string) =>
-  api.post<void>(`/payout-requests/${id}/reject`, {
-    admin_comment: adminComment ?? null,
-  }).then((r) => r.data)
+export const getPayoutSummary = (filters: Pick<AdminPayoutsFilters, 'search'> = {}) =>
+  api
+    .get<PayoutSummary>('/payout-requests/summary', { params: filters.search ? { search: filters.search } : {} })
+    .then((r) => r.data)
+
+/** A receipt covered by a payout (BRD В-8-A). */
+export interface PayoutCoverage {
+  receipt_id: number
+  amount: number
+  bonus_amount: number
+  receipt_status: string
+  purchase_date: string | null
+  total_sum: number | null
+}
+
+export const getPayoutReceipts = (id: string) =>
+  api.get<PayoutCoverage[]>(`/payout-requests/${id}/receipts`).then((r) => r.data)
+
+export const takePayoutRequest = (id: string) =>
+  api.post<BackendPayoutRequest>(`/payout-requests/${id}/take`).then((r) => mapPayout(r.data))
+
+export const approvePayoutRequest = (id: string, externalTxnId?: string) =>
+  api.post<BackendPayoutRequest>(`/payout-requests/${id}/approve`, {
+    external_txn_id: externalTxnId?.trim() || null,
+  }).then((r) => mapPayout(r.data))
+
+/** Rejection reason is required and shown to the seller. */
+export const rejectPayoutRequest = (id: string, reason: string) =>
+  api.post<BackendPayoutRequest>(`/payout-requests/${id}/reject`, {
+    admin_comment: reason,
+  }).then((r) => mapPayout(r.data))
 
 // ---- Seller admin endpoints ----
 
@@ -733,9 +774,9 @@ export const getAdminDashboard = (): Promise<AdminDashboardResponse> =>
  * @param id  Receipt id (string)
  * @param amount  Amount in kopecks (integer)
  */
-export const editReceiptBonus = (id: string, amount: number): Promise<Receipt> =>
+export const editReceiptBonus = (id: string, amount: number, reason?: string): Promise<Receipt> =>
   api
-    .patch<BackendReceipt>(`/receipts/${id}/bonus`, { bonus_amount: Math.round(amount) })
+    .patch<BackendReceipt>(`/receipts/${id}/bonus`, { bonus_amount: Math.round(amount), ...(reason ? { reason } : {}) })
     .then((r) => {
       const mapped = mapAdminReceipt(r.data)
       // Strip admin-only fields to satisfy the Receipt return type

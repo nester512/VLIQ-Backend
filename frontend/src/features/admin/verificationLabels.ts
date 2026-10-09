@@ -80,7 +80,8 @@ export const EVENT_LABEL: Record<string, string> = {
   edited: 'Данные изменены',
   reprocess_requested: 'Отправлен на повторную обработку',
   deleted: 'Удалён',
-  included_in_payout: 'Включён в выплату',
+  included_in_payout: 'Включён в заявку на выплату',
+  payout_reverted: 'Заявка на выплату отклонена — чек снова доступен',
   paid_out: 'Выплачен',
 }
 
@@ -88,6 +89,7 @@ export const EVENT_KIND: Record<string, 'ok' | 'wn' | 'dg' | 'muted'> = {
   verified: 'ok',
   approved: 'ok',
   paid_out: 'ok',
+  payout_reverted: 'wn',
   risk_flagged: 'dg',
   rejected: 'dg',
   check_exhausted: 'dg',

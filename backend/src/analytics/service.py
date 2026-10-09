@@ -93,7 +93,8 @@ async def _receipts_counts(session: AsyncSession) -> tuple[int, int, int]:
 async def _payouts_counts(session: AsyncSession) -> tuple[int, int, int, int]:
     pending = PayoutRequest.status.in_(_PAYOUT_PENDING)
     paid_month = (PayoutRequest.status == PayoutRequestStatus.paid.value) & (
-        PayoutRequest.updated_at >= func.date_trunc("month", func.now())
+        # paid_at since 0012 (backfilled from updated_at for older requests).
+        func.coalesce(PayoutRequest.paid_at, PayoutRequest.updated_at) >= func.date_trunc("month", func.now())
     )
     stmt = select(
         func.count().filter(pending),

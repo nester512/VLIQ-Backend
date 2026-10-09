@@ -183,3 +183,4 @@ class SellerBalanceRead(BaseModel):
     on_hold: int = Field(..., description="Bonuses locked in pending payout requests")
     total_accrued: int = Field(..., description="All-time accrued bonuses")
     total_paid_out: int = Field(..., description="All-time completed payouts (abs value)")
+    on_review: int = Field(default=0, description="Sum of bonuses on receipts not decided yet (S4)")

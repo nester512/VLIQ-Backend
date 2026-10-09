@@ -12,19 +12,20 @@ import { fmtMoney } from '@/utils/formatMoney'
 const MIN_PAYOUT_KOPECKS = 300_000
 
 // S5.3: requisites are entered in THIS form on every request and never stored
-// in the profile. The only payout method per spec is СБП by phone number.
-function normalizePhone(raw: string): string {
-  return raw.replace(/[^\d+]/g, '')
-}
-function isValidPhone(p: string): boolean {
-  const digits = p.replace(/\D/g, '')
-  return digits.length >= 10 && digits.length <= 15
+// in the profile. The only payout method per spec is СБП by phone number —
+// a Russian mobile (the server normalises and re-checks the same rule).
+function normalizePhone(raw: string): string | null {
+  let d = raw.replace(/\D/g, '')
+  if (d.length === 11 && (d[0] === '7' || d[0] === '8')) d = d.slice(1)
+  return /^9\d{9}$/.test(d) ? `+7${d}` : null
 }
 
 export function PayoutPage() {
   const navigate = useNavigate()
   const { data: balance, isLoading: balanceLoading } = useBalance()
   const { mutateAsync: requestPayout, isPending } = useRequestPayout()
+  // One key per filled-in form: a double tap / retry cannot create a second request.
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID())
 
   const available = balance?.available ?? 0
 
@@ -35,7 +36,8 @@ export function PayoutPage() {
   // The seller types rubles; balance/amount are stored in kopecks → ×100.
   const amount = amountStr === '' ? available : Math.round((Number(amountStr) || 0) * 100)
   const amountValid = amount >= MIN_PAYOUT_KOPECKS && amount <= available
-  const phoneValid = isValidPhone(phone)
+  const normalizedPhone = normalizePhone(phone)
+  const phoneValid = normalizedPhone !== null
   const notBlocked = true // status gate is enforced server-side
   const canSubmit = amountValid && phoneValid && available > 0
 
@@ -48,8 +50,13 @@ export function PayoutPage() {
     : undefined
 
   async function handleRequest() {
-    if (!canSubmit) return
-    await requestPayout({ amount, method: 'sbp_phone', details: normalizePhone(phone) })
+    if (!canSubmit || normalizedPhone === null) return
+    try {
+      await requestPayout({ payload: { amount, method: 'sbp_phone', phone: normalizedPhone }, idempotencyKey })
+    } catch {
+      return // toast already shown; the same key is reused on retry
+    }
+    setIdempotencyKey(crypto.randomUUID())
     navigate('/seller/payouts')
   }
 
@@ -82,6 +89,7 @@ export function PayoutPage() {
         inputMode="tel"
         value={phone}
         placeholder="+7 900 000-00-00"
+        error={phone !== '' && !phoneValid ? 'Номер мобильного: +7 9XX XXX-XX-XX' : undefined}
         onChange={(e) => setPhone(e.target.value)}
         className="mt-3"
       />

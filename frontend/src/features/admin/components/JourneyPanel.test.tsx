@@ -91,7 +91,8 @@ describe('JourneyPanel — «Путь чека»', () => {
 
   it('shows which providers are connected and lets the admin check at one of them', async () => {
     getReceiptJourney.mockResolvedValue(journey())
-    verifyReceiptNow.mockResolvedValue(journey({ verification_status: 'verified', verified_by: 'proverkacheka' }))
+    const verified = journey({ verification_status: 'verified', verified_by: 'proverkacheka' })
+    verifyReceiptNow.mockResolvedValue(verified)
     renderPanel()
     const sources = await screen.findByLabelText('Источники проверки')
     expect(sources).toHaveTextContent('10. ФНС не подключён')
@@ -99,6 +100,7 @@ describe('JourneyPanel — «Путь чека»', () => {
     expect(sources).toHaveTextContent('30. Платформа ОФД выключен')
     expect(screen.queryByRole('button', { name: 'у ФНС' })).toBeNull() // not connected → no button
 
+    getReceiptJourney.mockResolvedValue(verified) // the refetch after the change sees the new state
     fireEvent.click(screen.getByRole('button', { name: 'у proverkacheka' }))
     await waitFor(() => expect(verifyReceiptNow).toHaveBeenCalledWith('7', 'proverkacheka'))
     expect((await within(screen.getByTestId('journey-panel')).findAllByText(/Подтверждён · proverkacheka/)).length).toBeGreaterThan(0)

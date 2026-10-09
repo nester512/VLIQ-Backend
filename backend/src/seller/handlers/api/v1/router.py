@@ -306,7 +306,7 @@ async def create_seller(payload: SellerCreate) -> SellerRead:
 
 _MAX_TELEGRAM_ID_DIGITS = 18  # fits a signed BIGINT
 
-def _seller_search_condition(term: str) -> ColumnElement[bool]:
+def seller_search_condition(term: str) -> ColumnElement[bool]:
     """Name / phone / outlet / city substring, or an exact telegram_id for a digits-only term."""
     # Escape LIKE wildcards: a literal "%" or "_" must not match every seller.
     escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -391,7 +391,7 @@ async def list_sellers(  # noqa: PLR0913
     if date_to is not None:
         where.append(Seller.created_at <= date_to)
     if search and search.strip():
-        where.append(_seller_search_condition(search.strip()))
+        where.append(seller_search_condition(search.strip()))
 
     stmt = (
         select(Seller, stats, score.label("risk_score"))

@@ -61,7 +61,10 @@ export interface BonusTransaction {
 
 export interface SellerBalance {
   available: number
+  /** Bonuses on receipts the admin has not decided yet (S4 «на проверке»), kopecks. */
   pending: number
+  /** Reserved by payout requests in progress (new / in_progress), kopecks. */
+  on_hold: number
   total_earned: number
   total_paid: number
   receipts_approved: number
@@ -80,7 +83,13 @@ export interface PayoutRequest {
   method: PayoutMethod
   details?: string
   status: PayoutStatus
+  /** Rejection reason, shown to the seller. */
+  admin_comment?: string | null
+  external_txn_id?: string | null
   created_at: string
+  taken_at?: string | null
+  paid_at?: string | null
+  rejected_at?: string | null
 }
 
 export interface Promotion {

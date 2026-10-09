@@ -288,10 +288,15 @@ class ReceiptCreate(BaseModel):
 
 
 class ReceiptUpdate(BaseModel):
-    """Internal partial update schema (system / admin)."""
+    """Admin correction of receipt DATA fields.
 
-    status: ReceiptStatus | None = None
-    bonus_amount: int | None = None
+    Status, bonus and deletion are NOT here: they move money and go only through
+    /approve, /reject, /bonus and DELETE (docs/design/PAYOUTS.md) — an unknown
+    field is a 422, not a silent no-op.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     rejection_reason: str | None = None
     file_kind: ReceiptFileKind | None = None
     file_url: str | None = Field(default=None, max_length=1000)
@@ -308,7 +313,6 @@ class ReceiptUpdate(BaseModel):
     ocr_raw: dict[str, Any] | None = None
     items: list[ReceiptItem] | None = None
     fraud_signals: list[ReceiptFraudSignal] | None = None
-    is_deleted: bool | None = None
 
 
 class AdminComment(BaseModel):
@@ -329,6 +333,15 @@ class ReceiptEditBonusRequest(BaseModel):
     """Body for PATCH /receipts/{id}/bonus (T3)."""
 
     bonus_amount: int = Field(..., ge=0, description="New bonus amount in kopecks")
+    reason: str | None = Field(
+        default=None, max_length=1000, description="Required when lowering the bonus of an approved receipt"
+    )
+
+
+class ReceiptDeleteRequest(BaseModel):
+    """Body for DELETE /receipts/{id}: a reason is required for an approved / paid out receipt."""
+
+    reason: str | None = Field(default=None, max_length=1000)
 
 
 class ReceiptRead(BaseModel):

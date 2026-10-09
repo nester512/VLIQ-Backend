@@ -50,7 +50,7 @@ from tests.integration.pg._ids import SEED_BRAND_ID, SEED_SELLER_ID  # noqa: E40
 
 _TRUNCATE = (
     "TRUNCATE vliq.receipt_attachment, vliq.receipt, vliq.notification_outbox, "
-    "vliq.bonus_transaction RESTART IDENTITY CASCADE"
+    "vliq.bonus_transaction, vliq.payout_receipt, vliq.payout_request, vliq.audit_log RESTART IDENTITY CASCADE"
 )
 
 

@@ -6,7 +6,7 @@ H13: PayoutRequestCreate is now a slim seller-facing schema — no status/brand_
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,15 +23,11 @@ class PayoutRequestCreate(BaseModel):
     - Insert payout_hold bonus_transaction atomically.
     """
 
-    amount: int = Field(..., gt=0, description="Amount in bonus units to withdraw")
-    payout_kind: PayoutKind = Field(..., description="Payout method (card | sbp_phone | sbp_bank)")
-    # payout_masked is derived from the seller's profile at request time.
-    # Sellers can optionally override (e.g. one-time different account).
-    payout_masked: str | None = Field(
-        default=None,
-        max_length=64,
-        description="Masked destination (last 4 digits, etc.) — defaults to seller profile value",
-    )
+    amount: int = Field(..., gt=0, description="Amount in kopecks; at least PAYOUT_MIN_AMOUNT")
+    payout_kind: PayoutKind = Field(..., description="Only sbp_phone is accepted (BRD S5)")
+    phone: str | None = Field(default=None, max_length=32, description="Phone for SBP, entered in this form (В-5-A)")
+    # Older clients send the phone here; kept so a cached app keeps working.
+    payout_masked: str | None = Field(default=None, max_length=64, deprecated=True)
 
 
 class PayoutRequestApprove(BaseModel):
@@ -47,7 +43,9 @@ class PayoutRequestApprove(BaseModel):
 class PayoutRequestReject(BaseModel):
     """Admin rejection payload."""
 
-    admin_comment: str | None = Field(default=None, description="Reason for rejection shown to seller")
+    admin_comment: str | None = Field(
+        default=None, max_length=1000, description="Reason for rejection shown to the seller (required)"
+    )
 
 
 class PayoutRequestUpdate(BaseModel):
@@ -78,5 +76,36 @@ class PayoutRequestRead(BaseModel):
     external_txn_id: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
+    taken_at: datetime | None = None
+    paid_at: datetime | None = None
+    rejected_at: datetime | None = None
     created_by: int | None = None
     updated_by: int | None = None
+
+
+class PayoutCoverageRead(BaseModel):
+    """One receipt covered by a payout (BRD В-8-A)."""
+
+    receipt_id: int
+    amount: int = Field(description="Part of the payout attributed to this receipt, kopecks")
+    bonus_amount: int
+    receipt_status: str
+    purchase_date: date | None = None
+    total_sum: int | None = None
+
+
+class PayoutStatusTotal(BaseModel):
+    count: int = 0
+    amount: int = 0
+
+
+class PayoutSummaryRead(BaseModel):
+    """Totals over ALL payout requests matching the filters (not just one page)."""
+
+    new: PayoutStatusTotal = Field(default_factory=PayoutStatusTotal)
+    in_progress: PayoutStatusTotal = Field(default_factory=PayoutStatusTotal)
+    paid: PayoutStatusTotal = Field(default_factory=PayoutStatusTotal)
+    rejected: PayoutStatusTotal = Field(default_factory=PayoutStatusTotal)
+    paid_this_month: PayoutStatusTotal = Field(
+        default_factory=PayoutStatusTotal, description="Paid since the 1st of the current month (by paid_at)"
+    )

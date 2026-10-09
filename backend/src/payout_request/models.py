@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, String, Text
+from sqlalchemy import TIMESTAMP, BigInteger, CheckConstraint, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import func
 
-from src.app.postgres.base import DEFAULT_SCHEMA, TimeStampedModel
+from src.app.postgres.base import DEFAULT_SCHEMA, IDModel, TimeStampedModel
 from src.seller.models import PayoutKind
 
 
@@ -15,6 +17,10 @@ class PayoutRequestStatus(str, Enum):
     in_progress = "in_progress"
     paid = "paid"
     rejected = "rejected"
+
+
+# Requests whose money is reserved and whose receipt coverage counts.
+ACTIVE_PAYOUT_STATUSES = (PayoutRequestStatus.new.value, PayoutRequestStatus.in_progress.value)
 
 
 class PayoutRequest(TimeStampedModel):
@@ -69,3 +75,34 @@ class PayoutRequest(TimeStampedModel):
 
     created_by: Mapped[int | None] = mapped_column(BigInteger, default=None)
     updated_by: Mapped[int | None] = mapped_column(BigInteger, default=None)
+
+    # Lifecycle (0012). `idempotency_key` is UNIQUE per seller (partial index): a
+    # repeated submit returns the same request instead of creating a second one.
+    taken_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
+    paid_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
+    rejected_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), default=None)
+
+
+class PayoutReceipt(IDModel):
+    """Which approved receipt a payout covers, and by how much (BRD В-8-A).
+
+    Rows of a rejected payout stay as history; coverage is counted only over
+    payouts that are not rejected.
+    """
+
+    __tablename__ = "payout_receipt"
+    __table_args__ = (
+        UniqueConstraint("payout_id", "receipt_id", name="uq_payout_receipt"),
+        CheckConstraint("amount > 0", name="ck_payout_receipt_amount_positive"),
+        {"schema": DEFAULT_SCHEMA},
+    )
+
+    payout_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey(f"{DEFAULT_SCHEMA}.payout_request.id", ondelete="RESTRICT"), nullable=False
+    )
+    receipt_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey(f"{DEFAULT_SCHEMA}.receipt.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)

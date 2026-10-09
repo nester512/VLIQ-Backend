@@ -59,6 +59,9 @@ _TEMPLATES: dict[str, str] = {
     ),
     "receipt.needs_revision": "✏️ Чек №{receipt_id} отправлен на доработку\nЧто исправить: {reason}",
     "payout.sent": "💸 Выплата {amount} ₽ отправлена на {payout_masked}",
+    "payout.rejected": (
+        "↩️ Заявка на выплату {amount} ₽ отклонена\nПричина: {reason}\nСумма вернулась на баланс."
+    ),
     "payout.amount_changed": (
         "✏️ Сумма заявки на выплату изменена: {old_amount} ₽ → <b>{amount} ₽</b>\nРеквизиты: {payout_masked}"
     ),

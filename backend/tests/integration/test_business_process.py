@@ -36,7 +36,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.auth.jwt import jwt_auth
 from src.app.depends import get_pg_session
 from src.app.errors import AppError
-from src.payout_request.depends import get_redis
 from src.payout_request.models import PayoutRequestStatus
 from src.payout_request.schemas.api import PayoutRequestRead
 from src.receipt.models import Receipt
@@ -417,10 +416,8 @@ async def test_step8_seller_balance_shape(client: AsyncClient) -> None:
 async def test_step9_create_payout_request(client: AsyncClient) -> None:
     """POST /payout-requests → 201 created.
 
-    Adapted: requires Idempotency-Key header and Redis client.
-    Redis is not available in mock test env; the endpoint accesses Redis
-    through get_redis dependency.  We mock create_payout_request service
-    to return a fake PayoutRequest object.
+    Adapted: requires the Idempotency-Key header (idempotency lives in the DB now).
+    We mock create_payout_request service to return a fake PayoutRequest object.
     """
     fake_payout = PayoutRequestRead(
         id=1,
@@ -450,7 +447,6 @@ async def test_step9_create_payout_request(client: AsyncClient) -> None:
             return_value=MagicMock(),
         ),
     ):
-        # Also patch get_redis since Redis is not available in mock env.
         async def _fake_pg():
             session = MagicMock(spec=AsyncSession)
             session.__aenter__ = AsyncMock(return_value=session)
@@ -461,15 +457,13 @@ async def test_step9_create_payout_request(client: AsyncClient) -> None:
 
         original_pg = client._transport.app.dependency_overrides.get(get_pg_session)  # type: ignore[attr-defined]
         client._transport.app.dependency_overrides[get_pg_session] = _fake_pg  # type: ignore[attr-defined]
-        client._transport.app.dependency_overrides[get_redis] = lambda: MagicMock()  # type: ignore[attr-defined]  # noqa: PLW0108 — FastAPI would read MagicMock's *args/**kwargs as query params
         try:
             response = await client.post(
                 f"{PREFIX}/payout-requests",
-                json={"amount": 100, "payout_kind": "sbp_phone"},
+                json={"amount": 300_000, "payout_kind": "sbp_phone", "phone": "+79990001122"},
                 headers={**_seller_headers(), "Idempotency-Key": str(uuid.uuid4())},
             )
         finally:
-            client._transport.app.dependency_overrides.pop(get_redis, None)  # type: ignore[attr-defined]
             if original_pg is None:
                 client._transport.app.dependency_overrides.pop(get_pg_session, None)  # type: ignore[attr-defined]
             else:

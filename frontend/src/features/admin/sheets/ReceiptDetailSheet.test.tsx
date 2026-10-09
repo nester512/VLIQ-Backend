@@ -36,18 +36,21 @@ vi.mock('@/api/admin', async (importOriginal) => ({
   addReceiptComment: vi.fn(() => Promise.resolve()),
   blockSeller: vi.fn(() => Promise.resolve()),
   deleteReceipt: vi.fn(() => Promise.resolve()),
+  rejectReceipt: vi.fn(() => Promise.resolve()),
 }))
 
 vi.mock('@/components/molecules/RejectReasonSheet', () => ({
   RejectReasonSheet: ({
     open,
     onConfirm,
+    copy,
   }: {
     open: boolean
     onConfirm: (reason: string) => void
+    copy?: { title?: string }
   }) =>
     open
-      ? <button type="button" onClick={() => onConfirm('Некорректный чек')}>confirm-reject</button>
+      ? <button type="button" aria-label={`reason: ${copy?.title ?? 'reject'}`} onClick={() => onConfirm('Некорректный чек')}>confirm-reject</button>
       : null,
 }))
 
@@ -148,6 +151,7 @@ describe('ReceiptDetailSheet — actualizes views after a status change', () => 
     const spy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
     renderSheet(receipt({ status: 'rejected' }))
     fireEvent.click(screen.getByText('Удалить чек'))
+    fireEvent.click(screen.getByRole('button', { name: 'reason: Удалить чек' })) // the reason sheet
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith({ queryKey: ['admin', 'seller-receipts'] }),
     )
@@ -190,3 +194,27 @@ function SellerPageProbe() {
   const { telegramId } = useParams()
   return <div>seller-page:{telegramId}</div>
 }
+
+describe('ReceiptDetailSheet — money already moved: only with a reason', () => {
+  it('delete asks for a reason and sends it', async () => {
+    const { deleteReceipt } = await import('@/api/admin')
+    renderSheet(receipt({ status: 'paid_out' }))
+    fireEvent.click(screen.getByText('Удалить чек'))
+    fireEvent.click(screen.getByRole('button', { name: 'reason: Удалить чек' }))
+    await waitFor(() => expect(deleteReceipt).toHaveBeenCalledWith('7', 'Некорректный чек'))
+  })
+
+  it('an approved receipt can be cancelled — the bonus is taken back with the reason', async () => {
+    const { rejectReceipt } = await import('@/api/admin')
+    renderSheet(receipt({ status: 'approved' }))
+    fireEvent.click(screen.getByText('Отменить чек — списать бонус'))
+    fireEvent.click(screen.getByRole('button', { name: 'reason: Отменить чек' }))
+    await waitFor(() => expect(rejectReceipt).toHaveBeenCalledWith('7', 'Некорректный чек'))
+  })
+
+  it('an on_review receipt has no cancel / delete', () => {
+    renderSheet(receipt({ status: 'on_review' }))
+    expect(screen.queryByText('Отменить чек — списать бонус')).toBeNull()
+    expect(screen.queryByText('Удалить чек')).toBeNull()
+  })
+})

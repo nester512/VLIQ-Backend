@@ -14,12 +14,19 @@ export function invalidateAfterReceiptChange(qc: QueryClient, { reviewQueue = tr
   void qc.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
   void qc.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
   void qc.invalidateQueries({ queryKey: ['admin', 'receipts'] })
+  void qc.invalidateQueries({ queryKey: ['admin', 'receipt-journey'] })
   if (reviewQueue) void qc.invalidateQueries({ queryKey: ['admin', 'review-queue'] })
 }
 
-/** A payout request changed: lists, dashboard and the seller card (balance / paid out / on hold). */
+/**
+ * A payout request changed: lists + totals, dashboard, the seller card (balance /
+ * paid out / on hold) — and the receipts it covers («Выплачен», their journey).
+ */
 export function invalidateAfterPayoutChange(qc: QueryClient) {
   void qc.invalidateQueries({ queryKey: ['admin', 'payouts'] })
   void qc.invalidateQueries({ queryKey: ['admin', 'dashboard'] })
   void qc.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
+  void qc.invalidateQueries({ queryKey: ['admin', 'seller-receipts'] })
+  void qc.invalidateQueries({ queryKey: ['admin', 'receipts'] })
+  void qc.invalidateQueries({ queryKey: ['admin', 'receipt-journey'] })
 }

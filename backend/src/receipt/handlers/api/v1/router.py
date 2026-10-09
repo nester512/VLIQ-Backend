@@ -27,6 +27,7 @@ from src.app.errors import AppError
 from src.audit_log.models import AuditLog
 from src.bonus_transaction.models import BonusTransaction, BonusTransactionKind
 from src.notification import outbox as notification_outbox
+from src.payout_request.service import active_payout_of
 from src.receipt.models import (
     ALLOWED_ATTACHMENT_MIME_TYPES,
     MAX_ATTACHMENT_SIZE_BYTES,
@@ -45,6 +46,7 @@ from src.receipt.schemas.api import (
     PresignedUploadResponse,
     ReceiptCommentRequest,
     ReceiptCreate,
+    ReceiptDeleteRequest,
     ReceiptEditBonusRequest,
     ReceiptQrPayloadIn,
     ReceiptRead,
@@ -684,7 +686,8 @@ async def approve_receipt(  # noqa: PLR0913
             payload={
                 "receipt_id": receipt_id,
                 "bonus_amount": bonus_amount,
-                "available": bonus_amount,
+                # Real spendable balance; the query autoflushes the accrual above.
+                "available": (await get_seller_balance(seller_id=seller_id, session=session)).available,
             },
         )
 
@@ -726,11 +729,10 @@ async def reject_receipt(
 
         seller_id = receipt.seller_id
 
-        # If the receipt was already approved (accrual inserted), reverse that
-        # bonus now: an approved→rejected cancellation — including a stale-state
-        # double-action race — must not leave the seller credited for a rejected
-        # receipt. No-op when the receipt was not approved.
-        await _reverse_receipt_accrual(session, receipt=receipt, admin_id=token["user_id"])
+        # An approved / paid out receipt already moved money: cancelling it needs a
+        # reason and a compensating ledger row (docs/design/PAYOUTS.md).
+        reason = await _guard_money_change(session, receipt, body.comment)
+        await _reverse_receipt_accrual(session, receipt=receipt, admin_id=token["user_id"], reason=reason)
 
         await session.execute(
             update(Receipt)
@@ -790,11 +792,10 @@ async def revise_receipt(
 
         seller_id = receipt.seller_id
 
-        # If the receipt was already approved (accrual inserted), reverse that
-        # bonus now: an approved→rejected cancellation — including a stale-state
-        # double-action race — must not leave the seller credited for a rejected
-        # receipt. No-op when the receipt was not approved.
-        await _reverse_receipt_accrual(session, receipt=receipt, admin_id=token["user_id"])
+        # An approved / paid out receipt already moved money: cancelling it needs a
+        # reason and a compensating ledger row (docs/design/PAYOUTS.md).
+        reason = await _guard_money_change(session, receipt, body.comment)
+        await _reverse_receipt_accrual(session, receipt=receipt, admin_id=token["user_id"], reason=reason)
 
         await session.execute(
             update(Receipt)
@@ -899,6 +900,10 @@ async def edit_receipt_bonus(
         old_bonus = receipt.bonus_amount or 0
         new_bonus = body.bonus_amount
         diff = new_bonus - old_bonus
+        reason = body.reason
+        if receipt.status == ReceiptStatus.approved.value and diff < 0:
+            # Taking money back: not under a payout in progress, and only with a reason.
+            reason = await _guard_money_change(session, receipt, body.reason)
 
         await session.execute(
             update(Receipt)
@@ -919,7 +924,7 @@ async def edit_receipt_bonus(
                 kind=BonusTransactionKind.correction.value,
                 source_type="receipt",
                 source_id=receipt_id,
-                reason=f"Корректировка бонуса по чеку #{receipt_id}",
+                reason=f"Корректировка бонуса по чеку #{receipt_id}" + (f": {reason}" if reason else ""),
                 created_by=token["user_id"],
             )
             session.add(correction)
@@ -941,12 +946,12 @@ async def edit_receipt_bonus(
             action="edit_bonus",
             entity_type="receipt",
             entity_id=receipt_id,
-            payload={"before": old_bonus, "after": new_bonus},
+            payload={"before": old_bonus, "after": new_bonus, "reason": reason},
         )
         session.add(log)
         await journey.record(
             session, receipt_id, EventKind.bonus_changed, actor_type="admin", actor_id=token["user_id"],
-            data={"before": old_bonus, "after": new_bonus},
+            data={k: v for k, v in {"before": old_bonus, "after": new_bonus, "reason": reason}.items() if v is not None},
         )
 
     logger.info(
@@ -1210,15 +1215,28 @@ async def update_receipt(
 )
 async def delete_receipt(
     receipt_id: int,
+    body: ReceiptDeleteRequest | None = None,
     token: JwtTokenT = Depends(require_admin),
     session: AsyncSession = Depends(get_pg_session),
 ) -> None:
-    await _get_receipt_or_404(session, receipt_id)
-    await session.execute(
-        update(Receipt).where(Receipt.id == receipt_id).values(is_deleted=True, updated_by=token["user_id"])
-    )
-    await journey.record(session, receipt_id, EventKind.deleted, actor_type="admin", actor_id=token["user_id"])
-    await session.commit()
+    """Soft-delete. An approved / paid out receipt gives its bonus back — with a reason."""
+    async with session.begin():
+        receipt = await _get_receipt_for_update(session, receipt_id)
+        reason = await _guard_money_change(session, receipt, body.reason if body else None)
+        reversed_amount = await _reverse_receipt_accrual(
+            session, receipt=receipt, admin_id=token["user_id"], reason=reason
+        )
+        await session.execute(
+            update(Receipt).where(Receipt.id == receipt_id).values(is_deleted=True, updated_by=token["user_id"])
+        )
+        await journey.record(
+            session, receipt_id, EventKind.deleted, actor_type="admin", actor_id=token["user_id"],
+            data={k: v for k, v in {"reason": reason, "bonus_reversed": reversed_amount or None}.items() if v},
+        )
+        _insert_audit_log(
+            session, actor_id=token["user_id"], actor_type="admin", action="delete_receipt",
+            entity_type="receipt", entity_id=receipt_id, comment=reason,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1265,7 +1283,34 @@ def _require_transition(receipt: Receipt, to_status: str, actor: str) -> None:
         raise AppError("RECEIPT_INVALID_STATE_TRANSITION", status_code=409)
 
 
-async def _reverse_receipt_accrual(session: AsyncSession, *, receipt: Receipt, admin_id: int) -> int:
+_MONEY_STATUSES = (ReceiptStatus.approved.value, ReceiptStatus.paid_out.value)
+
+
+async def _guard_money_change(session: AsyncSession, receipt: Receipt, reason: str | None) -> str | None:
+    """A change that takes money back from an approved / paid out receipt.
+
+    Refused while a payout in progress covers the receipt (decide the payout
+    first); otherwise needs a reason, which goes into the ledger row.
+    """
+    if receipt.status not in _MONEY_STATUSES:
+        return reason
+    payout_id = await active_payout_of(session, receipt.id)
+    if payout_id is not None:
+        raise AppError(
+            "RECEIPT_IN_ACTIVE_PAYOUT",
+            user_message=f"Чек входит в заявку на выплату #{payout_id} — сначала выплатите или отклоните её.",
+            status_code=409,
+            extra={"payout_id": payout_id},
+        )
+    reason = (reason or "").strip()
+    if not reason:
+        raise AppError("RECEIPT_CHANGE_REASON_REQUIRED", user_message="Укажите причину.", status_code=422)
+    return reason
+
+
+async def _reverse_receipt_accrual(
+    session: AsyncSession, *, receipt: Receipt, admin_id: int, reason: str | None = None
+) -> int:
     """Reverse the bonus accrued for *receipt* when an APPROVED receipt is cancelled.
 
     Approving inserts an ``accrual_receipt`` bonus_transaction. The state machine
@@ -1276,10 +1321,11 @@ async def _reverse_receipt_accrual(session: AsyncSession, *, receipt: Receipt, a
     credited (sum of its ledger entries, so prior bonus edits are accounted for).
 
     Caller must hold the receipt row lock (``_get_receipt_for_update``) and pass
-    the pre-update ORM object. No-op unless the receipt is currently ``approved``.
+    the pre-update ORM object. No-op unless the receipt is ``approved`` / ``paid_out``
+    (for a paid out receipt the reversal makes the seller's balance a debt).
     Returns the reversed amount (0 when nothing was reversed).
     """
-    if receipt.status != ReceiptStatus.approved.value:
+    if receipt.status not in _MONEY_STATUSES:
         return 0
     accrued: int = (
         await session.execute(
@@ -1299,7 +1345,7 @@ async def _reverse_receipt_accrual(session: AsyncSession, *, receipt: Receipt, a
             kind=BonusTransactionKind.correction.value,
             source_type="receipt",
             source_id=receipt.id,
-            reason=f"Отмена бонуса по чеку #{receipt.id}",
+            reason=f"Отмена бонуса по чеку #{receipt.id}" + (f": {reason}" if reason else ""),
             created_by=admin_id,
         )
     )
