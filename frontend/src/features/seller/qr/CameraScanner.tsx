@@ -39,7 +39,7 @@ export function CameraScanner({ onScan, onClose, hint }: CameraScannerProps) {
     let stream: MediaStream | null = null
     let timer: ReturnType<typeof setTimeout> | null = null
     let stopped = false
-    const detector = createQrDetector()
+    let detector: Awaited<ReturnType<typeof createQrDetector>> = null
     const stopStream = () => stream?.getTracks().forEach((t) => t.stop())
 
     // One detect at a time (a slow frame must not overlap the next), checked
@@ -48,7 +48,7 @@ export function CameraScanner({ onScan, onClose, hint }: CameraScannerProps) {
       if (stopped || !detector) return
       if (video.readyState >= 2) {
         try {
-          const codes = await detector.detect(video)
+          const codes = await detector!.detect(video)
           if (stopped) return
           for (const code of codes) {
             if (onScanRef.current(code.rawValue)) {
@@ -64,6 +64,12 @@ export function CameraScanner({ onScan, onClose, hint }: CameraScannerProps) {
     }
 
     async function start() {
+      try {
+        detector = await createQrDetector()
+      } catch {
+        detector = null
+      }
+      if (stopped) return
       if (!detector) {
         setError('Камера недоступна на этом устройстве. Введите данные вручную.')
         return

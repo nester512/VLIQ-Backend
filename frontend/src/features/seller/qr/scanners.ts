@@ -58,7 +58,7 @@ interface DetectedBarcode {
   rawValue: string
 }
 interface BarcodeDetectorLike {
-  detect(source: CanvasImageSource): Promise<DetectedBarcode[]>
+  detect(source: HTMLVideoElement): Promise<DetectedBarcode[]>
 }
 type BarcodeDetectorCtor = new (opts?: { formats?: string[] }) => BarcodeDetectorLike
 
@@ -66,12 +66,28 @@ function barcodeDetectorCtor(): BarcodeDetectorCtor | undefined {
   return (globalThis as { BarcodeDetector?: BarcodeDetectorCtor }).BarcodeDetector
 }
 
-/** Native QR detection in the browser (Chrome/Android WebView). Phase 2 adds a wasm fallback. */
+/**
+ * Live camera scanning: native BarcodeDetector where the browser has it
+ * (Chrome / Android WebView), otherwise ZXing-wasm (iOS Telegram, desktop).
+ */
 export function hasCameraScanner(): boolean {
-  return Boolean(barcodeDetectorCtor()) && typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia)
+  return (
+    typeof navigator !== 'undefined' &&
+    Boolean(navigator.mediaDevices?.getUserMedia) &&
+    (Boolean(barcodeDetectorCtor()) || typeof WebAssembly === 'object')
+  )
 }
 
-export function createQrDetector(): BarcodeDetectorLike | null {
+export async function createQrDetector(): Promise<BarcodeDetectorLike | null> {
   const Ctor = barcodeDetectorCtor()
-  return Ctor ? new Ctor({ formats: ['qr_code'] }) : null
+  if (Ctor) {
+    try {
+      return new Ctor({ formats: ['qr_code'] })
+    } catch {
+      /* format unsupported on this platform → wasm below */
+    }
+  }
+  if (typeof WebAssembly !== 'object') return null
+  const { createWasmQrDetector } = await import('./decode')
+  return createWasmQrDetector()
 }

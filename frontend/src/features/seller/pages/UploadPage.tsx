@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Icon } from '@/components/atoms/Icon'
 import { Btn } from '@/components/atoms/Btn'
+import { Spinner } from '@/components/atoms/Spinner'
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
 import { useUiStore } from '@/store/uiStore'
 import { useHaptic } from '@/hooks/useHaptic'
@@ -21,6 +22,8 @@ import {
   validateFields,
   type FiscalData,
   type FiscalField,
+  type FiscalCandidate,
+  pickFiscal,
 } from '../qr/fiscalQr'
 import { hasCameraScanner, hasTelegramScanner, openTelegramScanner } from '../qr/scanners'
 import { wasSentFromThisDevice } from '../qr/sentReceipts'
@@ -35,7 +38,7 @@ import { CameraScanner } from '../qr/CameraScanner'
  * confirms the data and is responsible for it.
  */
 
-type Step = 'start' | 'manual' | 'confirm'
+type Step = 'start' | 'manual' | 'confirm' | 'choose'
 
 interface Captured {
   data: FiscalData
@@ -274,6 +277,43 @@ function UploadContent() {
   const lastRejectedRef = useRef<string | null>(null)
   const telegramScanner = hasTelegramScanner()
   const cameraScanner = hasCameraScanner()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [decoding, setDecoding] = useState(false)
+  const [fileHint, setFileHint] = useState<string | null>(null)
+  const [candidates, setCandidates] = useState<Array<FiscalCandidate & { source: ReceiptSource }>>([])
+
+  /** Photo / screenshot / PDF → QR text ON THE DEVICE → the same validation as a scan. */
+  async function decodeFile(file: File) {
+    setError(null)
+    setScanHint(null)
+    setFileHint(null)
+    setDecoding(true)
+    try {
+      const { decodeImageFile, decodePdfFile, isPdf } = await import('../qr/decode')
+      const pdf = isPdf(file)
+      if (!pdf && !file.type.startsWith('image/')) {
+        setFileHint('Подойдёт фото, скриншот или PDF чека')
+        return
+      }
+      const source: ReceiptSource = pdf ? 'pdf_decode' : 'image_decode'
+      const texts = pdf ? await decodePdfFile(file) : await decodeImageFile(file)
+      const picked = pickFiscal(texts)
+      if (picked.kind === 'one') {
+        accept(picked.candidate.data, source, picked.candidate.raw)
+      } else if (picked.kind === 'many') {
+        setCandidates(picked.candidates.map((c) => ({ ...c, source })))
+        setStep('choose')
+      } else {
+        notification('error')
+        setFileHint(picked.message)
+      }
+    } catch {
+      notification('error')
+      setFileHint('Не удалось прочитать файл. Попробуйте другое фото или введите данные вручную.')
+    } finally {
+      setDecoding(false)
+    }
+  }
 
   function accept(data: FiscalData, source: ReceiptSource, rawQr?: string) {
     notification('success')
@@ -364,6 +404,29 @@ function UploadContent() {
             </p>
           )}
           <ActionCard
+            icon={decoding ? <Spinner size={22} /> : <Icon name="file" size={22} />}
+            title={decoding ? 'Ищем QR-код…' : 'Фото или PDF чека'}
+            text="Скриншот, фото из галереи или электронный чек — QR распознаётся на телефоне"
+            onClick={() => { if (!decoding) fileRef.current?.click() }}
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*,application/pdf"
+            aria-label="Выбрать фото или PDF чека"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = '' // the same file can be picked again
+              if (file) void decodeFile(file)
+            }}
+          />
+          {fileHint && (
+            <p role="alert" style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-dg)', margin: '0 4px' }}>
+              {fileHint}
+            </p>
+          )}
+          <ActionCard
             icon={<Icon name="edit" size={22} />}
             title="Ввести вручную"
             text="Если QR не читается: дата, сумма, ФН, ФД, ФП"
@@ -376,12 +439,36 @@ function UploadContent() {
           <div className="vliq-card" style={{ padding: 16 }}>
             <b style={{ fontSize: 14, color: 'var(--vliq-text)' }}>Как это работает</b>
             <ol style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.6, color: 'var(--vliq-hint)' }}>
-              <li>Сканируете QR или вводите данные чека.</li>
+              <li>Сканируете QR, выбираете фото/PDF чека или вводите данные — всё распознаётся на телефоне.</li>
               <li>Проверяете, что всё совпадает с бумажным чеком, и подтверждаете.</li>
               <li>Мы проверяем чек в налоговой (ОФД) и передаём на модерацию.</li>
             </ol>
           </div>
         </>
+      )}
+
+      {step === 'choose' && (
+        <div className="vliq-card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <b style={{ fontSize: 16, fontWeight: 800, color: 'var(--vliq-text)' }}>На снимке несколько чеков</b>
+          <p style={{ fontSize: 12.5, color: 'var(--vliq-hint)', margin: 0 }}>
+            Выберите один — каждый чек отправляется отдельно.
+          </p>
+          {candidates.map((c) => (
+            <button
+              key={fiscalKey(c.data)}
+              type="button"
+              onClick={() => accept(c.data, c.source, c.raw)}
+              className="vliq-row"
+              style={{ textAlign: 'left' }}
+            >
+              <div className="vliq-row-tx">
+                <b>{fmtMoney(c.data.totalKop)}</b>
+                <span>{formatPurchase(c.data)} · ФД {c.data.fd}</span>
+              </div>
+            </button>
+          ))}
+          <Btn variant="ghost" onClick={() => setStep('start')}>Назад</Btn>
+        </div>
       )}
 
       {step === 'manual' && (

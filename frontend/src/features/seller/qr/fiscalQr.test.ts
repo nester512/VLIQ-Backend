@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canonicalQr, isTooOld, parseQr, purchaseDateMsk, tFromInputs, validateFields } from './fiscalQr'
+import { canonicalQr, isTooOld, parseQr, pickFiscal, purchaseDateMsk, tFromInputs, validateFields } from './fiscalQr'
 
 // SAME case table as backend/tests/receipt_intake/test_fiscal.py — keep identical.
 const NOW = new Date(Date.UTC(2026, 9, 8, 12, 0)) // 15:00 MSK
@@ -87,5 +87,40 @@ describe('fiscal QR — details', () => {
 
   it('builds t from manual date/time inputs', () => {
     expect(tFromInputs('2026-10-08', '14:32')).toBe('20261008T1432')
+  })
+})
+
+describe('pickFiscal — choosing the receipt among found QR codes', () => {
+  const A = `t=20261008T1432&s=1450.00&fn=${FN}&i=12345&fp=3826178549&n=1`
+  const B = `t=20261008T1000&s=99.00&fn=${FN}&i=777&fp=1&n=1`
+
+  it('one receipt (printed twice) → one', () => {
+    const r = pickFiscal([A, A.replace('s=1450.00', 's=1450')], NOW)
+    expect(r.kind).toBe('one')
+  })
+
+  it('ignores non-receipt codes next to the receipt', () => {
+    const r = pickFiscal(['https://shop.example/promo', A], NOW)
+    expect(r.kind === 'one' && r.candidate.data.fd).toBe('12345')
+  })
+
+  it('two different receipts → the seller chooses', () => {
+    const r = pickFiscal([A, B], NOW)
+    expect(r.kind === 'many' && r.candidates.map((c) => c.data.fd)).toEqual(['12345', '777'])
+  })
+
+  it('no code at all → advice to retake or type', () => {
+    const r = pickFiscal([], NOW)
+    expect(r.kind === 'none' && r.message).toMatch(/QR-код не найден/)
+  })
+
+  it('only a refund QR → says why', () => {
+    const r = pickFiscal([A.replace('n=1', 'n=2')], NOW)
+    expect(r.kind === 'none' && r.message).toMatch(/не чек продажи/)
+  })
+
+  it('only a link QR → «not a receipt QR»', () => {
+    const r = pickFiscal(['https://vliq.ru'], NOW)
+    expect(r.kind === 'none' && r.message).toBe('Это не QR-код кассового чека')
   })
 })

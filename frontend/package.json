@@ -22,11 +22,13 @@
     "@use-gesture/react": "^10.3.1",
     "axios": "^1.20.0",
     "framer-motion": "^14.0.0",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.4",
     "vaul": "^1.1.2",
-    "zustand": "^5.0.15"
+    "zustand": "^5.0.15",
+    "zxing-wasm": "^3.1.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

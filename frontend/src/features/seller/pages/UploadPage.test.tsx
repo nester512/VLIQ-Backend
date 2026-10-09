@@ -24,6 +24,14 @@ vi.mock('@/store/uiStore', () => ({
   useUiStore: (selector: (s: { pushToast: typeof pushToast }) => unknown) => selector({ pushToast }),
 }))
 
+const decodeImageFile = vi.fn()
+const decodePdfFile = vi.fn()
+vi.mock('../qr/decode', () => ({
+  decodeImageFile: (...a: unknown[]) => decodeImageFile(...a),
+  decodePdfFile: (...a: unknown[]) => decodePdfFile(...a),
+  isPdf: (f: File) => f.type === 'application/pdf',
+}))
+
 import { UploadPage } from './UploadPage'
 
 const FN = '9960440300712345'
@@ -268,5 +276,82 @@ describe('UploadPage — review fixes', () => {
     fireEvent.submit(screen.getByLabelText(/^ФН/).closest('form')!)
     expect((await screen.findAllByText('Заполните поле')).length).toBe(6)
     expect(screen.getByLabelText(/^ФН/)).toHaveAttribute('aria-invalid', 'true')
+  })
+})
+
+
+describe('UploadPage — photo / screenshot / PDF (decoded on the device)', () => {
+  const pickFile = (file: File) => {
+    fireEvent.change(screen.getByLabelText('Выбрать фото или PDF чека'), { target: { files: [file] } })
+  }
+  const photo = () => new File([new Uint8Array([1])], 'chek.jpg', { type: 'image/jpeg' })
+  const pdf = () => new File([new Uint8Array([1])], 'chek.pdf', { type: 'application/pdf' })
+
+  beforeEach(() => {
+    decodeImageFile.mockReset()
+    decodePdfFile.mockReset()
+  })
+
+  it('a photo with a receipt QR → confirmation card, source=image_decode, only data is sent', async () => {
+    decodeImageFile.mockResolvedValue([goodQr()])
+    renderPage()
+    pickFile(photo())
+
+    expect(await screen.findByText('Источник: Фото')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить на проверку' }))
+    await waitFor(() => expect(submitQrReceipt).toHaveBeenCalled())
+    const payload = submitQrReceipt.mock.calls[0]![0]
+    expect(payload).toMatchObject({ source: 'image_decode', fn: FN, qr_raw: goodQr() })
+    expect(JSON.stringify(payload)).not.toMatch(/chek\.jpg/) // the file itself never leaves the phone
+  })
+
+  it('a PDF e-receipt → source=pdf_decode', async () => {
+    decodePdfFile.mockResolvedValue([goodQr()])
+    renderPage()
+    pickFile(pdf())
+    expect(await screen.findByText('Источник: PDF')).toBeInTheDocument()
+    expect(decodeImageFile).not.toHaveBeenCalled()
+  })
+
+  it('several different receipts on one photo → the seller picks one', async () => {
+    const other = goodQr().replace('i=12345', 'i=777').replace('s=1450.00', 's=99.00')
+    decodeImageFile.mockResolvedValue([goodQr(), other])
+    renderPage()
+    pickFile(photo())
+
+    expect(await screen.findByText('На снимке несколько чеков')).toBeInTheDocument()
+    fireEvent.click(screen.getByText(/ФД 777/))
+    expect(await screen.findByText('Проверьте данные чека')).toBeInTheDocument()
+    expect(screen.getByText('777')).toBeInTheDocument()
+  })
+
+  it('no QR on the photo → clear advice, nothing sent', async () => {
+    decodeImageFile.mockResolvedValue([])
+    renderPage()
+    pickFile(photo())
+    expect(await screen.findByText(/QR-код не найден/)).toBeInTheDocument()
+    expect(submitQrReceipt).not.toHaveBeenCalled()
+  })
+
+  it('a refund QR on the photo is rejected on the device', async () => {
+    decodeImageFile.mockResolvedValue([goodQr().replace('n=1', 'n=2')])
+    renderPage()
+    pickFile(photo())
+    expect(await screen.findByText(/Это не чек продажи/)).toBeInTheDocument()
+  })
+
+  it('a broken file → a readable error, not a crash', async () => {
+    decodeImageFile.mockRejectedValue(new Error('decode failed'))
+    renderPage()
+    pickFile(photo())
+    expect(await screen.findByText(/Не удалось прочитать файл/)).toBeInTheDocument()
+  })
+
+  it('a non-image, non-PDF file is refused before decoding', async () => {
+    renderPage()
+    pickFile(new File(['x'], 'a.txt', { type: 'text/plain' }))
+    expect(await screen.findByText(/Подойдёт фото, скриншот или PDF/)).toBeInTheDocument()
+    expect(decodeImageFile).not.toHaveBeenCalled()
   })
 })

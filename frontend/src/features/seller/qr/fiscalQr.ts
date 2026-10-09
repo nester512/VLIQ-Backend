@@ -113,3 +113,40 @@ export const isTooOld = (d: FiscalData, now: Date = new Date()) =>
 /** Build `t` from manual-entry inputs: date `YYYY-MM-DD` + time `HH:MM` (+ optional seconds `SS`). */
 export const tFromInputs = (date: string, time: string, seconds = '') =>
   `${date.replace(/-/g, '')}T${time.replace(':', '').slice(0, 4)}${/^\d{2}$/.test(seconds) ? seconds : ''}`
+
+export interface FiscalCandidate {
+  data: FiscalData
+  raw: string
+}
+
+export type PickResult =
+  | { kind: 'one'; candidate: FiscalCandidate }
+  | { kind: 'many'; candidates: FiscalCandidate[] }
+  | { kind: 'none'; message: string }
+
+/**
+ * Choose the receipt among QR codes found in a photo / PDF. Non-fiscal codes
+ * (links, ads) are ignored; the same receipt printed twice counts once; several
+ * DIFFERENT receipts → the seller picks one (one submission = one receipt).
+ */
+export function pickFiscal(texts: string[], now: Date = new Date()): PickResult {
+  const byKey = new Map<string, FiscalCandidate>()
+  let firstError: FiscalError | null = null
+  for (const raw of texts) {
+    const r = parseQr(raw, now)
+    if (r.ok) {
+      if (!byKey.has(fiscalKey(r.data))) byKey.set(fiscalKey(r.data), { data: r.data, raw })
+    } else {
+      firstError ??= r.error
+    }
+  }
+  const candidates = [...byKey.values()]
+  if (candidates.length === 1) return { kind: 'one', candidate: candidates[0]! }
+  if (candidates.length > 1) return { kind: 'many', candidates }
+  if (texts.length === 0) {
+    return { kind: 'none', message: 'QR-код не найден. Снимите чек ближе и ровнее или введите данные вручную.' }
+  }
+  // A code was found but it is not a valid sales receipt — say exactly why.
+  const reason = firstError && firstError.code !== 'QR_NOT_FISCAL' ? firstError.message : 'Это не QR-код кассового чека'
+  return { kind: 'none', message: reason }
+}
