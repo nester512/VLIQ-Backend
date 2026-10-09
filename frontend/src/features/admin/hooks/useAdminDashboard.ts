@@ -31,6 +31,8 @@ export interface DashboardData {
     /** UC-01 — сумма продаж (наших товаров) и сумма выплат по продавцу. */
     sales: number
     paid: number
+    /** Начислено за всё время — по нему сервер ранжирует топ. */
+    accrued: number
   }>
 }
 
@@ -85,6 +87,7 @@ export function toDashboardData(d: AdminDashboardResponse): DashboardData {
       receipts: s.receipts_approved > 0 ? `${s.receipts_approved} одобрено` : `${s.receipts_total} чеков`,
       sales: s.sales,
       paid: s.paid,
+      accrued: s.total_accrued ?? 0,
     })),
   }
 }

@@ -96,7 +96,7 @@ describe('toDashboardData', () => {
 
   it('maps top sellers with approved/total label and city fallback', () => {
     const [first, second] = toDashboardData(dto()).top_sellers
-    expect(first).toEqual({ telegram_id: 7, name: 'Анна', city: '—', receipts: '80 одобрено', sales: 1_000_000, paid: 50_000 })
+    expect(first).toEqual({ telegram_id: 7, name: 'Анна', city: '—', receipts: '80 одобрено', sales: 1_000_000, paid: 50_000, accrued: 0 })
     expect(second!.receipts).toBe('5 чеков')
     expect(second!.city).toBe('Казань')
   })

@@ -132,6 +132,7 @@ function DashContent() {
       <div className="vliq-pad">
         <div className="vliq-sec-t">
           <b>Топ продавцов</b>
+          <span style={{ fontSize: 12, color: 'var(--vliq-hint)', fontWeight: 600 }}>по начисленному за всё время</span>
         </div>
         {isLoading ? (
           <div className="vliq-list">

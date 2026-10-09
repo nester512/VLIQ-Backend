@@ -774,6 +774,8 @@ export interface AdminDashboardResponse {
     receipts_approved: number
     sales: number
     paid: number
+    /** Accrued for all time (net of corrections) — the ranking key (server-sorted). */
+    total_accrued?: number
   }>
   top_products: Array<{ name: string; count: number }>
   generated_at: string

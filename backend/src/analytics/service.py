@@ -26,10 +26,12 @@ from sqlalchemy import Integer, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.analytics.schemas.api import AdminDashboard, DashboardDay, DashboardTopProduct, DashboardTopSeller
+from src.bonus_transaction.models import BonusTransaction
 from src.payout_request.models import PayoutRequest, PayoutRequestStatus
 from src.receipt.models import Receipt, ReceiptStatus
 from src.seller.blocked import not_blocked
 from src.seller.models import Seller, SellerStatus
+from src.seller.services.balance_service import TOTAL_ACCRUED_KINDS
 
 DAILY_DAYS = 30
 TOP_SELLERS_LIMIT = 25
@@ -127,6 +129,14 @@ async def _top_sellers(session: AsyncSession) -> list[DashboardTopSeller]:
         .group_by(Receipt.seller_id)
         .subquery("r")
     )
+    # «Начислено за всё время» — the ranking key: accruals net of corrections, exactly
+    # what the seller's balance calls total_accrued (balance_service._TOTAL_ACCRUED_KINDS).
+    accrued = (
+        select(BonusTransaction.seller_id.label("seller_id"), func.sum(BonusTransaction.amount).label("accrued"))
+        .where(BonusTransaction.kind.in_(sorted(TOTAL_ACCRUED_KINDS)))
+        .group_by(BonusTransaction.seller_id)
+        .subquery("a")
+    )
     paid = (
         select(PayoutRequest.seller_id.label("seller_id"), func.sum(PayoutRequest.amount).label("paid"))
         .where(PayoutRequest.status == PayoutRequestStatus.paid.value)
@@ -143,10 +153,13 @@ async def _top_sellers(session: AsyncSession) -> list[DashboardTopSeller]:
             receipts.c.approved,
             receipts.c.sales,
             func.coalesce(paid.c.paid, 0).label("paid"),
+            func.coalesce(accrued.c.accrued, 0).label("accrued"),
         )
         .join(receipts, receipts.c.seller_id == Seller.telegram_id)
         .outerjoin(paid, paid.c.seller_id == Seller.telegram_id)
-        .order_by(receipts.c.approved.desc(), receipts.c.total.desc(), Seller.telegram_id)
+        .outerjoin(accrued, accrued.c.seller_id == Seller.telegram_id)
+        # By accrued for all time; ties → more approved receipts, then a stable id.
+        .order_by(func.coalesce(accrued.c.accrued, 0).desc(), receipts.c.approved.desc(), Seller.telegram_id)
         .limit(TOP_SELLERS_LIMIT)
     )
     result = []
@@ -161,6 +174,7 @@ async def _top_sellers(session: AsyncSession) -> list[DashboardTopSeller]:
                 receipts_approved=int(r.approved),
                 sales=int(r.sales),
                 paid=int(r.paid),
+                total_accrued=int(r.accrued),
             )
         )
     return result

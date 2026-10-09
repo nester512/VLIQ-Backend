@@ -60,6 +60,7 @@ _ACCRUAL_KINDS = {
 # nets corrections). ``payout_reverted`` is deliberately excluded: it restores
 # spendable balance after a failed payout, it is not a new accrual.
 _TOTAL_ACCRUED_KINDS = _ACCRUAL_KINDS | {BonusTransactionKind.correction.value}
+TOTAL_ACCRUED_KINDS = frozenset(_TOTAL_ACCRUED_KINDS)  # shared with the dashboard top sellers
 
 
 async def get_seller_balance(*, seller_id: int, session: AsyncSession) -> SellerBalanceRead:

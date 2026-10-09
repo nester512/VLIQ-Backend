@@ -14,6 +14,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.analytics.service import DAILY_DAYS, get_admin_dashboard
+from src.bonus_transaction.models import BonusTransaction
 from src.payout_request.models import PayoutRequest
 from src.receipt.models import Receipt
 from src.seller.models import Seller
@@ -84,6 +85,11 @@ async def seeded(session_factory: async_sessionmaker[AsyncSession]) -> None:
         s.add(_receipt(SEED_SELLER_ID, "on_review", created_at=_NOW - timedelta(days=DAILY_DAYS + 5)))
         s.add(_receipt(TOP, "approved", total=999999, deleted=True))  # soft-deleted: ignored everywhere
 
+        # Accrued for all time: SECOND earned more bonus than TOP despite fewer approved receipts.
+        for seller, kind, amount in ((TOP, "accrual_receipt", 4000), (SECOND, "accrual_receipt", 9000),
+                                     (SECOND, "correction", -1000)):  # fmt: skip
+            s.add(BonusTransaction(seller_id=seller, brand_id=SEED_BRAND_ID, amount=amount, kind=kind,
+                                   source_type="receipt", source_id=1))  # fmt: skip
         s.add(_payout(TOP, "paid", 5000, _NOW))
         s.add(_payout(TOP, "paid", 7000, _LAST_YEAR))  # paid long ago: lifetime yes, this month no
         s.add(_payout(SECOND, "new", 1000, _NOW))
@@ -120,14 +126,19 @@ async def test_dashboard_top_sellers_and_products(session_factory, seeded) -> No
     async with session_factory() as s:
         d = await get_admin_dashboard(s)
 
+    # Ranked by accrued for all time (net of corrections), not by receipt count.
     first, second = d.top_sellers[0], d.top_sellers[1]
-    assert first.telegram_id == TOP
-    assert (first.receipts_approved, first.receipts_total) == (4, 4)
-    assert first.sales == 3 * 20000 + 10000
-    assert first.paid == 12000  # lifetime paid payouts
-    assert second.telegram_id == SECOND
-    assert (second.receipts_approved, second.receipts_total, second.paid) == (1, 8, 0)
+    assert (first.telegram_id, first.total_accrued) == (SECOND, 8000)
+    assert (first.receipts_approved, first.receipts_total, first.paid) == (1, 8, 0)
+    assert (second.telegram_id, second.total_accrued) == (TOP, 4000)
+    assert (second.receipts_approved, second.receipts_total) == (4, 4)
+    assert second.sales == 3 * 20000 + 10000
+    assert second.paid == 12000  # lifetime paid payouts
     assert all(t.telegram_id != PENDING_SELLER for t in d.top_sellers)  # no receipts → not ranked
+
+    # Equal accrued → more approved receipts first, then telegram_id (stable).
+    zero = [t for t in d.top_sellers if t.total_accrued == 0]
+    assert [t.telegram_id for t in zero] == sorted((t.telegram_id for t in zero), key=lambda tid: tid)
 
     products = {p.name: p.count for p in d.top_products}
     assert products == {"SWONQ L18000": 9.0, "Картридж": 2.0, "Испаритель": 1.0}

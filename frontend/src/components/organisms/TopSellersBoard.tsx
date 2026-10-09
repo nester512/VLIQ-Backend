@@ -10,6 +10,8 @@ interface TopSeller {
   /** UC-01 — сумма продаж (наших товаров) и сумма выплат по продавцу. */
   sales?: number
   paid?: number
+  /** Начислено за всё время — the ranking key (the server sorts by it). */
+  accrued?: number
 }
 
 interface TopSellersBoardProps {
@@ -45,14 +47,16 @@ function Row({ rank, seller, onClick }: { rank: number; seller: TopSeller; onCli
         <span>{[seller.city, seller.receipts].filter(Boolean).join(' · ')}</span>
       </div>
       <div style={{ flex: 'none', textAlign: 'right', marginRight: 4, minWidth: 96 }}>
-        {seller.sales != null && (
-          <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--vliq-text)', fontVariantNumeric: 'tabular-nums' }}>
-            {fmtMoney(seller.sales)}
+        {seller.accrued != null && (
+          <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--vliq-text)', fontVariantNumeric: 'tabular-nums' }}
+            title="Начислено за всё время" data-testid="top-seller-accrued">
+            {fmtMoney(seller.accrued)}
           </div>
         )}
-        {seller.paid != null && (
+        {(seller.sales != null || seller.paid != null) && (
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--vliq-hint)', fontVariantNumeric: 'tabular-nums' }}>
-            выпл. {fmtMoney(seller.paid)}
+            {[seller.sales != null && `продажи ${fmtMoney(seller.sales)}`, seller.paid != null && `выпл. ${fmtMoney(seller.paid)}`]
+              .filter(Boolean).join(' · ')}
           </div>
         )}
       </div>

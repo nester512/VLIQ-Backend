@@ -20,6 +20,7 @@ class DashboardTopSeller(BaseModel):
     receipts_approved: int
     sales: int = Field(description="Σ total_sum of approved receipts, kopecks")
     paid: int = Field(description="Σ paid payout requests, kopecks")
+    total_accrued: int = Field(default=0, description="Accrued for all time (net of corrections), kopecks — the ranking key")
 
 
 class DashboardTopProduct(BaseModel):
