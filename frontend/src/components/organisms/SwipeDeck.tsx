@@ -2,13 +2,9 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion'
 import type { TargetAndTransition } from 'framer-motion'
 import { Icon } from '@/components/atoms/Icon'
-import { Avatar } from '@/components/atoms/Avatar'
-import { Pill } from '@/components/atoms/Pill'
-import { ReceiptGraphic } from '@/components/molecules/ReceiptGraphic'
-import { ReceiptInfoCard } from '@/components/molecules/ReceiptInfoCard'
-import { AttachmentViewer } from '@/components/organisms/AttachmentViewer'
-import { fmtMoney, fmtMoneyDelta } from '@/utils/formatMoney'
 import type { AdminReceipt } from '@/api/admin'
+import { ReviewCardSummary } from '@/components/organisms/ReviewCardSummary'
+import { ReviewHelp } from '@/components/organisms/ReviewHelp'
 import type { SwipeDirection } from '@/features/admin/hooks/useReviewQueue'
 
 // Swipe thresholds (from prototype)
@@ -21,14 +17,6 @@ const FLY: Record<SwipeDirection, TargetAndTransition> = {
   revise:  { x: 0, y: -880, rotate: 0, opacity: 0, transition: { duration: 0.35, ease: [0.4, 0, 1, 1] } },
 }
 
-function getInitials(name: string) {
-  return name
-    .split(' ')
-    .slice(0, 2)
-    .map((p) => p[0] ?? '')
-    .join('')
-    .toUpperCase()
-}
 
 function isSwipeDeckControl(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest('[data-swipe-deck-control="true"]') != null
@@ -141,11 +129,6 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop, canSwipe, onSel
     setTimeout(() => onSwipe(dir), 320)
   }
 
-  const sellerName = receipt.seller_name ?? `Продавец #${receipt.seller_id}`
-  const sellerStore = receipt.seller_store ?? '—'
-  const dupStatus = receipt.duplicate_status ?? 'ok'
-  const dupLabel = receipt.duplicate_label ?? 'Дублей нет'
-  const hasAttachments = receipt.attachments.length > 0
 
   return (
     <motion.div
@@ -211,148 +194,10 @@ function SwipeCard({ receipt, stackIndex, onSwipe, onTap, isTop, canSwipe, onSel
         </>
       )}
 
-      {/* Receipt image / placeholder — prototype: .photo{flex:1} fills remaining space */}
-      <div
-        style={{
-          flex: 1,
-          position: 'relative',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'hidden',
-          minHeight: 0,
-          background: 'linear-gradient(160deg, #cfd4dd, #b1b8c4)',
-        }}
-      >
-        {/* AttachmentViewer renders ALL of the receipt's attachments (images /
-            PDFs) followed by the receipt+seller info card as the LAST page
-            (finalCard). Its inner nav uses TAP ZONES + arrow buttons that
-            stopPropagation, so advancing a page never reaches this card's
-            pointer handlers (= never fires an approve/reject swipe). The image's
-            explicit zoom button opens the fullscreen lightbox (also
-            stopPropagation'd) without breaking the deck drag. When the receipt
-            has no attachments we fall back to the skeuomorphic ReceiptGraphic
-            mock as the page BEFORE the info card. */}
-        <AttachmentViewer
-          attachments={receipt.attachments}
-          interactiveImage={false}
-          className="absolute inset-0"
-          finalCard={
-            hasAttachments ? (
-              <div className="vliq-pad py-4">
-                <ReceiptInfoCard receipt={receipt} onSellerClick={onSellerClick} />
-              </div>
-            ) : undefined
-          }
-          emptyFallback={
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <div style={{ transform: 'scale(.95) rotate(-2deg)', pointerEvents: 'none' }}>
-                <ReceiptGraphic receipt={receipt} />
-              </div>
-            </div>
-          }
-        />
-        <div
-          style={{
-            position: 'absolute',
-            bottom: 10,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: 'rgba(0,0,0,0.45)',
-            color: '#fff',
-            fontSize: 11,
-            fontWeight: 600,
-            padding: '6px 12px',
-            borderRadius: 999,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <Icon name="zoom" size={12} />
-          Тап — фото и данные
-        </div>
-      </div>
-
-      {/* Meta — extra right padding keeps the duplicate badge away from the
-          rounded card corner and from the attachment nav overlay. */}
-      <div style={{ padding: '14px 24px 16px 16px', flex: 'none', minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <Avatar initials={getInitials(sellerName)} size={38} className="rounded-[12px]" />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <b style={{
-              display: 'block', fontSize: 15, fontWeight: 700, color: 'var(--vliq-text)',
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            }}>
-              {sellerName}
-            </b>
-            <span style={{
-              display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--vliq-hint)',
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            }}>
-              {sellerStore}
-            </span>
-          </div>
-          {/* Do not truncate "Возможный дубль": the admin needs the full signal. */}
-          <span style={{ flex: 'none', minWidth: 0, display: 'block' }}>
-            <Pill kind={dupStatus === 'ok' ? 'ok' : 'dg'}>
-              <Icon name={dupStatus === 'ok' ? 'shield' : 'alert'} size={11} />
-              <span style={{ whiteSpace: 'nowrap' }}>{dupLabel}</span>
-            </Pill>
-          </span>
-        </div>
-
-        {/* Stats — prototype: .swstats{display:flex;gap:8px;margin-top:12px} */}
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          {[
-            { k: 'Бонус',  v: receipt.bonus_amount != null && receipt.bonus_amount > 0 ? fmtMoneyDelta(receipt.bonus_amount) : '—', color: 'var(--vliq-ok-ink)' },
-            { k: 'Сумма',  v: fmtMoney(receipt.amount), color: 'var(--vliq-text)' },
-          ].map(({ k, v, color }) => (
-            <div
-              key={k}
-              style={{
-                flex: '1 1 0',
-                minWidth: 0,
-                background: 'var(--vliq-field)',
-                borderRadius: 13,
-                padding: '9px 11px',
-              }}
-            >
-              <div style={{
-                fontSize: 10.5, fontWeight: 700,
-                color: 'var(--vliq-hint)',
-                textTransform: 'uppercase',
-                letterSpacing: '.4px',
-              }}>
-                {k}
-              </div>
-              <div
-                style={{
-                  fontSize: 'clamp(13px, 4vw, 16px)',
-                  fontWeight: 800,
-                  marginTop: 3,
-                  color,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-                title={v}
-              >
-                {v}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* The decision card: key facts only — the photo and everything else open
+          via «Подробнее» / tap (ReceiptDetailSheet). Big photos made the card and
+          the action buttons overflow small screens (e.g. Galaxy Z Flip). */}
+      <ReviewCardSummary receipt={receipt} onDetails={onTap} onSellerClick={onSellerClick} />
     </motion.div>
   )
 }
@@ -602,50 +447,26 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
         }}
       >
         <div style={{ minWidth: 0 }}>
-          <h1 style={{ fontSize: 21, fontWeight: 800, letterSpacing: '-.5px', lineHeight: 1.15, color: 'var(--vliq-text)' }}>
-            Проверка чеков
-          </h1>
-          <p style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--vliq-hint)', marginTop: 2 }}>
-            {currentReceipt?.status === 'on_review'
-              ? 'Свайп вправо/влево — решение, вниз — пропустить'
-              : 'Чек ещё обрабатывается · можно пропустить'}
-            {skippedCount > 0 && ` · пропущено ${skippedCount}`}
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
+            <h1 style={{ fontSize: 21, fontWeight: 800, letterSpacing: '-.5px', lineHeight: 1.15, color: 'var(--vliq-text)' }}>
+              Проверка чеков
+            </h1>
+            <ReviewHelp />
+          </div>
+          {(currentReceipt?.status !== 'on_review' || skippedCount > 0) && (
+            <p style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--vliq-hint)', marginTop: 2 }}>
+              {[
+                currentReceipt?.status !== 'on_review' && 'Чек ещё обрабатывается — можно пропустить',
+                skippedCount > 0 && `пропущено ${skippedCount}`,
+              ].filter(Boolean).join(' · ')}
+            </p>
+          )}
         </div>
         <span style={{ flex: 'none', fontSize: 13, fontWeight: 700, color: 'var(--vliq-hint)', marginTop: 4 }}>
           <span data-testid="deck-counter">
             {isLoading ? '…' : `${Math.min(processedIds.size + 1, totalForCounter)} / ${totalForCounter}`}
           </span>
         </span>
-      </div>
-
-      {/* Hint for opening the receipt; decisions use the real action buttons below. */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 7,
-          padding: '4px 16px 10px',
-          flex: 'none',
-        }}
-      >
-        {[{ label: 'Тап — фото и данные', bg: 'var(--vliq-field)', ink: 'var(--vliq-hint)' }].map(({ label, bg, ink }) => (
-          <span
-            key={label}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              fontSize: 11.5,
-              fontWeight: 700,
-              padding: '6px 11px',
-              borderRadius: 10,
-              background: bg,
-              color: ink,
-            }}
-          >
-            {label}
-          </span>
-        ))}
       </div>
 
       {/* Deck — prototype: .deck{position:relative;flex:1;margin:6px 18px 0} */}
@@ -689,7 +510,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
           onClick={() => handleSwipe('reject')}
         >
           <Icon name="x" size={18} />
-          Отклонить
+          <span className="vliq-review-native-action__label">Отклонить</span>
         </button>
         <button
           type="button"
@@ -699,7 +520,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
           aria-label="Пропустить чек"
         >
           <Icon name="chev" size={18} />
-          Пропустить
+          <span className="vliq-review-native-action__label">Пропустить</span>
         </button>
         <button
           type="button"
@@ -708,7 +529,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
           onClick={() => handleSwipe('approve')}
         >
           <Icon name="check" size={18} />
-          Одобрить
+          <span className="vliq-review-native-action__label">Одобрить</span>
         </button>
       </div>
     </div>

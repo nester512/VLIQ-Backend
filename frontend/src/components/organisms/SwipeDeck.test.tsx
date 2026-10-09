@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, act, within } from '@testing-library/react'
 import { SwipeDeck } from './SwipeDeck'
 import type { AdminReceipt } from '@/api/admin'
 import type { Attachment } from '@/types/models'
@@ -35,7 +35,7 @@ function topCard(): HTMLElement {
   return el
 }
 
-describe('SwipeDeck — outer approve/reject swipe still works with the AttachmentViewer', () => {
+describe('SwipeDeck — approve/reject by swipe and buttons', () => {
   it('fires the same actions through native review buttons', () => {
     const onSwipe = vi.fn()
     render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={vi.fn()} />)
@@ -75,117 +75,6 @@ describe('SwipeDeck — outer approve/reject swipe still works with the Attachme
       vi.advanceTimersByTime(400)
     })
     expect(onSwipe).toHaveBeenCalledWith('1', 'reject')
-  })
-
-  it('advancing an attachment via the next zone does NOT fire onSwipe', () => {
-    const onSwipe = vi.fn()
-    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={vi.fn()} />)
-
-    // Two attachments on the top card → a "next" nav zone exists.
-    const next = screen.getAllByLabelText('Следующее вложение')[0]!
-    fireEvent.pointerDown(next, { pointerId: 2 })
-    fireEvent.click(next)
-
-    // The counter advances but no approve/reject is dispatched.
-    expect(screen.getByTestId('attachment-counter')).toHaveTextContent('2 / 2')
-    expect(onSwipe).not.toHaveBeenCalled()
-  })
-
-  it('still fires approve when a horizontal drag starts on the right attachment tap-zone', () => {
-    vi.useFakeTimers()
-    const onSwipe = vi.fn()
-    const onTap = vi.fn()
-    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={onTap} />)
-
-    const next = screen.getAllByLabelText('Следующее вложение')[0]!
-    fireEvent.pointerDown(next, { clientX: 260, clientY: 200, pointerId: 12 })
-    fireEvent.pointerMove(next, { clientX: 390, clientY: 200, pointerId: 12 })
-    fireEvent.pointerUp(next, { clientX: 390, clientY: 200, pointerId: 12 })
-
-    act(() => {
-      vi.advanceTimersByTime(400)
-    })
-    expect(onSwipe).toHaveBeenCalledWith('1', 'approve')
-    expect(onTap).not.toHaveBeenCalled()
-  })
-
-  it('tapping an attachment nav zone on a non-actionable card does not open details', () => {
-    const onSwipe = vi.fn()
-    const onTap = vi.fn()
-    render(<SwipeDeck receipts={[receipt({ status: 'pending' })]} onSwipe={onSwipe} onTap={onTap} />)
-
-    const next = screen.getAllByLabelText('Следующее вложение')[0]!
-    fireEvent.pointerDown(next, { clientX: 260, clientY: 200, pointerId: 13 })
-    fireEvent.pointerUp(next, { clientX: 260, clientY: 200, pointerId: 13 })
-    fireEvent.click(next)
-
-    expect(screen.getByTestId('attachment-counter')).toHaveTextContent('2 / 2')
-    expect(onTap).not.toHaveBeenCalled()
-    expect(onSwipe).not.toHaveBeenCalled()
-  })
-
-  it('exposes the 2 attachment pages + a final info-card page showing seller/store', () => {
-    const onSwipe = vi.fn()
-    const onTap = vi.fn()
-    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={onTap} />)
-
-    // Page 1: first attachment.
-    expect(screen.getAllByTestId('attachment-counter')[0]!).toHaveTextContent('1 / 2')
-
-    const advance = () => {
-      const next = screen.getAllByLabelText('Следующее вложение')[0]!
-      fireEvent.pointerDown(next, { pointerId: 9 })
-      fireEvent.click(next)
-    }
-    advance() // → page 2 (attachment 2)
-    expect(screen.getAllByTestId('attachment-counter')[0]!).toHaveTextContent('2 / 2')
-    advance() // → final info-card page
-
-    const finalCard = screen.getAllByTestId('attachment-final-card')[0]!
-    expect(finalCard).toBeInTheDocument()
-    // The final page renders the receipt+seller info card.
-    expect(finalCard).toHaveTextContent('Иван Петров')
-    expect(finalCard).toHaveTextContent('ТЦ Радуга')
-    // Navigating to the final page never fired a swipe nor a tap.
-    expect(onSwipe).not.toHaveBeenCalled()
-    expect(onTap).not.toHaveBeenCalled()
-  })
-
-  it('navigating to the final info-card page does not fire onSwipe/onTap; a pointerdown on it stays inert', () => {
-    const onSwipe = vi.fn()
-    const onTap = vi.fn()
-    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={onTap} />)
-
-    const advance = () => {
-      const next = screen.getAllByLabelText('Следующее вложение')[0]!
-      fireEvent.pointerDown(next, { pointerId: 9 })
-      fireEvent.click(next)
-    }
-    advance()
-    advance() // → final card
-
-    // A pointerdown on the final card must NOT reach the card's drag/tap.
-    fireEvent.pointerDown(screen.getAllByTestId('attachment-final-card')[0]!, {
-      clientX: 200,
-      clientY: 200,
-      pointerId: 11,
-    })
-    expect(onSwipe).not.toHaveBeenCalled()
-    expect(onTap).not.toHaveBeenCalled()
-  })
-
-  it('the fullscreen zoom control opens the lightbox and fires neither onSwipe nor onTap', () => {
-    const onSwipe = vi.fn()
-    const onTap = vi.fn()
-    render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={onTap} />)
-
-    const zoom = screen.getAllByTestId('attachment-zoom-button')[0]!
-    fireEvent.pointerDown(zoom, { pointerId: 7 })
-    fireEvent.click(zoom)
-
-    expect(screen.getByTestId('attachment-lightbox')).toBeInTheDocument()
-    expect(onSwipe).not.toHaveBeenCalled()
-    expect(onTap).not.toHaveBeenCalled()
   })
 
   it('a plain tap (no drag) on the card calls onTap, not onSwipe', () => {
@@ -251,38 +140,6 @@ describe('SwipeDeck — id-based consumption is refetch-safe (no skip)', () => {
   })
 })
 
-describe('SwipeDeck — seller link on the final info card', () => {
-  it('opens the seller and neither swipes, taps the card nor captures the pointer', () => {
-    const onSwipe = vi.fn()
-    const onTap = vi.fn()
-    const onSellerClick = vi.fn()
-    const capture = vi.fn()
-    const original = HTMLElement.prototype.setPointerCapture
-    HTMLElement.prototype.setPointerCapture = capture
-    try {
-      render(<SwipeDeck receipts={[receipt()]} onSwipe={onSwipe} onTap={onTap} onSellerClick={onSellerClick} />)
-      for (let i = 0; i < 2; i++) {
-        const next = screen.getAllByLabelText('Следующее вложение')[0]!
-        fireEvent.pointerDown(next, { pointerId: 9 })
-        fireEvent.click(next)
-      }
-
-      capture.mockClear() // the nav tap-zones above may start a drag; only the link matters here
-      onTap.mockClear()
-      const link = screen.getAllByRole('button', { name: /Открыть продавца/ })[0]!
-      fireEvent.pointerDown(link, { clientX: 50, clientY: 50, pointerId: 12 })
-      fireEvent.pointerUp(link, { clientX: 50, clientY: 50, pointerId: 12 })
-      fireEvent.click(link)
-
-      expect(onSellerClick).toHaveBeenCalledWith(9)
-      expect(onTap).not.toHaveBeenCalled()
-      expect(onSwipe).not.toHaveBeenCalled()
-      expect(capture).not.toHaveBeenCalled()
-    } finally {
-      HTMLElement.prototype.setPointerCapture = original
-    }
-  })
-})
 
 describe('SwipeDeck — skip without a decision', () => {
   const three = () => [receipt({ id: 'a' }), receipt({ id: 'b' }), receipt({ id: 'c' })]
@@ -345,5 +202,101 @@ describe('SwipeDeck — skip without a decision', () => {
   it('skip is disabled for the last card', () => {
     render(<SwipeDeck receipts={[receipt({ id: 'only' })]} onSwipe={vi.fn()} onTap={vi.fn()} />)
     expect(screen.getByRole('button', { name: 'Пропустить чек' })).toBeDisabled()
+  })
+})
+
+
+describe('SwipeDeck — decision card without the photo', () => {
+  const full = () => receipt({
+    id: 'r1', seller_name: 'Анна Петрова', seller_store: 'ТЦ Радуга', amount: 145000, bonus_amount: 5000,
+    purchase_date: '2026-10-08', shop_name: 'ООО Ромашка', fn: '9960440300712345', fd: '12345', fp: '3826178549',
+    source: 'telegram_scan', verification_status: 'verified', duplicate_status: 'danger',
+    fraud_signal: [
+      { type: 'historical_duplicate_fn_fd_fp', details: 'x' },
+      { type: 'receipt_too_old', details: 'y' },
+      { type: 'demo_mode', details: 'hidden' },
+    ],
+  })
+
+  it('shows the facts needed to decide and no photo', () => {
+    render(<SwipeDeck receipts={[full()]} onSwipe={vi.fn()} onTap={vi.fn()} />)
+    const card = screen.getByTestId('review-card-summary')
+    expect(card).toHaveTextContent('Анна Петрова')
+    expect(card).toHaveTextContent('ТЦ Радуга')
+    expect(card).toHaveTextContent('1 450')
+    expect(card).toHaveTextContent('+50')
+    expect(card).toHaveTextContent('ООО Ромашка')
+    expect(card).toHaveTextContent('…2345 · 12345 · 3826178549')
+    expect(card).toHaveTextContent('QR · сканер Telegram')
+    expect(card).toHaveTextContent('Подтверждён в ОФД')
+    expect(card).toHaveTextContent('Повтор чека')
+    expect(card).toHaveTextContent('Старше 30 дней')
+    expect(card).not.toHaveTextContent('hidden') // demo_mode is noise
+    expect(card).toHaveTextContent('2 файла') // count only — the files open in «Подробнее»
+    expect(card.querySelector('img')).toBeNull()
+    expect(screen.queryByTestId('attachment-viewer')).toBeNull()
+  })
+
+  it('«Подробнее» opens the details without swiping or capturing the pointer', () => {
+    const onSwipe = vi.fn()
+    const onTap = vi.fn()
+    const capture = vi.fn()
+    const original = HTMLElement.prototype.setPointerCapture
+    HTMLElement.prototype.setPointerCapture = capture
+    try {
+      render(<SwipeDeck receipts={[full(), receipt({ id: 'r2' })]} onSwipe={onSwipe} onTap={onTap} />)
+      // Cards stack bottom-first in the DOM; only the TOP card reacts.
+      const more = within(topCard()).getByRole('button', { name: /Подробнее/ })
+      fireEvent.pointerDown(more, { clientX: 10, clientY: 10, pointerId: 3 })
+      fireEvent.pointerUp(more, { clientX: 10, clientY: 10, pointerId: 3 })
+      fireEvent.click(more)
+      expect(onTap).toHaveBeenCalledWith('r1')
+      expect(onSwipe).not.toHaveBeenCalled()
+      expect(capture).not.toHaveBeenCalled()
+    } finally {
+      HTMLElement.prototype.setPointerCapture = original
+    }
+  })
+
+  it('the seller name opens the seller page, not the card', () => {
+    const onTap = vi.fn()
+    const onSellerClick = vi.fn()
+    render(<SwipeDeck receipts={[full()]} onSwipe={vi.fn()} onTap={onTap} onSellerClick={onSellerClick} />)
+    const link = screen.getByRole('button', { name: /Открыть продавца Анна Петрова/ })
+    fireEvent.pointerDown(link, { pointerId: 4 })
+    fireEvent.pointerUp(link, { pointerId: 4 })
+    fireEvent.click(link)
+    expect(onSellerClick).toHaveBeenCalledWith(9)
+    expect(onTap).not.toHaveBeenCalled()
+  })
+
+  it('an unassigned bonus is said explicitly', () => {
+    render(<SwipeDeck receipts={[receipt({ bonus_amount: 0 })]} onSwipe={vi.fn()} onTap={vi.fn()} />)
+    expect(screen.getByTestId('review-card-summary')).toHaveTextContent('не назначен')
+  })
+})
+
+describe('SwipeDeck — help instead of on-card hints', () => {
+  it('no «Тап — фото и данные» hint; ⓘ next to the title explains everything', () => {
+    render(<SwipeDeck receipts={[receipt()]} onSwipe={vi.fn()} onTap={vi.fn()} />)
+    expect(screen.queryByText(/Тап — фото и данные/)).toBeNull()
+
+    const info = screen.getByRole('button', { name: 'Как проверять чеки' })
+    fireEvent.click(info)
+    const panel = screen.getByRole('dialog', { name: 'Как проверять чеки' })
+    expect(panel).toHaveTextContent('Свайп вправо или «Одобрить»')
+    expect(panel).toHaveTextContent('Свайп вниз или «Пропустить»')
+    expect(panel).toHaveTextContent('Подробнее')
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Как проверять чеки' })).toBeNull()
+  })
+
+  it('action labels are shrinkable spans (no overflow on narrow screens)', () => {
+    render(<SwipeDeck receipts={[receipt(), receipt({ id: '2' })]} onSwipe={vi.fn()} onTap={vi.fn()} />)
+    for (const name of ['Отклонить', 'Одобрить']) {
+      const btn = screen.getByRole('button', { name })
+      expect(btn.querySelector('.vliq-review-native-action__label')).toHaveTextContent(name)
+    }
   })
 })
