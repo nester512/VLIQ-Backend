@@ -17,6 +17,7 @@ from src.app.depends import get_config, get_pg_session
 from src.app.errors import AppError
 from src.app.middleware.rate_limit import limiter
 from src.app.settings import Settings
+from src.audit_log.models import AuditLog
 from src.receipt.models import CheckProvider, EventKind, Receipt, ReceiptStatus, ReceiptVerificationAttempt
 from src.receipt.schemas.api import UploadWarning
 from src.receipt.service import create_qr_receipt
@@ -118,6 +119,7 @@ async def _warnings(session: AsyncSession, receipt_id: int, data: FiscalData) ->
             .where(
                 Receipt.fn == data.fn, Receipt.fd == data.fd, Receipt.fp == data.fp,
                 Receipt.id != receipt_id, Receipt.is_deleted.is_(False),
+                Receipt.source.is_not(None),  # QR-intake receipts only (BRD В-17)
             )
             .limit(1)
         )
@@ -268,8 +270,13 @@ async def update_provider(
         row = (await session.execute(select(CheckProvider).where(CheckProvider.code == code).with_for_update())).scalar_one_or_none()
         if row is None:
             raise AppError("CHECK_PROVIDER_NOT_FOUND", status_code=404)
+        before = {key: getattr(row, key) for key in values}
         for key, value in values.items():
             setattr(row, key, value)
         row.updated_at = datetime.now(UTC)
+        # Who switched a check source on/off or reordered them — it changes how receipts are checked.
+        session.add(AuditLog(actor_id=token["user_id"], actor_type="admin", action="update_check_provider",
+                             entity_type="check_provider", entity_id=row.priority,
+                             payload={"code": code, "before": before, "after": values}))  # fmt: skip
     logger.info("check_provider.updated, code=%s, by=%s, changes=%s", code, token["user_id"], values)
     return await list_providers(token, session, registry)

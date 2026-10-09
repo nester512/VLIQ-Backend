@@ -120,7 +120,13 @@ async def get_seller_balance(*, seller_id: int, session: AsyncSession) -> Seller
         .where(Receipt.seller_id == seller_id, Receipt.is_deleted.is_(False), Receipt.status.in_(_UNDECIDED))
         .scalar_subquery()
     )
+    undecided_count = (
+        select(func.count())
+        .where(Receipt.seller_id == seller_id, Receipt.is_deleted.is_(False), Receipt.status.in_(_UNDECIDED))
+        .scalar_subquery()
+    )
     stmt = select(
+        undecided_count.label("on_review_count"),
         available_accruals_sum.label("available_accruals"),
         payout_hold_sum.label("payout_hold"),
         total_accrued_sum.label("total_accrued"),
@@ -155,4 +161,5 @@ async def get_seller_balance(*, seller_id: int, session: AsyncSession) -> Seller
         total_accrued=total_accrued,
         total_paid_out=total_paid_out,
         on_review=int(row.on_review),
+        on_review_count=int(row.on_review_count),
     )

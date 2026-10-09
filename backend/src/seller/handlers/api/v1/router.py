@@ -110,8 +110,11 @@ async def get_me(
 async def get_me_balance(
     token: Annotated[JwtTokenT, Depends(require_seller)],
     session: Annotated[AsyncSession, Depends(get_pg_session)],
+    cfg: Annotated[Settings, Depends(get_config)],
 ) -> SellerBalanceRead:
-    return await get_seller_balance(seller_id=token["user_id"], session=session)
+    balance = await get_seller_balance(seller_id=token["user_id"], session=session)
+    # The payout form shows and enforces the SAME minimum the server enforces.
+    return balance.model_copy(update={"payout_min_amount": cfg.PAYOUT_MIN_AMOUNT})
 
 
 @router.get(

@@ -139,6 +139,7 @@ class ReceiptStatusResponse(BaseModel):
     attachments: list[ReceiptAttachmentRead] = Field(default_factory=list)
     # What was bought — from the check source's answer (QR intake has no photo).
     items: list[ReceiptItem] = Field(default_factory=list)
+    created_at: datetime | None = None  # «Чек получен» on the seller's status screen
 
 
 class ReceiptReviewAction(BaseModel):

@@ -1250,8 +1250,12 @@ async def delete_receipt(
 ) -> None:
     """Soft-delete. An approved / paid out receipt gives its bonus back — with a reason."""
     async with session.begin():
-        already = await session.scalar(select(Receipt.is_deleted).where(Receipt.id == receipt_id))
-        if already:
+        # Lock first (deleted or not), then decide: two simultaneous deletes serialise here and
+        # the second one sees is_deleted — no second «deleted» step / audit row.
+        locked = await session.scalar(select(Receipt.is_deleted).where(Receipt.id == receipt_id).with_for_update())
+        if locked is None:
+            raise AppError("RECEIPT_NOT_FOUND", status_code=404)
+        if locked:
             return  # idempotent: a double tap is not an error
         receipt = await _get_receipt_for_update(session, receipt_id)
         reason = await _guard_money_change(session, receipt, body.reason if body else None)

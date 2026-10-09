@@ -199,3 +199,5 @@ class SellerBalanceRead(BaseModel):
     total_accrued: int = Field(..., description="All-time accrued bonuses")
     total_paid_out: int = Field(..., description="All-time completed payouts (abs value)")
     on_review: int = Field(default=0, description="Sum of bonuses on receipts not decided yet (S4)")
+    on_review_count: int = Field(default=0, description="Receipts not decided yet (QR receipts have no bonus before the decision)")
+    payout_min_amount: int | None = Field(default=None, description="Minimum payout request, kopecks (PAYOUT_MIN_AMOUNT)")

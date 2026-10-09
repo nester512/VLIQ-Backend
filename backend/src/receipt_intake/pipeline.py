@@ -39,7 +39,9 @@ async def _signals(session: AsyncSession, receipt: Receipt) -> list[dict]:
         if old is not None:
             signals.append(old.to_dict())
     if receipt.fn and receipt.fd and receipt.fp:
-        cross = await _checker.check_cross_seller_duplicate(session, receipt.fn, receipt.fd, receipt.fp, receipt.seller_id)
+        cross = await _checker.check_cross_seller_duplicate(
+            session, receipt.fn, receipt.fd, receipt.fp, receipt.seller_id, qr_only=True
+        )
         if cross is not None:
             signals.append(cross.to_dict())
         own = (
@@ -52,6 +54,7 @@ async def _signals(session: AsyncSession, receipt: Receipt) -> list[dict]:
                     Receipt.seller_id == receipt.seller_id,
                     Receipt.id != receipt.id,
                     Receipt.is_deleted.is_(False),
+                    Receipt.source.is_not(None),  # QR-intake receipts only (BRD В-17)
                 )
                 .order_by(Receipt.id)
                 .limit(1)

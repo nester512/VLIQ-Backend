@@ -108,13 +108,15 @@ class FraudChecker:
 
     # --- Cross-seller duplicate ---------------------------------------------
 
-    async def check_cross_seller_duplicate(
+    async def check_cross_seller_duplicate(  # noqa: PLR0913
         self,
         session: AsyncSession,
         fn: str,
         fd: str,
         fp: str,
         current_seller_id: int,
+        *,
+        qr_only: bool = False,
     ) -> FraudSignal | None:
         """Detect if the same fiscal receipt was uploaded by a *different* seller.
 
@@ -140,6 +142,9 @@ class FraudChecker:
                 Receipt.fp == fp,
                 Receipt.seller_id != current_seller_id,
                 Receipt.is_deleted.is_(False),
+                # QR intake compares only with QR-intake receipts (BRD В-17): legacy photo
+                # receipts' fiscal data came from OCR and are not trusted as a match.
+                *((Receipt.source.is_not(None),) if qr_only else ()),
             )
             .limit(1)
         )

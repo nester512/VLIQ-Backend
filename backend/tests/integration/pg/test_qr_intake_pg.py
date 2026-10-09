@@ -206,6 +206,22 @@ async def test_duplicates_are_signals_and_warnings_not_blocks(session_factory) -
     assert (await _get(session_factory, first)).status == "pending"  # untouched
 
 
+async def test_legacy_photo_receipt_is_not_a_duplicate_match(session_factory) -> None:
+    """BRD В-17: QR intake is compared only with QR-intake receipts — a legacy photo receipt
+    with the same (OCR-read) ФН/ФД/ФП does not raise a warning or a signal."""
+    data = _data()
+    legacy = await _create(session_factory, data)
+    async with session_factory() as s, s.begin():
+        await s.execute(text("UPDATE vliq.receipt SET source = NULL WHERE id = :id"), {"id": legacy})  # pre-QR row
+    fresh = await _create(session_factory, data)
+    async with session_factory() as s:
+        assert await _warnings(s, fresh, data) == []
+    async with session_factory() as s:
+        await process_qr_receipt(s, fresh, reg())
+    signals = {sig["signal"] for sig in (await _get(session_factory, fresh)).fraud_signals}
+    assert not signals & {"historical_duplicate_fn_fd_fp", "cross_seller_duplicate"}
+
+
 async def test_pipeline_job_is_idempotent(session_factory) -> None:
     rid = await _create(session_factory, _data())
     for _ in range(2):  # arq retry / duplicate job
