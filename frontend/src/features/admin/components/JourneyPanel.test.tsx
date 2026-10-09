@@ -74,8 +74,8 @@ describe('JourneyPanel — «Путь чека»', () => {
     const steps = screen.getAllByRole('listitem').map((li) => li.getAttribute('data-kind'))
     expect(steps).toEqual(['received', 'validated', 'check_round_started', 'provider_checked', 'check_round_failed'])
     expect(screen.getByText(/Чек получен/).closest('li')).toHaveTextContent('продавец')
-    expect(screen.getByText(/Раунд проверки/).closest('li')).toHaveTextContent('№1 · proverkacheka')
-    expect(screen.getByText(/Проверка у источника/).closest('li')).toHaveTextContent('proverkacheka · нет данных')
+    expect(screen.getByText(/Раунд проверки/).closest('li')).toHaveTextContent('№1 · Проверка чека')
+    expect(screen.getByText(/Проверка у источника/).closest('li')).toHaveTextContent('Проверка чека · нет данных')
   })
 
   it('a provider check expands to the exact request and the raw answer (reproducible)', async () => {
@@ -96,13 +96,13 @@ describe('JourneyPanel — «Путь чека»', () => {
     renderPanel()
     expect(await screen.findByText('Источники проверки: подключено 1 из 3')).toBeInTheDocument()
     const rows = within(screen.getByLabelText('Источники проверки')).getAllByRole('term').map((dt) => dt.parentElement!.textContent)
-    expect(rows).toEqual(['10. ФНСне подключён', '20. proverkachekaосновной', '30. Платформа ОФДвыключен'])
+    expect(rows).toEqual(['10. ФНСне подключён', '20. Проверка чекаосновной', '30. Платформа ОФДвыключен'])
     expect(screen.queryByRole('button', { name: 'у ФНС' })).toBeNull() // not connected → no button
 
     getReceiptJourney.mockResolvedValue(verified) // the refetch after the change sees the new state
-    fireEvent.click(screen.getByRole('button', { name: 'у proverkacheka' }))
+    fireEvent.click(screen.getByRole('button', { name: 'у Проверка чека' }))
     await waitFor(() => expect(verifyReceiptNow).toHaveBeenCalledWith('7', 'proverkacheka'))
-    expect((await within(screen.getByTestId('journey-panel')).findAllByText(/Подтверждён · proverkacheka/)).length).toBeGreaterThan(0)
+    expect((await within(screen.getByTestId('journey-panel')).findAllByText(/Подтверждён · Проверка чека/)).length).toBeGreaterThan(0)
   })
 
   it('«Проверить сейчас» runs a full round', async () => {

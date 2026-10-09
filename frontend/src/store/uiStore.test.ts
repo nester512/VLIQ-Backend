@@ -25,3 +25,15 @@ describe('uiStore — sheets opened from a sheet stack up (KAN-3 «назад»)
     expect(useUiStore.getState().activeSheet).toBe('detail')
   })
 })
+
+describe('uiStore — toasts', () => {
+  beforeEach(() => useUiStore.setState({ toastQueue: [] }))
+
+  it('the same message is not stacked twice; a different one is', () => {
+    const { pushToast } = useUiStore.getState()
+    pushToast('Заполните телефон', 'dg')
+    pushToast('Заполните телефон', 'dg')
+    pushToast('Готово', 'ok')
+    expect(useUiStore.getState().toastQueue.map((t) => t.message)).toEqual(['Заполните телефон', 'Готово'])
+  })
+})

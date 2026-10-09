@@ -45,7 +45,7 @@ function TweenedValue({ raw, style, title }: { raw: number; style: React.CSSProp
 export function MetricCard({
   title, value, delta, deltaColor: tone = 'hint', className = '', tween = false, onClick,
 }: MetricCardProps) {
-  const valueStyle: React.CSSProperties = { fontSize: 'clamp(18px, 6.4vw, 23px)' }
+  const valueStyle: React.CSSProperties = { fontSize: 'clamp(17px, 5.6vw, 23px)' }
   const parsedNum = parseFloat(value.replace(/[^0-9.-]/g, ''))
   const canTween = tween && !isNaN(parsedNum)
 

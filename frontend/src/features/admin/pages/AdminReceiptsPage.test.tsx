@@ -34,19 +34,30 @@ describe('AdminReceiptsPage — archive filters (KAN-31)', () => {
     renderPage('/admin/receipts?status=approved')
 
     await waitFor(() => {
-      expect(getAdminReceipts).toHaveBeenCalledWith({ status: ['approved'], limit: 100 })
+      expect(getAdminReceipts).toHaveBeenCalledWith({ status: ['approved'], order: 'desc', page: 1, limit: 50 })
     })
   })
 
   it('updates the API filter from the visible filter controls', async () => {
     getAdminReceipts.mockResolvedValue({ items: [], total: 0, page: 1, limit: 100, has_more: false })
     renderPage()
-    await waitFor(() => expect(getAdminReceipts).toHaveBeenCalledWith({ status: undefined, limit: 100 }))
+    await waitFor(() => expect(getAdminReceipts).toHaveBeenCalledWith({ status: undefined, order: 'desc', page: 1, limit: 50 }))
 
     fireEvent.click(screen.getByRole('button', { name: 'На проверке' }))
 
     await waitFor(() => {
-      expect(getAdminReceipts).toHaveBeenLastCalledWith({ status: ['on_review'], limit: 100 })
+      expect(getAdminReceipts).toHaveBeenLastCalledWith({ status: ['on_review'], order: 'desc', page: 1, limit: 50 })
     })
+  })
+
+  it('loads the next page instead of stopping at the first one (newest first)', async () => {
+    const row = (id: number) => ({ id, status: 'approved', amount: 100, seller_id: 1, created_at: '2026-10-09T10:00:00Z', attachments: [] })
+    getAdminReceipts
+      .mockResolvedValueOnce({ items: [row(2)], total: 2, page: 1, limit: 50, has_more: true })
+      .mockResolvedValueOnce({ items: [row(1)], total: 2, page: 2, limit: 50, has_more: false })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Загрузить ещё' }))
+    await waitFor(() => expect(getAdminReceipts).toHaveBeenLastCalledWith({ status: undefined, order: 'desc', page: 2, limit: 50 }))
+    expect(await screen.findAllByRole('button', { name: /Магазин не распознан/ })).toHaveLength(2)
   })
 })

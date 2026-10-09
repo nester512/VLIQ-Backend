@@ -374,6 +374,7 @@ button.vliq-btn:focus-visible,
 
 /* Field — mirrors prototype .field */
 .vliq-field {
+  min-width: 0; /* in a 2-column grid on 344 px the field must shrink, not push past the card */
   background: var(--vliq-field);
   border-radius: 14px;
   padding: 11px 14px;
@@ -398,6 +399,7 @@ button.vliq-btn:focus-visible,
   background: transparent;
   border: 0; outline: 0;
   width: 100%;
+  min-width: 0; /* date / time inputs have a wide intrinsic size */
 }
 .vliq-field .vliq-field-v::placeholder { color: var(--vliq-hint); font-weight: 500; }
 
@@ -407,11 +409,12 @@ button.vliq-btn:focus-visible,
   font-size: 11.5px; font-weight: 700;
   padding: 5px 10px; border-radius: 999px;
   white-space: nowrap;
-  /* Containment: must never overflow past a card's rounded corner */
+  /* Containment: never past a card's rounded corner — and never clipped: a long
+     label («Подтверждён · заглушка (стенд)») wraps inside the pill instead. */
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
 }
+.vliq-pill:not(.vliq-row-end .vliq-pill) { white-space: normal; line-height: 1.25; }
 /* Pill color variants — keyed to --vliq-* tokens */
 .vliq-pill--ok    { background: var(--vliq-ok-bg);  color: var(--vliq-ok-ink); }
 .vliq-pill--dg    { background: var(--vliq-dg-bg);  color: var(--vliq-dg-ink); }
@@ -545,9 +548,9 @@ button.vliq-btn:focus-visible,
   letter-spacing: -0.4px;
   color: var(--vliq-text);
   line-height: 1.1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* A sum is never cut to «38 384 3…»: it wraps at the thousands space if it must. */
+  white-space: normal;
+  overflow-wrap: break-word;
   font-variant-numeric: tabular-nums;
 }
 .vliq-metric-card__delta {
@@ -646,9 +649,7 @@ button.vliq-btn:focus-visible,
   color: var(--vliq-hint);
   font-weight: 500;
   margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word; /* «6 одобрено · 44 на проверке» in full, on two lines if needed */
 }
 
 /* Card padding variants */

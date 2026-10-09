@@ -291,7 +291,7 @@ export function RegPage() {
 
           {/* Phone */}
           <div className="vliq-field">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', columnGap: 10, rowGap: 2, marginBottom: 2 }}>
               <label style={{ marginBottom: 0 }}>Номер телефона</label>
               {inTma && (
                 <button

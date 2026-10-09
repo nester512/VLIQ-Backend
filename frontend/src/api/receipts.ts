@@ -84,6 +84,7 @@ interface BackendReceiptStatus {
   attachments?: BackendAttachment[]
   /** What was bought (from the check source's answer). */
   items?: BackendReceiptItem[]
+  created_at?: string | null
 }
 
 // TODO: unit test — mock BackendReceipt with total_sum, bonus_amount, items[{raw_name,qty,price}]
@@ -184,8 +185,8 @@ export const getReceiptStatus = (id: string): Promise<Receipt> =>
       attachments: mapAttachments(r.data.attachments),
       file_url: r.data.file_url ?? undefined,
       items: r.data.items?.map((it) => ({ name: it.raw_name ?? it.name ?? '—', price: it.price, qty: it.qty })),
-      // /status doesn't carry the created_at — the page falls back gracefully.
-      created_at: new Date().toISOString(),
+      // The real time the receipt came in (the page used to show «now» on every poll).
+      created_at: r.data.created_at ?? new Date().toISOString(),
     }))
 
 export interface UploadReceiptPackageOptions {

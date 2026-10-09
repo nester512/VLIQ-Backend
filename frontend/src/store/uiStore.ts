@@ -61,9 +61,16 @@ export const useUiStore = create<UiState>()((set) => ({
 
   pushToast: (message, kind = 'info', icon, duration) => {
     const id = `toast-${++toastCounter}`
-    set((state) => ({
-      toastQueue: [...state.toastQueue, { id, message, kind, icon }],
-    }))
+    let shown = false
+    set((state) => {
+      // The same message already on screen is not stacked again (repeated taps on «Далее»).
+      if (state.toastQueue.some((t) => t.message === message && t.kind === kind)) {
+        shown = true
+        return state
+      }
+      return { toastQueue: [...state.toastQueue, { id, message, kind, icon }] }
+    })
+    if (shown) return
     // Errors/warnings linger longer so they aren't missed — e.g. a 409 surfaced
     // on submit while the user is looking at a different step. Still tap-to-dismiss.
     const ttl = duration ?? (kind === 'dg' || kind === 'wn' ? 6000 : 3000)

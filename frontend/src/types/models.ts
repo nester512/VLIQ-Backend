@@ -65,6 +65,10 @@ export interface SellerBalance {
   pending: number
   /** Reserved by payout requests in progress (new / in_progress), kopecks. */
   on_hold: number
+  /** Receipts not decided yet (all of them, not just a loaded page). */
+  on_review_count: number
+  /** The server's minimum payout request, kopecks (null = unknown, use the default). */
+  payout_min_amount: number | null
   total_earned: number
   total_paid: number
   receipts_approved: number

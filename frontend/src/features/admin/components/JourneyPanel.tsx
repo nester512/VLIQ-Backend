@@ -144,7 +144,8 @@ export function JourneyPanel({ receiptId }: { receiptId: string }) {
   if (isLoading) return <div style={{ display: 'grid', placeItems: 'center', padding: 16 }}><Spinner size={22} /></div>
   if (isError || !j) return null
 
-  const connected = j.providers.filter((p) => p.available)
+  // «Проверить у …» only where a check can actually run: connected AND switched on.
+  const connected = j.providers.filter((p) => p.available && p.enabled)
   const shownProviders = j.providers.filter((p) => p.code !== 'fake' || p.available)
   const checkable = j.summary.verification_status !== 'not_required'
 

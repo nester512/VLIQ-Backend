@@ -130,7 +130,7 @@ function DashContent() {
 
       {/* Top sellers — collapsed → expandable */}
       <div className="vliq-pad">
-        <div className="vliq-sec-t">
+        <div className="vliq-sec-t" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
           <b>Топ продавцов</b>
           <span style={{ fontSize: 12, color: 'var(--vliq-hint)', fontWeight: 600 }}>по начисленному за всё время</span>
         </div>

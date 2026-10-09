@@ -53,7 +53,7 @@ interface SellerRowProps {
 export function SellerRow({ seller, onClick }: SellerRowProps) {
   const fullName = getFullName(seller, seller.telegram_id ?? seller.id)
   const initials = getInitials(seller)
-  const place = [seller.store_name, seller.city].filter(Boolean).join(' · ') || '—'
+  const place = [seller.store_name, seller.city].filter(Boolean).join(' · ') || 'Анкета ещё не заполнена'
   const stats = seller.stats
   const activity = stats
     ? `${fmtInt(stats.receipts_total)} ${plural(stats.receipts_total, ['чек', 'чека', 'чеков'])} · ${fmtInt(stats.receipts_30d)} за 30 дн.`
@@ -129,7 +129,7 @@ function SellersContent() {
   return (
     <div className="vliq-pad" style={{ paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
       <SearchBar
-        placeholder="Имя, телефон, точка, город или Telegram ID"
+        placeholder="Имя, телефон, точка или ID"
         value={search}
         onChange={setSearch}
       />

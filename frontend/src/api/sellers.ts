@@ -38,6 +38,8 @@ interface BackendBalanceRead {
   total_accrued: number
   total_paid_out: number
   on_review?: number
+  on_review_count?: number
+  payout_min_amount?: number | null
 }
 
 function mapSeller(s: BackendSellerRead): SellerProfile {
@@ -65,6 +67,8 @@ function mapBalance(b: BackendBalanceRead): SellerBalance {
     available:        b.available ?? 0,
     pending:          b.on_review ?? 0,
     on_hold:          b.on_hold ?? 0,
+    on_review_count:  b.on_review_count ?? 0,
+    payout_min_amount: b.payout_min_amount ?? null,
     total_earned:     b.total_accrued ?? 0,
     total_paid:       b.total_paid_out ?? 0,
     receipts_approved: 0, // backend doesn't expose this on balance; pages derive it

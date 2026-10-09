@@ -25,7 +25,6 @@ export function Pill({ kind = 'muted', children, className = '' }: PillProps) {
   return (
     <span
       className={['vliq-pill', kindClass[kind], className].join(' ')}
-      style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
     >
       {children}
     </span>

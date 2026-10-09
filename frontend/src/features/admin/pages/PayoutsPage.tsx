@@ -89,12 +89,12 @@ function PayoutRow({ payout, onClick }: PayoutRowProps) {
           {formatDateTime(payout.created_at)}
           {payout.status === 'paid' && payout.paid_at ? ` · выплачена ${formatDateTime(payout.paid_at)}` : ''}
         </span>
+        <div className="vliq-row-chips"><Pill kind={kind}>{statusLabel}</Pill></div>
       </div>
       <div className="vliq-row-end">
         <b className="vliq-tabnum" style={{ fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', whiteSpace: 'nowrap' }}>
           {fmtMoney(payout.amount)}
         </b>
-        <Pill kind={kind}>{statusLabel}</Pill>
       </div>
     </button>
   )

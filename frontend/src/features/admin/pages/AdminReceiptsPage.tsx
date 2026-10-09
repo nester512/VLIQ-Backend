@@ -1,5 +1,5 @@
 import { useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import { getAdminReceipts, type AdminReceipt } from '@/api/admin'
 import { FilterPills } from '@/components/molecules/FilterPills'
 import { Pill } from '@/components/atoms/Pill'
@@ -12,6 +12,7 @@ import { fmtMoney } from '@/utils/formatMoney'
 import { itemsSummary } from '@/utils/receiptItems'
 import { formatDateTime } from '@/utils/formatDate'
 import { useUiStore } from '@/store/uiStore'
+import { LoadMore } from '@/features/admin/components/LoadMore'
 
 type ReceiptFilter = 'all' | 'on_review' | 'approved' | 'needs_revision' | 'rejected' | 'paid_out'
 
@@ -46,12 +47,12 @@ function ReceiptRow({ receipt, onClick }: { receipt: AdminReceipt; onClick: () =
         <b>{shop}</b>
         <span>{seller} · {formatDateTime(receipt.created_at)}</span>
         {itemsSummary(receipt.items) && <span data-testid="row-items">{itemsSummary(receipt.items)}</span>}
+        <div className="vliq-row-chips"><Pill kind={kind}>{status?.label ?? receipt.status}</Pill></div>
       </div>
-      <div style={{ flex: 'none', textAlign: 'right', maxWidth: 120 }}>
-        <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+      <div className="vliq-row-end">
+        <b className="vliq-tabnum" style={{ fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', whiteSpace: 'nowrap' }}>
           {fmtMoney(receipt.amount)}
-        </div>
-        <Pill kind={kind} className="mt-[4px]">{status?.label ?? receipt.status}</Pill>
+        </b>
       </div>
     </button>
   )
@@ -65,12 +66,18 @@ function AdminReceiptsContent() {
     ? param as ReceiptFilter
     : 'all'
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['admin', 'receipts', selected],
-    queryFn: () => getAdminReceipts({ status: selected === 'all' ? undefined : [selected], limit: 100 }),
+  // Newest first and every page reachable: the archive used to stop at the 100 oldest receipts.
+  const { data, isLoading, isFetchNextPageError, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+    queryKey: ['admin', 'receipts', 'archive', selected],
+    queryFn: ({ pageParam }) => getAdminReceipts({
+      status: selected === 'all' ? undefined : [selected], order: 'desc', page: pageParam, limit: 50,
+    }),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.has_more ? last.page + 1 : undefined),
     staleTime: 30_000,
   })
-  const receipts = data?.items ?? []
+  const receipts = data?.pages.flatMap((p) => p.items) ?? []
+  const total = data?.pages[0]?.total ?? 0
 
   function setFilter(next: ReceiptFilter) {
     setSearchParams((current) => {
@@ -86,7 +93,7 @@ function AdminReceiptsContent() {
       <FilterPills options={FILTER_PILLS} value={selected} onChange={(value) => setFilter(value as ReceiptFilter)} />
       {!isLoading && data && (
         <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--vliq-hint)' }}>
-          {data.total} {data.total === 1 ? 'чек' : 'чеков'}
+          {total} {total === 1 ? 'чек' : 'чеков'}
         </div>
       )}
       {isLoading ? (
@@ -99,11 +106,19 @@ function AdminReceiptsContent() {
           description={selected === 'all' ? 'Загруженные продавцами чеки появятся здесь.' : 'Измените фильтр или дождитесь новых чеков.'}
         />
       ) : (
+        <>
         <div className="vliq-list">
           {receipts.map((receipt) => (
             <ReceiptRow key={receipt.id} receipt={receipt} onClick={() => openSheet('detail', { receiptId: receipt.id, receipt })} />
           ))}
         </div>
+        <LoadMore
+          hasMore={Boolean(hasNextPage)}
+          isLoading={isFetchingNextPage}
+          isError={isFetchNextPageError}
+          onLoadMore={fetchNextPage}
+        />
+        </>
       )}
     </div>
   )

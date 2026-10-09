@@ -139,18 +139,16 @@ export function ReceiptInfoCard({ receipt, actions, className = '', onSellerClic
             )}{' '}
             · {sellerStore}
           </div>
-          {(receipt.source || (receipt.verification_status && receipt.verification_status !== 'not_required')) && (
-            <div className="flex flex-wrap gap-1.5 mt-2" data-testid="receipt-intake-badges">
+          <div className="flex flex-wrap gap-1.5 mt-2" data-testid="receipt-intake-badges">
+              <Pill kind={statusKind}>{statusLabel}</Pill>
               {receipt.source && <Pill kind="muted">{SOURCE_LABEL[receipt.source]}</Pill>}
               {receipt.verification_status && receipt.verification_status !== 'not_required' && (
                 <Pill kind={VERIFICATION_KIND[receipt.verification_status]}>
                   {verificationLabel(receipt.verification_status, receipt.verified_by)}
                 </Pill>
               )}
-            </div>
-          )}
+          </div>
         </div>
-        <Pill kind={statusKind} className="flex-none mt-1">{statusLabel}</Pill>
       </div>
 
       {/* Recognised fiscal data */}

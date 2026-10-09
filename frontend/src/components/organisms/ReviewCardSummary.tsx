@@ -82,10 +82,6 @@ export function ReviewCardSummary({ receipt, onDetails, onSellerClick }: ReviewC
           )}
           <span className="vliq-review-summary__muted">{receipt.seller_store ?? '—'}</span>
         </div>
-        <Pill kind={receipt.duplicate_status === 'danger' ? 'dg' : 'ok'} className="flex-none">
-          <Icon name={receipt.duplicate_status === 'danger' ? 'alert' : 'shield'} size={11} />
-          <span style={{ whiteSpace: 'nowrap' }}>{receipt.duplicate_status === 'danger' ? 'Возможный дубль' : 'Уникален'}</span>
-        </Pill>
       </div>
 
       <div className="vliq-review-summary__money">
@@ -134,6 +130,11 @@ export function ReviewCardSummary({ receipt, onDetails, onSellerClick }: ReviewC
       </div>
 
       <div className="vliq-review-summary__chips">
+        {/* In the chip row, not beside the name: the name gets the full width. */}
+        <Pill kind={receipt.duplicate_status === 'danger' ? 'dg' : 'ok'}>
+          <Icon name={receipt.duplicate_status === 'danger' ? 'alert' : 'shield'} size={11} />
+          <span>{receipt.duplicate_status === 'danger' ? 'Возможный дубль' : 'Уникален'}</span>
+        </Pill>
         {receipt.source && <Pill kind="muted">{SOURCE_LABEL[receipt.source]}</Pill>}
         {verification && <Pill kind={VERIFICATION_KIND[verification]}>{verificationLabel(verification, receipt.verified_by)}</Pill>}
         {chips.slice(0, MAX_CHIPS).map((c) => <Pill key={c} kind="dg">{c}</Pill>)}

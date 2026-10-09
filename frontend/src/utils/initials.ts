@@ -13,7 +13,7 @@ export function getInitials(p: NameLike): string {
     .join('')
     .slice(0, 2)
     .toUpperCase()
-  return initials || '??'
+  return initials || 'П' // «Продавец» — a seller who has not filled the form yet
 }
 
 /** Initials from an arbitrary display name like "Алексей Морозов". */

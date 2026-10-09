@@ -60,7 +60,7 @@ export function HeroBalance({
             title={actionLabel}
           >
             <Icon name="cashout" size={18} />
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{actionLabel}</span>
+            <span style={{ overflowWrap: 'break-word', textAlign: 'left', lineHeight: 1.2 }}>{actionLabel}</span>
           </button>
         ) : (
           <div />

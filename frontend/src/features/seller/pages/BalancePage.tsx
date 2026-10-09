@@ -12,7 +12,7 @@ import { useBalance } from '../hooks/useBalance'
 import { useReceipts } from '../hooks/useReceipts'
 import { listMyBonusTransactions } from '@/api/bonusTransactions'
 import { fmtMoney, fmtInt, plural } from '@/utils/formatMoney'
-import { isApprovedStatus, isPendingStatus } from '@/utils/receiptStatus'
+import { isApprovedStatus } from '@/utils/receiptStatus'
 
 type TxFilter = 'all' | 'bonus' | 'payout'
 
@@ -32,7 +32,6 @@ function BalanceContent() {
   // balance endpoint doesn't return it.
   const receiptsTotal    = receipts?.length ?? 0
   const receiptsApproved = receipts?.filter((r) => isApprovedStatus(r.status)).length ?? 0
-  const receiptsPending  = receipts?.filter((r) => isPendingStatus(r.status)).length ?? 0
 
   const { data: transactions, isLoading: txLoading } = useQuery({
     queryKey: ['bonus-transactions', 'me'],
@@ -71,8 +70,13 @@ function BalanceContent() {
           <>
             <MetricCard
               title="На проверке"
-              value={fmtMoney(balance?.pending)}
-              delta={receipts === undefined ? undefined : `${fmtInt(receiptsPending)} ${plural(receiptsPending, ['чек', 'чека', 'чеков'])}`}
+              // A QR receipt has no bonus until the admin decides — then show HOW MANY are waiting.
+              value={balance && balance.pending === 0 && balance.on_review_count > 0
+                ? `${fmtInt(balance.on_review_count)} ${plural(balance.on_review_count, ['чек', 'чека', 'чеков'])}`
+                : fmtMoney(balance?.pending)}
+              delta={balance && balance.pending === 0 && balance.on_review_count > 0
+                ? 'бонус назначит администратор'
+                : balance ? `${fmtInt(balance.on_review_count)} ${plural(balance.on_review_count, ['чек', 'чека', 'чеков'])}` : undefined}
               deltaColor="wn"
             />
             <MetricCard

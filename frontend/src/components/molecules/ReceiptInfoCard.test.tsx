@@ -204,7 +204,7 @@ describe('ReceiptInfoCard — QR intake badges', () => {
 
   it('legacy file receipts show no intake badges', () => {
     render(<ReceiptInfoCard receipt={base({ verification_status: 'not_required' })} />)
-    expect(screen.queryByTestId('receipt-intake-badges')).toBeNull()
+    expect(screen.getByTestId('receipt-intake-badges').querySelectorAll('.vliq-pill')).toHaveLength(1) // only the status
   })
 })
 

@@ -207,6 +207,8 @@ function ReviewContent() {
         />
       </div>
       <RejectReasonSheet
+        // Behind the sheet the deck already shows the NEXT card — say which receipt is rejected.
+        copy={rejectingReceiptId ? { title: `Причина отклонения · чек #${rejectingReceiptId}` } : undefined}
         open={rejectingReceiptId !== null}
         onClose={handleRejectClose}
         onConfirm={handleRejectConfirm}

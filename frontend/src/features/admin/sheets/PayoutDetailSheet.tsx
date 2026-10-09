@@ -121,10 +121,20 @@ export function PayoutDetailSheet({ payoutId, payout: initial }: PayoutDetailShe
             <button key={c.receipt_id} type="button" onClick={() => void openReceipt(c.receipt_id)}
               aria-label={`Открыть чек #${c.receipt_id}`}
               style={{ display: 'block', width: '100%', background: 'none', border: 0, padding: 0, textAlign: 'inherit', font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
-              <KVRow
-                label={`Чек #${c.receipt_id}${c.purchase_date ? ` · ${formatDate(c.purchase_date)}` : ''} ›`}
-                value={`${fmtMoney(c.amount)}${c.amount < c.bonus_amount ? ` из ${fmtMoney(c.bonus_amount)}` : ''} · ${RECEIPT_STATUS_LABEL[c.receipt_status] ?? c.receipt_status}`}
-              />
+              <div className="vliq-row" style={{ padding: '10px 0', gap: 10 }}>
+                <div className="vliq-row-tx">
+                  <b style={{ fontSize: 14 }}>Чек #{c.receipt_id}</b>
+                  <span>
+                    {[c.purchase_date && formatDate(c.purchase_date), RECEIPT_STATUS_LABEL[c.receipt_status] ?? c.receipt_status]
+                      .filter(Boolean).join(' · ')}
+                  </span>
+                </div>
+                <div className="vliq-row-end">
+                  <b className="vliq-tabnum" style={{ fontSize: 14, whiteSpace: 'nowrap' }}>{fmtMoney(c.amount)}</b>
+                  {c.amount < c.bonus_amount && <span style={{ fontSize: 11.5, color: 'var(--vliq-hint)' }}>из {fmtMoney(c.bonus_amount)}</span>}
+                </div>
+                <span aria-hidden style={{ color: 'var(--vliq-hint)', flex: 'none' }}>›</span>
+              </div>
             </button>
           ))
         ) : (
@@ -157,7 +167,7 @@ export function PayoutDetailSheet({ payoutId, payout: initial }: PayoutDetailShe
             value={txnId}
             maxLength={128}
             onChange={(e) => setTxnId(e.target.value)}
-            placeholder="Номер транзакции в банке (необязательно)"
+            placeholder="№ транзакции (необязательно)"
             style={{
               width: '100%', boxSizing: 'border-box', padding: '12px 14px', borderRadius: 14, border: 'none',
               background: 'var(--vliq-field)', color: 'var(--vliq-text)', fontSize: 14, fontFamily: 'inherit',

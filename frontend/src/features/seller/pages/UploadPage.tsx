@@ -228,17 +228,17 @@ function ManualForm({ seed, serverErrors, onDone, onCancel }: {
           Всё есть внизу бумажного чека: дата и время, «ИТОГ», ФН, ФД и ФП (ФПД).
         </p>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
         <Field id="date" label="Дата" type="date" value={v.date} onChange={set('date')} error={errors.date} />
         <Field id="time" label="Время" type="time" value={v.time} onChange={set('time')} error={errors.time} />
       </div>
       <Field id="sum" label="Сумма (ИТОГ), ₽" inputMode="decimal" placeholder="1450.00" value={v.sum} onChange={set('sum')} error={errors.sum} />
       <Field id="fn" label="ФН" hint="16 цифр" inputMode="numeric" placeholder="9960440300712345" value={v.fn} onChange={set('fn')} error={errors.fn} />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
         <Field id="fd" label="ФД" hint="№ документа" inputMode="numeric" value={v.fd} onChange={set('fd')} error={errors.fd} />
         <Field id="fp" label="ФП" hint="ФП / ФПД, до 10 цифр" inputMode="numeric" value={v.fp} onChange={set('fp')} error={errors.fp} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
         <Btn type="button" variant="ghost" onClick={onCancel}>Назад</Btn>
         <Btn type="submit">Проверить</Btn>
       </div>
@@ -557,7 +557,7 @@ function UploadContent() {
           <Btn onClick={() => void send()} disabled={!confirmed || isPending} loading={isPending}>
             {alreadySent ? 'Отправить повторно' : 'Отправить на проверку'}
           </Btn>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
             {/* Locked while sending: a late response must not remount a form being edited. */}
             <Btn
               variant="ghost"

@@ -59,12 +59,12 @@ function ReceiptRow({ receipt, onClick }: { receipt: AdminReceipt; onClick: () =
         </b>
         <span>{formatDateTime(receipt.created_at)}</span>
         {itemsSummary(receipt.items) && <span data-testid="row-items">{itemsSummary(receipt.items)}</span>}
+        <div className="vliq-row-chips"><Pill kind={kind}>{status?.label ?? receipt.status}</Pill></div>
       </div>
-      <div style={{ flex: 'none', textAlign: 'right', maxWidth: 130 }}>
-        <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+      <div className="vliq-row-end">
+        <b className="vliq-tabnum" style={{ fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', whiteSpace: 'nowrap' }}>
           {fmtMoney(receipt.amount)}
-        </div>
-        <Pill kind={kind} className="mt-[4px]">{status?.label ?? receipt.status}</Pill>
+        </b>
       </div>
     </button>
   )

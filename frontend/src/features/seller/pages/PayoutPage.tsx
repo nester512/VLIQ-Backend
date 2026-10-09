@@ -9,7 +9,8 @@ import { useBalance } from '../hooks/useBalance'
 import { useRequestPayout } from '../hooks/useRequestPayout'
 import { fmtMoney } from '@/utils/formatMoney'
 
-const MIN_PAYOUT_KOPECKS = 300_000
+/** Fallback only — the server's minimum (balance.payout_min_amount) wins. */
+const DEFAULT_MIN_PAYOUT = 300_000
 
 // S5.3: requisites are entered in THIS form on every request and never stored
 // in the profile. The only payout method per spec is СБП by phone number —
@@ -30,6 +31,7 @@ export function PayoutPage() {
   const newForm = () => setIdempotencyKey(crypto.randomUUID())
 
   const available = balance?.available ?? 0
+  const MIN_PAYOUT_KOPECKS = balance?.payout_min_amount ?? DEFAULT_MIN_PAYOUT
 
   // S5.1: partial withdrawal — the amount is editable (default = full balance).
   const [amountStr, setAmountStr] = useState('')
@@ -45,7 +47,7 @@ export function PayoutPage() {
 
   const amountError = amountStr !== ''
     ? amount < MIN_PAYOUT_KOPECKS
-      ? 'Минимальная сумма — 3 000 ₽'
+      ? `Минимальная сумма — ${fmtMoney(MIN_PAYOUT_KOPECKS)}`
       : amount > available
         ? 'Больше доступного баланса'
         : undefined
@@ -77,7 +79,7 @@ export function PayoutPage() {
         value={amountStr}
         placeholder={String(Math.floor(available / 100))}
         error={amountError}
-        hint={`Доступно ${fmtMoney(available)} · минимум 3 000 ₽`}
+        hint={`Доступно ${fmtMoney(available)} · минимум ${fmtMoney(MIN_PAYOUT_KOPECKS)}`}
         onChange={(e) => { setAmountStr(e.target.value.replace(/[^\d]/g, '')); newForm() }}
       />
 

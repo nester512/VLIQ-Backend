@@ -19,7 +19,7 @@ export const intakeLabel = (source: string | null | undefined): string | null =>
 /** Check providers — short names for chips and the timeline. */
 export const PROVIDER_LABEL: Record<string, string> = {
   fns: 'ФНС',
-  proverkacheka: 'proverkacheka',
+  proverkacheka: 'Проверка чека',
   platformaofd: 'Платформа ОФД',
   taxcom: 'Такском',
   fake: 'заглушка (стенд)',
