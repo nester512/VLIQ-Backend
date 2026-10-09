@@ -121,6 +121,8 @@ async def test_step1_dev_login_returns_jwt(client: AsyncClient) -> None:
     with (
         patch("src.auth.handlers.api.v1.router._find_admin", new=AsyncMock(return_value=None)),
         patch("src.auth.handlers.api.v1.router._find_seller", new=AsyncMock(return_value=None)),
+        # No recovered-account link for this Telegram ID (account recovery, 0013).
+        patch("src.auth.handlers.api.v1.router.login_seller_id", new=AsyncMock(return_value=None)),
         patch("src.auth.handlers.api.v1.router.jwt_auth.create_token", return_value="fake_token"),
         patch("sqlalchemy.ext.asyncio.AsyncSession.commit", new=AsyncMock()),
         patch("sqlalchemy.ext.asyncio.AsyncSession.refresh", new=AsyncMock()),
@@ -144,18 +146,26 @@ async def test_step1_dev_login_returns_jwt(client: AsyncClient) -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_step2_get_me_returns_seller(client: AsyncClient) -> None:
+async def test_step2_get_me_returns_seller(app, client: AsyncClient) -> None:
     """GET /sellers/me with valid seller token → 200 with pending status.
 
-    Adapted: repo.get_by_telegram_id_or_404 is mocked to return a seller object.
+    The handler reads the seller straight from the session (the repository mock this
+    test used to patch is no longer on that path) — so the session is mocked.
     """
     mock_seller = _mock_seller(_SELLER_TG_ID, status="pending")
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = mock_seller
 
-    with patch(
-        "src.seller.repository.SellerRepository.get_by_telegram_id_or_404",
-        new=AsyncMock(return_value=mock_seller),
-    ):
+    async def _fake_pg():
+        session = MagicMock(spec=AsyncSession)
+        session.execute = AsyncMock(return_value=result)
+        yield session
+
+    app.dependency_overrides[get_pg_session] = _fake_pg
+    try:
         response = await client.get(f"{PREFIX}/sellers/me", headers=_seller_headers())
+    finally:
+        app.dependency_overrides.pop(get_pg_session, None)
 
     assert response.status_code == 200, f"GET /sellers/me failed: {response.text[:200]}"
     body = response.json()
