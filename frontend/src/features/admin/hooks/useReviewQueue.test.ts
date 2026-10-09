@@ -62,6 +62,8 @@ describe('useReviewQueue', () => {
 
     expect(getAdminReceipts).toHaveBeenCalledWith({
       status: [...REVIEW_QUEUE_STATUSES],
+      queue: true, // blocked sellers' receipts are not work
+      sort: 'no_fiscal_first', // temporary rule: receipts without QR / fiscal data first
       page: 1,
       limit: 20,
     })

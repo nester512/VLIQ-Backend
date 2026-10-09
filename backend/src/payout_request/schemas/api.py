@@ -107,6 +107,9 @@ class PayoutSummaryRead(BaseModel):
     in_progress: PayoutStatusTotal = Field(default_factory=PayoutStatusTotal)
     paid: PayoutStatusTotal = Field(default_factory=PayoutStatusTotal)
     rejected: PayoutStatusTotal = Field(default_factory=PayoutStatusTotal)
+    blocked_in_progress: PayoutStatusTotal = Field(
+        default_factory=PayoutStatusTotal, description="Requests in progress of BLOCKED sellers (not in the totals above)"
+    )
     paid_this_month: PayoutStatusTotal = Field(
         default_factory=PayoutStatusTotal, description="Paid since the 1st of the current month (by paid_at)"
     )

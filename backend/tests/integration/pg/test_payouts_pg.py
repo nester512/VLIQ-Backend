@@ -228,7 +228,7 @@ async def test_blocked_seller_cannot_be_paid_but_can_be_refused(session_factory)
         await reject_payout_request(payout_id=second.id, admin_id=777, admin_comment="Продавец заблокирован", session=s)
     async with sm() as s:
         listed = await list_payout_requests(ADMIN, s, page=1, limit=50, seller_id=None, brand_id=None, req_status=None,
-                                            date_from=None, date_to=None, search=None, order="desc")  # fmt: skip
+                                            date_from=None, date_to=None, search=None, blocked="exclude", order="desc")  # fmt: skip
     assert {p.seller_status for p in listed.items} == {"blocked"}
 
 
@@ -381,12 +381,12 @@ async def test_summary_counts_every_request_not_one_page(session_factory) -> Non
 
     async with sm() as s:
         page = await list_payout_requests(ADMIN, s, page=1, limit=2, seller_id=None, brand_id=None, req_status=None,
-                                          date_from=None, date_to=None, search=None, order="desc")  # fmt: skip
+                                          date_from=None, date_to=None, search=None, blocked="exclude", order="desc")  # fmt: skip
         summary = await payout_summary(ADMIN, s, seller_id=None, brand_id=None, date_from=None, date_to=None, search=None)
         found = await list_payout_requests(ADMIN, s, page=1, limit=50, seller_id=None, brand_id=None, req_status=None,
-                                           date_from=None, date_to=None, search=str(SEED_SELLER_ID), order="desc")  # fmt: skip
+                                           date_from=None, date_to=None, search=str(SEED_SELLER_ID), blocked="exclude", order="desc")  # fmt: skip
         oldest = await list_payout_requests(ADMIN, s, page=1, limit=50, seller_id=None, brand_id=None, req_status=None,
-                                            date_from=None, date_to=None, search=None, order="asc")  # fmt: skip
+                                            date_from=None, date_to=None, search=None, blocked="exclude", order="asc")  # fmt: skip
         covered = await payout_receipts(ids[0], ADMIN, s)
 
     assert (page.total, len(page.items)) == (5, 2)

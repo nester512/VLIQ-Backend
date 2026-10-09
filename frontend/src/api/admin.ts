@@ -22,6 +22,10 @@ export interface AdminReceiptsFilters {
   limit?: number
   /** `asc` (default) = review queue FIFO; `desc` = newest first (seller history). */
   order?: 'asc' | 'desc'
+  /** Review queue: receipts of blocked sellers are left out (their history keeps them). */
+  queue?: boolean
+  /** Server-side queue order; `no_fiscal_first` = receipts without QR / ФН-ФД-ФП first. */
+  sort?: 'created' | 'no_fiscal_first'
 }
 
 export interface AdminPayoutsFilters {
@@ -626,6 +630,8 @@ export const getAdminReceipts = async (
   if (filters.from) params['from'] = filters.from
   if (filters.to) params['to'] = filters.to
   if (filters.order) params['order'] = filters.order
+  if (filters.queue) params['queue'] = 'true'
+  if (filters.sort) params['sort'] = filters.sort
   const page = filters.page ?? 1
   const limit = filters.limit ?? 50
   params['page'] = page

@@ -144,6 +144,17 @@ async def test_filters_status_on_review_city_search(session_factory, seeded) -> 
         assert await _ids(s, search="²") == []  # unicode digit: no int() crash
 
 
+async def test_search_by_full_name_any_order_any_case(session_factory, seeded) -> None:
+    """Bug: «Имя Фамилия» found nothing — first and last name were matched separately."""
+    async with session_factory() as s:
+        assert await _ids(s, search="Виктор Рисковый") == [RISKY]  # full name
+        assert await _ids(s, search="рисковый   ВИКТОР ") == [RISKY]  # reversed, any case, extra spaces
+        assert await _ids(s, search="Викт") == [RISKY]  # partial
+        assert await _ids(s, search="Виктор Молчун") == []  # words of two different sellers → nobody
+        assert await _ids(s, search="Елена Заблокированная", status="blocked") == [BLOCKED]  # with a status filter
+        assert await _ids(s, search="Елена Заблокированная", status="active") == []
+
+
 async def test_seller_without_receipts_has_zero_stats(session_factory, seeded) -> None:
     async with session_factory() as s:
         resp = await list_sellers(

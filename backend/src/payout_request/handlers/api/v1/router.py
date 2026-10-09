@@ -20,7 +20,7 @@ from src.app.auth.jwt import JwtTokenT, require_admin, require_seller, validate_
 from src.app.depends import get_config, get_pg_session
 from src.app.errors import AppError
 from src.app.settings import Settings
-from src.payout_request.models import PayoutReceipt, PayoutRequest, PayoutRequestStatus
+from src.payout_request.models import ACTIVE_PAYOUT_STATUSES, PayoutReceipt, PayoutRequest, PayoutRequestStatus
 from src.payout_request.schemas.api import (
     PayoutCoverageRead,
     PayoutRequestApprove,
@@ -39,6 +39,7 @@ from src.payout_request.service import (
     update_payout_request,
 )
 from src.receipt.models import Receipt
+from src.seller.blocked import is_blocked
 from src.seller.depends import forbid_blocked_seller
 from src.seller.handlers.api.v1.router import seller_search_condition
 from src.seller.models import Seller
@@ -46,6 +47,12 @@ from src.seller.models import Seller
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/payout-requests", tags=["Payout Requests"])
+
+BlockedScope = Literal["exclude", "only", "include"]
+_BLOCKED_DOC = (
+    "exclude (default) — requests in progress of BLOCKED sellers are left out (they cannot be paid); "
+    "only — just blocked sellers' requests; include — everything"
+)
 
 
 async def _attach_seller_info(
@@ -83,6 +90,7 @@ def _filtered(  # noqa: PLR0913
     date_from: datetime | None,
     date_to: datetime | None,
     search: str | None,
+    blocked: str = "exclude",
 ) -> Select:
     if seller_id is not None:
         stmt = stmt.where(PayoutRequest.seller_id == seller_id)
@@ -94,6 +102,13 @@ def _filtered(  # noqa: PLR0913
         stmt = stmt.where(PayoutRequest.created_at >= date_from)
     if date_to is not None:
         stmt = stmt.where(PayoutRequest.created_at <= date_to)
+    # Requests IN PROGRESS of blocked sellers are not work (they cannot be paid): out of
+    # the main queue and its totals, reachable via blocked=only; paid / rejected stay history.
+    active_of_blocked = PayoutRequest.status.in_(ACTIVE_PAYOUT_STATUSES) & is_blocked(PayoutRequest.seller_id)
+    if blocked == "exclude":
+        stmt = stmt.where(~active_of_blocked)
+    elif blocked == "only":
+        stmt = stmt.where(is_blocked(PayoutRequest.seller_id))
     if search and search.strip():
         term = search.strip()
         by_seller = PayoutRequest.seller_id.in_(select(Seller.telegram_id).where(seller_search_condition(term)))
@@ -193,11 +208,13 @@ async def list_payout_requests(  # noqa: PLR0913
     date_from: datetime | None = Query(default=None),  # noqa: B008
     date_to: datetime | None = Query(default=None),  # noqa: B008
     search: str | None = Query(default=None, max_length=100),
+    blocked: BlockedScope = Query(default="exclude", description=_BLOCKED_DOC),
     order: Literal["desc", "asc"] = Query(default="desc", description="By creation time: newest (desc) or oldest first"),
 ) -> PagedResponse[PayoutRequestRead]:
     stmt = _filtered(
         select(PayoutRequest), seller_id=seller_id, brand_id=brand_id,
         req_status=req_status.value if req_status else None, date_from=date_from, date_to=date_to, search=search,
+        blocked=blocked,
     )  # fmt: skip
     total: int = (await session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     by = (PayoutRequest.created_at.asc(), PayoutRequest.id.asc()) if order == "asc" else (
@@ -242,7 +259,19 @@ async def payout_summary(  # noqa: PLR0913
         seller_id=seller_id, brand_id=brand_id, req_status=None, date_from=None, date_to=None, search=search,
     )  # fmt: skip
     n_month, sum_month = (await session.execute(month)).one()
-    return PayoutSummaryRead(**totals, paid_this_month=PayoutStatusTotal(count=int(n_month), amount=int(sum_month)))
+    held = _filtered(
+        select(func.count(), func.coalesce(func.sum(PayoutRequest.amount), 0)).where(
+            PayoutRequest.status.in_(ACTIVE_PAYOUT_STATUSES)
+        ),
+        seller_id=seller_id, brand_id=brand_id, req_status=None, date_from=date_from, date_to=date_to, search=search,
+        blocked="only",
+    )  # fmt: skip
+    n_held, sum_held = (await session.execute(held)).one()
+    return PayoutSummaryRead(
+        **totals,
+        paid_this_month=PayoutStatusTotal(count=int(n_month), amount=int(sum_month)),
+        blocked_in_progress=PayoutStatusTotal(count=int(n_held), amount=int(sum_held)),
+    )
 
 
 @router.get(

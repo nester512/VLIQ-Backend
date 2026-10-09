@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from enum import StrEnum
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Form, Query, Request, Response, UploadFile, status
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import Select, func, select, update
+from sqlalchemy import Select, case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.api.pagination import PagedResponse
@@ -65,6 +66,7 @@ from src.receipt_ocr.mime import sniff_mime
 from src.receipt_ocr.qr_parser import QRParseError, parse_qr_string
 from src.receipt_ocr.storage import get_receipt_storage, to_viewable_url
 from src.receipt_pipeline.state_machine import ReceiptStateMachine
+from src.seller.blocked import not_blocked
 from src.seller.depends import forbid_blocked_seller
 from src.seller.models import Seller
 from src.seller.services.balance_service import get_seller_balance
@@ -645,6 +647,9 @@ async def approve_receipt(  # noqa: PLR0913
     async with session.begin():
         receipt = await _get_receipt_for_update(session, receipt_id)
         _require_transition(receipt, ReceiptStatus.approved.value, "admin")
+        # A card opened before the seller was blocked must not pay him a bonus now.
+        if await session.scalar(select(Seller.status).where(Seller.telegram_id == receipt.seller_id)) == "blocked":
+            raise AppError("RECEIPT_SELLER_BLOCKED", status_code=409)
 
         seller_id = receipt.seller_id
         bonus_amount = body.bonus_amount if body.bonus_amount is not None else (receipt.bonus_amount or 0)
@@ -1068,7 +1073,18 @@ async def create_receipt(
     return await _build_receipt_read(session, new_id)
 
 
-def _order_receipt_queue(stmt: Select, *, newest_first: bool = False) -> Select:
+class ReceiptQueueSort(StrEnum):
+    """One place that orders the review queue — swap the rule here, not in the deck."""
+
+    created = "created"
+    # Temporary business rule (2026-10-09): receipts without QR / fiscal data first —
+    # they need a human the most; then the rest. Upload time inside each group.
+    no_fiscal_first = "no_fiscal_first"
+
+
+def _order_receipt_queue(
+    stmt: Select, *, newest_first: bool = False, sort: ReceiptQueueSort = ReceiptQueueSort.created
+) -> Select:
     """Order the admin review queue oldest-first (FIFO); ``newest_first`` for histories.
 
     ``id`` is a REQUIRED tiebreaker, not cosmetic: receipts are uploaded in
@@ -1076,6 +1092,9 @@ def _order_receipt_queue(stmt: Select, *, newest_first: bool = False) -> Select:
     ambiguous key alone makes ``offset``/``limit`` pagination repeat or skip
     rows between pages. ``id`` is monotonic, making the order total and stable.
     """
+    if sort is ReceiptQueueSort.no_fiscal_first:
+        has_fiscal = (Receipt.fn.is_not(None)) & (Receipt.fd.is_not(None)) & (Receipt.fp.is_not(None))
+        stmt = stmt.order_by(case((has_fiscal, 1), else_=0))
     if newest_first:
         return stmt.order_by(Receipt.created_at.desc(), Receipt.id.desc())
     return stmt.order_by(Receipt.created_at.asc(), Receipt.id.asc())
@@ -1101,6 +1120,13 @@ async def list_receipts(  # noqa: PLR0913
     to_date: datetime | None = Query(default=None, alias="to", description="ISO date upper bound on created_at"),  # noqa: B008
     order: Literal["asc", "desc"] = Query(
         default="asc", description="asc = review queue (FIFO); desc = newest first (seller history)"
+    ),
+    queue: bool = Query(
+        default=False, description="Admin review queue: receipts of BLOCKED sellers are left out (history keeps them)"
+    ),
+    sort: ReceiptQueueSort = Query(  # noqa: B008
+        default=ReceiptQueueSort.created,
+        description="created — by upload time (see `order`); no_fiscal_first — receipts without QR / ФН-ФД-ФП first",
     ),
 ) -> PagedResponse[ReceiptRead]:
     """Admin receipt queue with real pagination and server-side filters (H25).
@@ -1130,10 +1156,13 @@ async def list_receipts(  # noqa: PLR0913
     if to_date is not None:
         stmt = stmt.where(Receipt.created_at <= to_date)
 
+    if queue:
+        stmt = stmt.where(not_blocked(Receipt.seller_id))
+
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total: int = (await session.execute(count_stmt)).scalar_one()
 
-    stmt = _order_receipt_queue(stmt, newest_first=order == "desc").offset((page - 1) * limit).limit(limit)
+    stmt = _order_receipt_queue(stmt, newest_first=order == "desc", sort=sort).offset((page - 1) * limit).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
 
     items = []

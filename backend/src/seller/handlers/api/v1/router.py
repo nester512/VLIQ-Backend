@@ -12,7 +12,7 @@ from typing import Annotated, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, Query, Request, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -307,26 +307,27 @@ async def create_seller(payload: SellerCreate) -> SellerRead:
 _MAX_TELEGRAM_ID_DIGITS = 18  # fits a signed BIGINT
 
 def seller_search_condition(term: str) -> ColumnElement[bool]:
-    """Name / phone / outlet / city substring, or an exact telegram_id for a digits-only term."""
-    # Escape LIKE wildcards: a literal "%" or "_" must not match every seller.
-    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    pattern = f"%{escaped}%"
-    conditions = [
-        col.ilike(pattern, escape="\\")
-        for col in (
-            Seller.first_name,
-            Seller.last_name,
-            func.concat_ws(" ", Seller.first_name, Seller.last_name),
-            Seller.phone_e164,
-            Seller.outlet_name,
-            Seller.city,
+    """Every word of the query must match a name / phone / outlet / city (any order,
+    any case, extra spaces ignored): «Имя Фамилия», «Фамилия Имя», «фамилия» all find
+    the seller. A digits-only term may also be an exact telegram_id."""
+    words = term.split()
+    per_word = []
+    for word in words:
+        # Escape LIKE wildcards: a literal "%" or "_" must not match every seller.
+        escaped = word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        per_word.append(
+            or_(*(col.ilike(pattern, escape="\\") for col in (
+                Seller.first_name, Seller.last_name, Seller.phone_e164, Seller.outlet_name, Seller.city,
+            )))  # fmt: skip
         )
-    ]
+    condition = and_(*per_word) if per_word else true()
     # ASCII-only and BIGINT-sized: "²".isdigit() is True but int() fails, and a
     # 20-digit number overflows the bigint bind — both used to surface as a 500.
+    term = term.strip()
     if term.isascii() and term.isdigit() and len(term) <= _MAX_TELEGRAM_ID_DIGITS:
-        conditions.append(Seller.telegram_id == int(term))
-    return or_(*conditions)
+        condition = or_(condition, Seller.telegram_id == int(term))
+    return condition
 
 
 _SELLER_SORTS = {

@@ -17,6 +17,11 @@ import { invalidateAfterReceiptChange } from '@/features/admin/invalidate'
 // and would block older `on_review` receipts behind them.
 export const REVIEW_QUEUE_STATUSES = ['on_review'] as const
 const PAGE_LIMIT = 20
+/**
+ * The queue's order lives on the server (one place, swappable). Temporary rule
+ * (2026-10-09): receipts without QR / fiscal data first, then by upload time.
+ */
+export const REVIEW_QUEUE_SORT = 'no_fiscal_first' as const
 
 export function useReviewQueue() {
   return useInfiniteQuery({
@@ -24,6 +29,8 @@ export function useReviewQueue() {
     queryFn: ({ pageParam = 1 }) =>
       getAdminReceipts({
         status: [...REVIEW_QUEUE_STATUSES],
+        queue: true, // blocked sellers' receipts are not work
+        sort: REVIEW_QUEUE_SORT,
         page: pageParam as number,
         limit: PAGE_LIMIT,
       }),

@@ -168,6 +168,7 @@ describe('SwipeDeck — skip without a decision', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Пропустить чек' })) // a → end: b, c, a
     fireEvent.click(screen.getByRole('button', { name: 'Одобрить' })) // b
     fireEvent.click(screen.getByRole('button', { name: 'Отклонить' })) // c
+    fireEvent.click(screen.getByRole('button', { name: 'К пропущенным' })) // main queue done
     fireEvent.click(screen.getByRole('button', { name: 'Одобрить' })) // a again
 
     expect(onSwipe.mock.calls).toEqual([['b', 'approve'], ['c', 'reject'], ['a', 'approve']])
@@ -199,9 +200,37 @@ describe('SwipeDeck — skip without a decision', () => {
     expect(onSwipe).toHaveBeenCalledWith('q', 'approve')
   })
 
-  it('skip is disabled for the last card', () => {
+  it('when only skipped receipts are left: «Основная очередь разобрана» → «К пропущенным»', () => {
+    const onSwipe = vi.fn()
+    render(<SwipeDeck receipts={[receipt({ id: 'a' }), receipt({ id: 'b' })]} onSwipe={onSwipe} onTap={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Пропустить чек' })) // a skipped
+    fireEvent.click(screen.getByRole('button', { name: 'Одобрить' })) // b decided
+    expect(screen.getByTestId('skipped-gate')).toHaveTextContent('Основная очередь разобрана')
+    expect(screen.getByTestId('skipped-gate')).toHaveTextContent('Пропущено 1 чек')
+
+    fireEvent.click(screen.getByRole('button', { name: 'К пропущенным' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Одобрить' }))
+    expect(onSwipe.mock.calls).toEqual([['b', 'approve'], ['a', 'approve']])
+    expect(onSwipe).toHaveBeenCalledTimes(2) // nothing else was sent for the skipped card
+  })
+
+  it('the last card can be skipped too — straight to the gate', () => {
     render(<SwipeDeck receipts={[receipt({ id: 'only' })]} onSwipe={vi.fn()} onTap={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'Пропустить чек' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Пропустить чек' }))
+    expect(screen.getByTestId('skipped-gate')).toBeInTheDocument()
+  })
+
+  it('while an approve / reject is being sent every action is locked', () => {
+    const onSwipe = vi.fn()
+    const onSkip = vi.fn()
+    render(<SwipeDeck receipts={three()} onSwipe={onSwipe} onTap={vi.fn()} onSkip={onSkip} isActing />)
+    for (const name of ['Одобрить', 'Отклонить', 'Пропустить чек']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled()
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Одобрить' }))
+    expect(onSwipe).not.toHaveBeenCalled()
+    expect(onSkip).not.toHaveBeenCalled()
   })
 })
 

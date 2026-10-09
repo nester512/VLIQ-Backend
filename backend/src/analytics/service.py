@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.analytics.schemas.api import AdminDashboard, DashboardDay, DashboardTopProduct, DashboardTopSeller
 from src.payout_request.models import PayoutRequest, PayoutRequestStatus
 from src.receipt.models import Receipt, ReceiptStatus
+from src.seller.blocked import not_blocked
 from src.seller.models import Seller, SellerStatus
 
 DAILY_DAYS = 30
@@ -83,7 +84,8 @@ async def _receipts_counts(session: AsyncSession) -> tuple[int, int, int]:
     approved_sum = func.avg(Receipt.total_sum).filter(Receipt.status.in_(_APPROVED), Receipt.total_sum.is_not(None))
     stmt = select(
         func.count(),
-        func.count().filter(Receipt.status == ReceiptStatus.on_review.value),
+        # The review queue leaves blocked sellers out — so does its counter.
+        func.count().filter(Receipt.status == ReceiptStatus.on_review.value, not_blocked(Receipt.seller_id)),
         cast(func.round(func.coalesce(approved_sum, 0)), Integer),
     ).where(_LIVE)
     total, on_review, avg_check = (await session.execute(stmt)).one()
@@ -91,7 +93,8 @@ async def _receipts_counts(session: AsyncSession) -> tuple[int, int, int]:
 
 
 async def _payouts_counts(session: AsyncSession) -> tuple[int, int, int, int]:
-    pending = PayoutRequest.status.in_(_PAYOUT_PENDING)
+    # Requests of blocked sellers are not «к выплате» (they cannot be paid).
+    pending = PayoutRequest.status.in_(_PAYOUT_PENDING) & not_blocked(PayoutRequest.seller_id)
     paid_month = (PayoutRequest.status == PayoutRequestStatus.paid.value) & (
         # paid_at since 0012 (backfilled from updated_at for older requests).
         func.coalesce(PayoutRequest.paid_at, PayoutRequest.updated_at) >= func.date_trunc("month", func.now())

@@ -6,6 +6,7 @@ import type { AdminReceipt } from '@/api/admin'
 import { ReviewCardSummary } from '@/components/organisms/ReviewCardSummary'
 import { ReviewHelp } from '@/components/organisms/ReviewHelp'
 import type { SwipeDirection } from '@/features/admin/hooks/useReviewQueue'
+import { plural } from '@/utils/formatMoney'
 
 // Swipe thresholds (from prototype)
 const THRESHOLD_X = 95
@@ -285,9 +286,11 @@ export interface SwipeDeckProps {
   onSellerClick?: (sellerId: number) => void
   /** A card was skipped (moved to the end of the deck, no API call). */
   onSkip?: (receiptId: string) => void
+  /** An approve / reject is being sent: every action is locked until it settles. */
+  isActing?: boolean
 }
 
-export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0, totalCount, onSellerClick, onSkip }: SwipeDeckProps) {
+export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0, totalCount, onSellerClick, onSkip, isActing = false }: SwipeDeckProps) {
   // Consume the queue by receipt ID, not by positional index. A positional
   // index silently SKIPS cards whenever the list shrinks from the front — which
   // happens on any mid-session refetch (window focus, a detail-sheet action, a
@@ -337,21 +340,21 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
   const handleSwipe = useCallback(
     (dir: SwipeDirection) => {
       const current = pending[0]
-      if (!current) return
+      if (!current || isActing) return
       setProcessed((prev) => ({ ...prev, [dir]: prev[dir] + 1 }))
       onSwipe(current.id, dir)
       orderRef.current.push({ id: current.id, dir })
       setProcessedIds((prev) => new Set(prev).add(current.id))
     },
-    [pending, onSwipe],
+    [pending, onSwipe, isActing],
   )
 
   const handleSkip = useCallback(() => {
     const current = pending[0]
-    if (!current || pending.length < 2) return
+    if (!current || isActing) return
     setSkippedIds((prev) => [...prev.filter((id) => id !== current.id), current.id])
     onSkip?.(current.id)
-  }, [pending, onSkip])
+  }, [pending, onSkip, isActing])
 
   const remaining = pending.length
   const skippedCount = pending.filter((r) => skippedIds.includes(r.id)).length
@@ -407,6 +410,27 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
           <div style={{ width: 54, height: 54, borderRadius: '50%', background: 'var(--vliq-field)' }} />
           <div style={{ width: 46, height: 46, borderRadius: '50%', background: 'var(--vliq-field)' }} />
           <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--vliq-field)' }} />
+        </div>
+      </div>
+    )
+  }
+
+  // Everything left was skipped: the main queue is done — say so, and make the way
+  // back to the skipped receipts explicit instead of silently cycling them.
+  if (!isLoading && remaining > 0 && skippedCount === remaining) {
+    return (
+      <div className="vliq-pad" data-testid="skipped-gate"
+        style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
+        <div style={{ display: 'grid', gap: 12, maxWidth: 320 }}>
+          <b style={{ fontSize: 19 }}>Основная очередь разобрана</b>
+          <span style={{ color: 'var(--vliq-hint)', fontSize: 14 }}>
+            Пропущено {skippedCount} {plural(skippedCount, ['чек', 'чека', 'чеков'])} — они всё ещё на проверке.
+          </span>
+          <button type="button" className="vliq-btn" onClick={() => setSkippedIds([])}
+            style={{ padding: '13px 16px', borderRadius: 14, border: 0, fontWeight: 700, fontSize: 15,
+              background: 'var(--vliq-brand)', color: '#fff', cursor: 'pointer' }}>
+            К пропущенным
+          </button>
         </div>
       </div>
     )
@@ -482,7 +506,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
           {[...visibleReceipts].reverse().map((receipt, rIdx) => {
             const stackIndex = visibleCount - 1 - rIdx
             const isTop = stackIndex === 0
-            const canSwipe = isTop && receipt.status === 'on_review'
+            const canSwipe = isTop && receipt.status === 'on_review' && !isActing
             return (
               <SwipeCard
                 key={receipt.id}
@@ -493,7 +517,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
                 onSwipe={handleSwipe}
                 onTap={() => { if (isTop && currentReceipt) onTap(currentReceipt.id) }}
                 onSellerClick={onSellerClick}
-                onSkip={remaining > 1 ? handleSkip : undefined}
+                onSkip={isActing ? undefined : handleSkip}
               />
             )
           })}
@@ -506,7 +530,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
         <button
           type="button"
           className="vliq-review-native-action vliq-review-native-action--reject"
-          disabled={currentReceipt?.status !== 'on_review'}
+          disabled={isActing || currentReceipt?.status !== 'on_review'}
           onClick={() => handleSwipe('reject')}
         >
           <Icon name="x" size={18} />
@@ -515,7 +539,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
         <button
           type="button"
           className="vliq-review-native-action vliq-review-native-action--skip"
-          disabled={remaining < 2}
+          disabled={isActing || remaining < 1}
           onClick={handleSkip}
           aria-label="Пропустить чек"
         >
@@ -525,7 +549,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
         <button
           type="button"
           className="vliq-review-native-action vliq-review-native-action--approve"
-          disabled={currentReceipt?.status !== 'on_review'}
+          disabled={isActing || currentReceipt?.status !== 'on_review'}
           onClick={() => handleSwipe('approve')}
         >
           <Icon name="check" size={18} />
