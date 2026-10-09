@@ -13,13 +13,12 @@ import {
   EVENT_LABEL,
   METHOD_LABEL,
   OUTCOME_LABEL,
-  SOURCE_LABEL,
+  intakeLabel,
   TRIGGER_LABEL,
   VERIFICATION_KIND,
   providerLabel,
   verificationLabel,
 } from '@/features/admin/verificationLabels'
-import type { ReceiptSourceT } from '@/api/admin'
 
 const DECISION_LABEL = { approved: 'Одобрен', rejected: 'Отклонён', sent_to_revision: 'На доработке' } as const
 
@@ -36,7 +35,7 @@ function eventDetail(e: JourneyEvent): string | null {
   const d = e.data ?? {}
   switch (e.kind) {
     case 'received':
-      return [e.source && (SOURCE_LABEL[e.source as ReceiptSourceT] ?? e.source), typeof d.total_sum === 'number' && kop(d.total_sum)]
+      return [intakeLabel(e.source), typeof d.total_sum === 'number' && kop(d.total_sum)]
         .filter(Boolean).join(' · ') || null
     case 'risk_flagged':
       return Array.isArray(d.signals) ? d.signals.join(', ') : null
@@ -82,10 +81,12 @@ function eventDetail(e: JourneyEvent): string | null {
 function Summary({ j }: { j: ReceiptJourney }) {
   const s = j.summary
   const rows: Array<[string, string]> = [
-    ['Получен', [s.received_at && formatDateTime(s.received_at), s.intake_source && (SOURCE_LABEL[s.intake_source as ReceiptSourceT] ?? s.intake_source)].filter(Boolean).join(' · ') || '—'],
+    ['Получен', [s.received_at && formatDateTime(s.received_at), intakeLabel(s.intake_source)].filter(Boolean).join(' · ') || '—'],
     [
       'Проверка',
-      s.verification_status === 'verified'
+      s.verification_status === 'not_required'
+        ? 'не нужна — чек принят до QR-приёма, по фото / файлу'
+        : s.verification_status === 'verified'
         ? `${verificationLabel('verified', s.verified_by)}${s.verified_at ? ` · ${formatDateTime(s.verified_at)}` : ''}`
         : `${verificationLabel(s.verification_status)}${s.check_rounds ? ` · раундов ${s.check_rounds}` : ''}${s.next_check_at && s.verification_status === 'retrying' ? ` · следующий ${formatDateTime(s.next_check_at)}` : ''}`,
     ],
@@ -144,15 +145,19 @@ export function JourneyPanel({ receiptId }: { receiptId: string }) {
   if (isError || !j) return null
 
   const connected = j.providers.filter((p) => p.available)
+  const shownProviders = j.providers.filter((p) => p.code !== 'fake' || p.available)
   const checkable = j.summary.verification_status !== 'not_required'
 
   return (
     <section className="vliq-card vliq-journey" data-testid="journey-panel">
       <div className="vliq-journey__head">
         <b>Путь чека</b>
-        <Pill kind={VERIFICATION_KIND[j.summary.verification_status]}>
-          {verificationLabel(j.summary.verification_status, j.summary.verified_by)}
-        </Pill>
+        {/* A pre-QR receipt has no check — the summary says so; no «Не проверяется» badge. */}
+        {j.summary.verification_status !== 'not_required' && (
+          <Pill kind={VERIFICATION_KIND[j.summary.verification_status]}>
+            {verificationLabel(j.summary.verification_status, j.summary.verified_by)}
+          </Pill>
+        )}
       </div>
 
       <Summary j={j} />
@@ -170,16 +175,25 @@ export function JourneyPanel({ receiptId }: { receiptId: string }) {
         </div>
       )}
 
-      <div className="vliq-journey__providers" aria-label="Источники проверки">
-        {j.providers.filter((p) => p.code !== 'fake' || p.available).map((p) => (
-          <span key={p.code} title={p.title}>
-            {p.priority}. {providerLabel(p.code)}{' '}
-            <Pill kind={!p.enabled ? 'muted' : !p.available ? 'muted' : p.disabled_until ? 'wn' : 'ok'}>
-              {!p.enabled ? 'выключен' : !p.available ? 'не подключён' : p.disabled_until ? 'пауза' : p.role === 'main' ? 'основной' : 'запасной'}
-            </Pill>
-          </span>
-        ))}
-      </div>
+      {checkable && (
+        <details className="vliq-journey__providers">
+          <summary>
+            Источники проверки: подключено {shownProviders.filter((p) => p.enabled && p.available).length} из {shownProviders.length}
+          </summary>
+          <dl aria-label="Источники проверки">
+            {shownProviders.map((p) => (
+              <div key={p.code} title={p.title}>
+                <dt>{p.priority}. {providerLabel(p.code)}</dt>
+                <dd>
+                  <Pill kind={!p.enabled || !p.available ? 'muted' : p.disabled_until ? 'wn' : 'ok'}>
+                    {!p.enabled ? 'выключен' : !p.available ? 'не подключён' : p.disabled_until ? 'пауза' : p.role === 'main' ? 'основной' : 'запасной'}
+                  </Pill>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      )}
 
       <ol className="vliq-journey__events">
         {j.events.map((e) => {
@@ -194,11 +208,10 @@ export function JourneyPanel({ receiptId }: { receiptId: string }) {
                 onClick={() => setOpen(open === e.seq ? null : e.seq)}
                 className="vliq-journey__event"
               >
-                <span className="vliq-journey__time">{formatDateTime(e.at)}</span>
-                <span className="vliq-journey__what">
-                  <b>{EVENT_LABEL[e.kind] ?? e.kind}</b>
-                  {detail && <span> — {detail}</span>}
-                  <span className="vliq-journey__who"> · {actorLabel(e)}{e.data?.backfilled ? ' · восстановлено' : ''}</span>
+                <b className="vliq-journey__what">{EVENT_LABEL[e.kind] ?? e.kind}</b>
+                {detail && <span className="vliq-journey__detail">{detail}</span>}
+                <span className="vliq-journey__who">
+                  {formatDateTime(e.at)} · {actorLabel(e)}{e.data?.backfilled ? ' · восстановлено из истории' : ''}
                 </span>
               </button>
               {open === e.seq && <CheckDetails e={e} />}

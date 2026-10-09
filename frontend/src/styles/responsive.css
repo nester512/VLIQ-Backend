@@ -472,7 +472,7 @@
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-clamp: 2;
   max-width: 100%; padding: 0; border: 0; background: none; font: inherit;
   font-size: 15px; font-weight: 700; line-height: 1.25; color: var(--vliq-text); text-align: left;
-  overflow: hidden; overflow-wrap: anywhere;
+  overflow: hidden; overflow-wrap: break-word;
 }
 .vliq-review-summary__seller-name.is-link { color: var(--vliq-brand); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .vliq-review-summary__muted { display: block; font-size: 12px; font-weight: 500; color: var(--vliq-hint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -551,7 +551,7 @@
 .vliq-journey__summary { margin: 0; display: grid; gap: 6px; background: var(--vliq-field); border-radius: 14px; padding: 10px 12px; }
 .vliq-journey__summary > div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px; font-size: 12.5px; }
 .vliq-journey__summary dt { color: var(--vliq-hint); }
-.vliq-journey__summary dd { margin: 0; font-weight: 700; color: var(--vliq-text); overflow-wrap: anywhere; }
+.vliq-journey__summary dd { margin: 0; font-weight: 700; color: var(--vliq-text); overflow-wrap: break-word; }
 .vliq-journey__actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .vliq-journey__btn {
   border: 0; border-radius: 12px; padding: 9px 12px; font: inherit; font-size: 12.5px; font-weight: 700;
@@ -559,7 +559,12 @@
 }
 .vliq-journey__btn.is-primary { background: var(--vliq-brand); color: #fff; }
 .vliq-journey__btn:disabled { opacity: .55; cursor: default; }
-.vliq-journey__providers { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--vliq-hint); }
+.vliq-journey__providers { font-size: 12.5px; color: var(--vliq-hint); }
+.vliq-journey__providers > summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
+.vliq-journey__providers dl { margin: 8px 0 0; display: grid; gap: 6px; }
+.vliq-journey__providers dl > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.vliq-journey__providers dt { min-width: 0; overflow-wrap: break-word; color: var(--vliq-text); }
+.vliq-journey__providers dd { margin: 0; flex: none; }
 .vliq-journey__events { list-style: none; margin: 0; padding: 0 0 0 10px; border-left: 2px solid var(--vliq-sep); display: grid; gap: 4px; }
 .vliq-journey__events > li { position: relative; }
 .vliq-journey__events > li::before {
@@ -574,8 +579,8 @@
 }
 .vliq-journey__event:not(:disabled) { cursor: pointer; }
 .vliq-journey__event:not(:disabled):hover { background: var(--vliq-field); }
-.vliq-journey__time { font-size: 11px; color: var(--vliq-hint); }
-.vliq-journey__what { overflow-wrap: anywhere; }
-.vliq-journey__who { color: var(--vliq-hint); }
+.vliq-journey__what { font-weight: 700; overflow-wrap: break-word; }
+.vliq-journey__detail { overflow-wrap: break-word; }
+.vliq-journey__who { font-size: 11.5px; color: var(--vliq-hint); }
 .vliq-journey__check { margin: 2px 0 6px 6px; font-size: 11.5px; color: var(--vliq-hint); }
 .vliq-journey__check pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto; color: var(--vliq-text); background: var(--vliq-field); padding: 8px; border-radius: 10px; }

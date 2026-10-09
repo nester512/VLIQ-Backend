@@ -8,6 +8,14 @@ export const SOURCE_LABEL: Record<ReceiptSourceT, string> = {
   manual: 'Ручной ввод данных',
 }
 
+/** Any intake source in the admin's words — incl. the pre-QR file upload («upload»). */
+export const intakeLabel = (source: string | null | undefined): string | null => {
+  if (!source) return null
+  if (source in SOURCE_LABEL) return SOURCE_LABEL[source as ReceiptSourceT]
+  if (source === 'upload') return 'Фото / файл (до QR-приёма)'
+  return source
+}
+
 /** Check providers — short names for chips and the timeline. */
 export const PROVIDER_LABEL: Record<string, string> = {
   fns: 'ФНС',

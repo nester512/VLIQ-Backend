@@ -88,7 +88,7 @@ function DashContent() {
             <MetricCard title="Активных"        value={fmtInt(data?.sellers_active)}   delta={activeShare}                                deltaColor="ok"   onClick={() => navigate('/admin/sellers?status=active')} />
             <MetricCard title="Чеков загружено" value={fmtInt(data?.receipts_loaded)}  delta="за всё время"                              deltaColor="hint" tween onClick={() => navigate('/admin/receipts')} />
             <MetricCard title="На проверке"     value={fmtInt(data?.receipts_pending)} delta={data && data.receipts_pending > 0 ? 'требует действий' : 'очередь пуста'} deltaColor={data && data.receipts_pending > 0 ? 'wn' : 'hint'} onClick={() => navigate('/admin/review')} />
-            <MetricCard title="Средний чек"     value={data?.avg_check ? fmtMoney(data.avg_check) : '—'} delta="по одобренным чекам" deltaColor="hint" onClick={() => navigate('/admin/receipts?status=approved')} />
+            <MetricCard title="Средний чек"     value={data?.avg_check ? fmtMoney(Math.round(data.avg_check / 100) * 100) : '—'} delta="по одобренным чекам" deltaColor="hint" onClick={() => navigate('/admin/receipts?status=approved')} />
             <MetricCard title="Выплачено"        value={fmtInt(data?.payouts_paid_month)} delta="заявок за этот месяц" deltaColor="ok" onClick={() => navigate('/admin/payouts?status=paid')} />
           </>
         )}

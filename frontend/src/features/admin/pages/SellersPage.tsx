@@ -76,11 +76,11 @@ export function SellerRow({ seller, onClick }: SellerRowProps) {
         <b>{fullName}</b>
         <span>{place}</span>
         {activity && <span>{activity}</span>}
-      </div>
-      <div style={{ flex: 'none', textAlign: 'right', marginRight: 4, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-        <Pill kind={pillKind}>{pillLabel}</Pill>
-        {stats && stats.risk_level !== 'low' && <RiskPill stats={stats} />}
-        {stats && stats.receipts_on_review > 0 && <Pill kind="brand">{stats.receipts_on_review} на проверке</Pill>}
+        <div className="vliq-row-chips">
+          <Pill kind={pillKind}>{pillLabel}</Pill>
+          {stats && stats.risk_level !== 'low' && <RiskPill stats={stats} />}
+          {stats && stats.receipts_on_review > 0 && <Pill kind="brand">{stats.receipts_on_review} на проверке</Pill>}
+        </div>
       </div>
     </button>
   )

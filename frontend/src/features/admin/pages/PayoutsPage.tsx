@@ -69,7 +69,10 @@ function PayoutRow({ payout, onClick }: PayoutRowProps) {
   const kind = STATUS_KIND[payout.status] ?? 'muted'
   const statusLabel = STATUS_LABEL[payout.status] ?? payout.status
   const methodLabel = METHOD_LABEL[payout.method] ?? payout.method
-  const details = payout.details ? `${methodLabel} ${payout.details}` : methodLabel
+  // The list shows the last digits only; the full number is in the payout sheet.
+  const digits = payout.details?.replace(/\D/g, '') ?? ''
+  const shortDest = digits.length >= 4 && !payout.details?.includes('*') ? `•••• ${digits.slice(-4)}` : payout.details
+  const details = shortDest ? `${methodLabel} ${shortDest}` : methodLabel
   const ic = ICON_BG[kind]
   const sellerLabel = payout.seller_name?.trim() || `Продавец #${payout.seller_id}`
   const sellerMeta = payout.seller_store ? `${payout.seller_store} · ${details}` : details
@@ -87,11 +90,11 @@ function PayoutRow({ payout, onClick }: PayoutRowProps) {
           {payout.status === 'paid' && payout.paid_at ? ` · выплачена ${formatDateTime(payout.paid_at)}` : ''}
         </span>
       </div>
-      <div style={{ flex: 'none', textAlign: 'right', maxWidth: 120 }}>
-        <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+      <div className="vliq-row-end">
+        <b className="vliq-tabnum" style={{ fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', whiteSpace: 'nowrap' }}>
           {fmtMoney(payout.amount)}
-        </div>
-        <Pill kind={kind} className="mt-[4px]">{statusLabel}</Pill>
+        </b>
+        <Pill kind={kind}>{statusLabel}</Pill>
       </div>
     </button>
   )

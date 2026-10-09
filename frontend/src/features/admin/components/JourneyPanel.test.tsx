@@ -94,10 +94,9 @@ describe('JourneyPanel — «Путь чека»', () => {
     const verified = journey({ verification_status: 'verified', verified_by: 'proverkacheka' })
     verifyReceiptNow.mockResolvedValue(verified)
     renderPanel()
-    const sources = await screen.findByLabelText('Источники проверки')
-    expect(sources).toHaveTextContent('10. ФНС не подключён')
-    expect(sources).toHaveTextContent('20. proverkacheka основной')
-    expect(sources).toHaveTextContent('30. Платформа ОФД выключен')
+    expect(await screen.findByText('Источники проверки: подключено 1 из 3')).toBeInTheDocument()
+    const rows = within(screen.getByLabelText('Источники проверки')).getAllByRole('term').map((dt) => dt.parentElement!.textContent)
+    expect(rows).toEqual(['10. ФНСне подключён', '20. proverkachekaосновной', '30. Платформа ОФДвыключен'])
     expect(screen.queryByRole('button', { name: 'у ФНС' })).toBeNull() // not connected → no button
 
     getReceiptJourney.mockResolvedValue(verified) // the refetch after the change sees the new state
@@ -124,7 +123,7 @@ describe('JourneyPanel — «Путь чека»', () => {
     expect(panel).toHaveTextContent('Подтверждён · ФНС')
     expect(panel).toHaveTextContent('Одобрен')
     expect(panel).toHaveTextContent('админ 99')
-    expect(document.querySelector('li[data-kind="approved"]')).toHaveTextContent('Одобрен — бонус 50')
+    expect(document.querySelector('li[data-kind="approved"]')).toHaveTextContent(/Одобрен.*бонус 50/)
   })
 
   it('backfilled (history) steps are marked as reconstructed', async () => {

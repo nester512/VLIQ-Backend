@@ -42,24 +42,27 @@ function Row({ rank, seller, onClick }: { rank: number; seller: TopSeller; onCli
       >
         {rank}
       </div>
+      {/* Name + details on the left (each detail its own line), only the ranking figure on the
+          right — a wide right column used to squeeze the name to one letter. */}
       <div className="vliq-row-tx">
-        <b>{seller.name}</b>
+        <b title={seller.name}>{seller.name}</b>
         <span>{[seller.city, seller.receipts].filter(Boolean).join(' · ')}</span>
+        {(seller.sales != null || seller.paid != null) && (
+          <span className="vliq-tabnum">
+            {[seller.sales != null && `продажи ${fmtMoney(seller.sales)}`, seller.paid != null && `выплачено ${fmtMoney(seller.paid)}`]
+              .filter(Boolean).join(' · ')}
+          </span>
+        )}
       </div>
-      <div style={{ flex: 'none', textAlign: 'right', marginRight: 4, minWidth: 96 }}>
-        {seller.accrued != null && (
-          <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--vliq-text)', fontVariantNumeric: 'tabular-nums' }}
+      {seller.accrued != null && (
+        <div className="vliq-row-end">
+          <b className="vliq-tabnum" style={{ fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', whiteSpace: 'nowrap' }}
             title="Начислено за всё время" data-testid="top-seller-accrued">
             {fmtMoney(seller.accrued)}
-          </div>
-        )}
-        {(seller.sales != null || seller.paid != null) && (
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--vliq-hint)', fontVariantNumeric: 'tabular-nums' }}>
-            {[seller.sales != null && `продажи ${fmtMoney(seller.sales)}`, seller.paid != null && `выпл. ${fmtMoney(seller.paid)}`]
-              .filter(Boolean).join(' · ')}
-          </div>
-        )}
-      </div>
+          </b>
+          <span style={{ fontSize: 11, color: 'var(--vliq-hint)', fontWeight: 600 }}>начислено</span>
+        </div>
+      )}
     </button>
   )
 }
