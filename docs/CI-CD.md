@@ -167,3 +167,26 @@ IMAGE_TAG=<commit-sha> ./ops/deploy.sh
 
 Rollback — тот же скрипт с предыдущим SHA. Alembic downgrade автоматически не выполняется; перед breaking
 migration сначала выпускается совместимая промежуточная версия.
+
+
+## Бэкап перед миграцией и восстановление из бэкапа
+
+`ops/deploy.sh` на каждом деплое (стенд и прод) **до** `alembic upgrade head` снимает дамп БД:
+`<checkout>/.deploy/backups/<UTC-время>-<sha>.dump` (custom-формат, права 600, хранятся последние
+`DEPLOY_BACKUP_KEEP=14`). Дамп проверяется `pg_restore --list`; если дамп не снят или не читается —
+деплой останавливается, миграции не запускаются, контейнеры не переключаются.
+
+### Восстановление из бэкапа
+Только с явного решения владельца. Сначала — новый дамп текущего состояния (чтобы восстановление
+само было обратимым):
+```bash
+cd <checkout>   # прод: /srv/VLIQ-things/VLIQ-Backend, стенд: STAGE_DEPLOY_PATH
+C="docker compose -f docker-compose.yml -f <overlay>"   # прод: docker-compose.test.yml
+$C exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > .deploy/backups/before-restore.dump
+$C stop backend bot notifications-worker receipt-pipeline-worker
+$C exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction' \
+  < .deploy/backups/<нужный>.dump
+# образ — тот, что соответствует схеме дампа (sha в имени файла):
+IMAGE_TAG=<sha из имени дампа> ./ops/deploy.sh
+```
+`--single-transaction`: восстановление либо проходит целиком, либо не меняет ничего.

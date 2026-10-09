@@ -16,6 +16,8 @@ readonly STATE_DIR=".deploy"
 readonly CURRENT_TAG_FILE="${STATE_DIR}/current-image-tag"
 readonly -a COMPOSE=(docker compose -f docker-compose.yml -f "${COMPOSE_OVERLAY}")
 readonly -a APP_SERVICES=(backend bot notifications-worker receipt-pipeline-worker frontend)
+readonly BACKUP_DIR="${STATE_DIR}/backups"
+readonly BACKUP_KEEP="${DEPLOY_BACKUP_KEEP:-14}"
 
 mkdir -p "${STATE_DIR}"
 previous_tag=""
@@ -35,8 +37,45 @@ rollback() {
   "${COMPOSE[@]}" up -d --remove-orphans --wait --wait-timeout 180 "${APP_SERVICES[@]}" caddy
 }
 
+# Data safety: a verified dump of the database is taken BEFORE every migration.
+# No backup → no migration → nothing changes (the deploy stops here).
+# Restore: docs/CI-CD.md «Восстановление из бэкапа».
+backup_database() {
+  if ! "${COMPOSE[@]}" ps --status running --services | grep -qx postgres; then
+    echo "Postgres is not running yet (first deploy?) — nothing to back up." >&2
+    return 0
+  fi
+  mkdir -p "${BACKUP_DIR}"
+  chmod 700 "${BACKUP_DIR}"
+  local file
+  file="${BACKUP_DIR}/$(date -u +%Y%m%dT%H%M%SZ)-${IMAGE_TAG:0:12}.dump"
+  # pg_dump of the running server's own major version, custom format (pg_restore-able).
+  # shellcheck disable=SC2016  # $POSTGRES_* expand inside the container, on purpose
+  if ! "${COMPOSE[@]}" exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "${file}.partial"; then
+    rm -f "${file}.partial"
+    return 1
+  fi
+  # A backup that cannot be read is not a backup.
+  if [[ ! -s "${file}.partial" ]] \
+    || ! "${COMPOSE[@]}" exec -T postgres pg_restore --list < "${file}.partial" > /dev/null; then
+    rm -f "${file}.partial"
+    return 1
+  fi
+  mv "${file}.partial" "${file}"
+  chmod 600 "${file}"
+  # Keep the newest BACKUP_KEEP dumps.
+  find "${BACKUP_DIR}" -maxdepth 1 -name '*.dump' -printf '%T@ %p\n' | sort -rn \
+    | tail -n +"$((BACKUP_KEEP + 1))" | cut -d' ' -f2- | xargs -r rm -f
+  echo "Database backup: ${file} ($(du -h "${file}" | cut -f1))"
+}
+
 "${COMPOSE[@]}" config --quiet
 "${COMPOSE[@]}" pull "${APP_SERVICES[@]}"
+
+if ! backup_database; then
+  echo "Database backup failed; migrations were not run and containers were not switched." >&2
+  exit 1
+fi
 
 # The migration runs before any long-lived application container switches to
 # the new image. Migrations deployed to this environment must be backward
