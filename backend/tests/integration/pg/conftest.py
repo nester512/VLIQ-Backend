@@ -99,6 +99,9 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession]]:
     sm = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with sm() as s, s.begin():
         await s.execute(text(_TRUNCATE))
+        # Check-provider circuit breaker is shared state: a test that makes a provider fail
+        # must not switch it off for the next test.
+        await s.execute(text("UPDATE vliq.check_provider SET disabled_until = NULL, consecutive_failures = 0"))
         await s.execute(
             text(
                 "INSERT INTO vliq.brand (id, name, slug, is_active, created_at) "

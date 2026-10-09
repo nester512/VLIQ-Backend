@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Form, Query, Request, Response, UploadFile, status
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +31,7 @@ from src.receipt.models import (
     ALLOWED_ATTACHMENT_MIME_TYPES,
     MAX_ATTACHMENT_SIZE_BYTES,
     MAX_ATTACHMENTS_PER_RECEIPT,
+    EventKind,
     Receipt,
     ReceiptAttachment,
     ReceiptStatus,
@@ -54,6 +56,7 @@ from src.receipt.schemas.api import (
 )
 from src.receipt.service import PackageValidationError, PreparedAttachment, create_receipt_package
 from src.receipt.upload_session import UploadSessionError, sign_upload_session, verify_upload_session
+from src.receipt_journey import service as journey
 from src.receipt_ocr.hasher import sha256_hash
 from src.receipt_ocr.image_token import ImageTokenError, verify_image_uri
 from src.receipt_ocr.mime import sniff_mime
@@ -694,6 +697,10 @@ async def approve_receipt(  # noqa: PLR0913
             entity_id=receipt_id,
             comment=body.comment,
         )
+        await journey.record(
+            session, receipt_id, EventKind.approved, actor_type="admin", actor_id=token["user_id"],
+            data={k: v for k, v in {"bonus_amount": bonus_amount, "comment": body.comment}.items() if v is not None},
+        )
 
     logger.info("receipt.approved, receipt_id=%d, admin=%d, bonus=%d", receipt_id, token["user_id"], bonus_amount)
     return {"receipt_id": receipt_id, "status": ReceiptStatus.approved.value}
@@ -756,6 +763,10 @@ async def reject_receipt(
             entity_id=receipt_id,
             comment=body.comment,
         )
+        await journey.record(
+            session, receipt_id, EventKind.rejected, actor_type="admin", actor_id=token["user_id"],
+            data={k: v for k, v in {"reason": body.comment}.items() if v is not None},
+        )
 
     logger.info("receipt.rejected, receipt_id=%d, admin=%d", receipt_id, token["user_id"])
     return {"receipt_id": receipt_id, "status": ReceiptStatus.rejected.value}
@@ -815,6 +826,10 @@ async def revise_receipt(
             entity_id=receipt_id,
             comment=body.comment,
         )
+        await journey.record(
+            session, receipt_id, EventKind.sent_to_revision, actor_type="admin", actor_id=token["user_id"],
+            data={k: v for k, v in {"comment": body.comment}.items() if v is not None},
+        )
 
     logger.info("receipt.revise_as_rejected, receipt_id=%d, admin=%d", receipt_id, token["user_id"])
     return {"receipt_id": receipt_id, "status": ReceiptStatus.rejected.value}
@@ -841,6 +856,9 @@ async def retry_receipt(
         _require_transition(receipt, "ocr_in_progress", "system")
 
         await session.execute(update(Receipt).where(Receipt.id == receipt_id).values(status="ocr_in_progress"))
+        await journey.record(
+            session, receipt_id, EventKind.reprocess_requested, actor_type="admin", actor_id=token["user_id"]
+        )
 
     await _enqueue_processing(request, receipt_id)
     logger.info("receipt.retry_enqueued, receipt_id=%d, admin=%d", receipt_id, token["user_id"])
@@ -926,6 +944,10 @@ async def edit_receipt_bonus(
             payload={"before": old_bonus, "after": new_bonus},
         )
         session.add(log)
+        await journey.record(
+            session, receipt_id, EventKind.bonus_changed, actor_type="admin", actor_id=token["user_id"],
+            data={"before": old_bonus, "after": new_bonus},
+        )
 
     logger.info(
         "receipt.bonus_edited, receipt_id=%d, admin=%d, before=%d, after=%d",
@@ -986,6 +1008,10 @@ async def add_receipt_comment(
             comment=body.text,
         )
         session.add(log)
+        await journey.record(
+            session, receipt_id, EventKind.comment_added, actor_type="admin", actor_id=token["user_id"],
+            data={"text": body.text},
+        )
 
     logger.info("receipt.comment_added, receipt_id=%d, admin=%d", receipt_id, token["user_id"])
     return await _build_receipt_read(session, receipt_id)
@@ -1169,6 +1195,10 @@ async def update_receipt(
         update_data["updated_by"] = token["user_id"]
         # dict positionally — `.values(**update_data)` breaks on the `fn` column.
         await session.execute(update(Receipt).where(Receipt.id == receipt_id).values(update_data))
+        await journey.record(
+            session, receipt_id, EventKind.edited, actor_type="admin", actor_id=token["user_id"],
+            data={"fields": jsonable_encoder({k: v for k, v in update_data.items() if k != "updated_by"})},
+        )
         await session.commit()
     return await _build_receipt_read(session, receipt_id)
 
@@ -1187,6 +1217,7 @@ async def delete_receipt(
     await session.execute(
         update(Receipt).where(Receipt.id == receipt_id).values(is_deleted=True, updated_by=token["user_id"])
     )
+    await journey.record(session, receipt_id, EventKind.deleted, actor_type="admin", actor_id=token["user_id"])
     await session.commit()
 
 

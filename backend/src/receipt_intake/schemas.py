@@ -38,26 +38,80 @@ class QrReceiptCreated(BaseModel):
     warnings: list[UploadWarning] = Field(default_factory=list)
 
 
-class VerificationAttemptRead(BaseModel):
+# ---- Receipt journey (docs/design/RECEIPT-JOURNEY.md) ----------------------
+
+
+class CheckRead(BaseModel):
+    """One call to a check provider — exactly what was asked and answered."""
+
+    id: int
     attempt_no: int
+    round_no: int | None = None
     provider: str
+    provider_role: str | None = None
+    adapter_version: str | None = None
     method: str
     trigger: str
     outcome: str
     http_status: int | None = None
     request: dict | None = None
     response: dict | None = None
+    parsed: dict | None = None
     error: str | None = None
     duration_ms: int | None = None
     created_at: datetime
 
 
-class ReceiptVerificationRead(BaseModel):
-    receipt_id: int
+class JourneyEventRead(BaseModel):
+    seq: int
+    at: datetime
+    kind: str
+    actor_type: str
+    actor_id: int | None = None
     source: str | None = None
+    outcome: str | None = None
+    data: dict | None = None
+    check: CheckRead | None = None
+
+
+class JourneySummary(BaseModel):
+    """The answer to «where is this receipt now» at a glance."""
+
+    received_at: datetime | None = None
+    intake_source: str | None = None
     status: str
-    attempts_count: int
-    next_attempt_at: datetime | None = None
+    verification_status: str
+    verified_by: str | None = None
     verified_at: datetime | None = None
-    ofd_response: dict | None = None
-    attempts: list[VerificationAttemptRead]
+    check_rounds: int = 0
+    next_check_at: datetime | None = None
+    decision: str | None = None  # approved | rejected | sent_to_revision
+    decided_at: datetime | None = None
+    decided_by: int | None = None
+
+
+class ProviderRead(BaseModel):
+    code: str
+    title: str
+    role: str
+    priority: int
+    enabled: bool
+    available: bool = Field(description="An adapter with credentials exists in this deployment")
+    disabled_until: datetime | None = None
+    consecutive_failures: int = 0
+
+
+class ReceiptJourneyRead(BaseModel):
+    receipt_id: int
+    summary: JourneySummary
+    events: list[JourneyEventRead]
+    providers: list[ProviderRead]
+
+
+class VerifyRequest(BaseModel):
+    provider: str | None = Field(default=None, max_length=32, description="Check only at this provider (default: a full round)")
+
+
+class ProviderUpdate(BaseModel):
+    enabled: bool | None = None
+    priority: int | None = Field(default=None, ge=1, le=1000)

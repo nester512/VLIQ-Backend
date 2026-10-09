@@ -15,14 +15,20 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.receipt.models import Receipt, ReceiptVerificationAttempt
 from src.receipt.service import create_qr_receipt
 from src.receipt_intake.fiscal import validate_fields
-from src.receipt_intake.handlers.api.v1.router import _fallback_to_review, _verification_read, _warnings
+from src.receipt_intake.handlers.api.v1.router import _fallback_to_review, _journey_read, _warnings
 from src.receipt_intake.pipeline import process_qr_receipt, stuck_pending_ids
-from src.receipt_verification.service import RETRY_DELAYS, due_receipt_ids, retry_due, run_attempt
+from src.receipt_verification.providers import ProviderRegistry
+from src.receipt_verification.service import RETRY_DELAYS, due_receipt_ids, retry_due, run_round
 from src.receipt_verification.verifier import FakeVerifier, VerificationResult
 
 from tests.integration.pg._ids import SEED_BRAND_ID, SEED_SELLER_ID
 
 pytestmark = pytest.mark.asyncio
+
+
+def reg(verifier=None) -> ProviderRegistry:
+    """Only the stage stub is connected (the seeded fns/proverkacheka/OFD rows have no adapter)."""
+    return ProviderRegistry({"fake": verifier or FakeVerifier()})
 
 OTHER_SELLER = 990002
 FN = "9960440300712345"
@@ -79,7 +85,7 @@ async def test_intake_stores_fiscal_identity_and_is_idempotent(session_factory) 
 async def test_pipeline_verifies_on_first_attempt_and_enriches(session_factory) -> None:
     rid = await _create(session_factory, _data())
     async with session_factory() as s:
-        await process_qr_receipt(s, rid, FakeVerifier())
+        await process_qr_receipt(s, rid, reg())
 
     r = await _get(session_factory, rid)
     assert r.status == "on_review"  # moderation stays manual
@@ -98,7 +104,7 @@ async def test_retry_path_rotates_methods_until_found(session_factory) -> None:
     rid = await _create(session_factory, _data(fp="10"))  # fake: not found on attempts 1–2
     verifier = FakeVerifier()
     async with session_factory() as s:
-        await process_qr_receipt(s, rid, verifier)
+        await process_qr_receipt(s, rid, reg(verifier))
     r = await _get(session_factory, rid)
     assert r.verification_status == "retrying"
     assert r.next_verification_at > datetime.now(UTC) + RETRY_DELAYS[0] - timedelta(seconds=30)
@@ -108,7 +114,7 @@ async def test_retry_path_rotates_methods_until_found(session_factory) -> None:
     for _ in range(2):
         await _make_due(session_factory, rid)
         async with session_factory() as s:
-            assert await retry_due(s, verifier) == 1
+            assert await retry_due(s, reg(verifier)) == 1
 
     attempts = await _attempts(session_factory, rid)
     assert [(a.attempt_no, a.method, a.trigger, a.outcome) for a in attempts] == [
@@ -123,11 +129,11 @@ async def test_exhausted_retries_end_as_failed_and_manual_remains(session_factor
     rid = await _create(session_factory, _data(fn="9999000000000001"))  # fake: never found
     verifier = FakeVerifier()
     async with session_factory() as s:
-        await process_qr_receipt(s, rid, verifier)
+        await process_qr_receipt(s, rid, reg(verifier))
     for _ in RETRY_DELAYS:
         await _make_due(session_factory, rid)
         async with session_factory() as s:
-            await retry_due(s, verifier)
+            await retry_due(s, reg(verifier))
 
     r = await _get(session_factory, rid)
     assert r.verification_status == "failed"
@@ -139,13 +145,13 @@ async def test_exhausted_retries_end_as_failed_and_manual_remains(session_factor
 async def test_cron_stops_once_admin_decided(session_factory) -> None:
     rid = await _create(session_factory, _data(fn="9999000000000002"))
     async with session_factory() as s:
-        await process_qr_receipt(s, rid, FakeVerifier())
+        await process_qr_receipt(s, rid, reg())
     async with session_factory() as s, s.begin():
         await s.execute(update(Receipt).where(Receipt.id == rid).values(status="approved"))
     await _make_due(session_factory, rid)
 
     async with session_factory() as s:
-        assert await retry_due(s, FakeVerifier()) == 0
+        assert await retry_due(s, reg()) == 0
     assert len(await _attempts(session_factory, rid)) == 1
 
 
@@ -157,17 +163,19 @@ async def test_admin_can_force_and_a_failed_recheck_never_downgrades_verified(se
 
     rid = await _create(session_factory, _data())
     async with session_factory() as s:
-        await process_qr_receipt(s, rid, FakeVerifier())
+        await process_qr_receipt(s, rid, reg())
     async with session_factory() as s:
-        result = await run_attempt(s, rid, AlwaysError(), trigger="admin")
+        result = await run_round(s, rid, reg(AlwaysError()), trigger="admin")
     assert result is not None
 
     r = await _get(session_factory, rid)
     assert r.verification_status == "verified"
     async with session_factory() as s:
-        history = await _verification_read(s, rid)
-    assert [a.outcome for a in history.attempts] == ["error", "ok"]  # newest first
-    assert history.attempts[0].trigger == "admin"
+        history = await _journey_read(s, rid, reg())
+    checks = [e.check for e in history.events if e.check]
+    assert [c.outcome for c in checks] == ["ok", "error"]  # in journey order
+    assert checks[1].trigger == "admin"
+    assert history.summary.verification_status == "verified"
 
 
 async def test_duplicates_are_signals_and_warnings_not_blocks(session_factory) -> None:
@@ -190,7 +198,7 @@ async def test_duplicates_are_signals_and_warnings_not_blocks(session_factory) -
 
     for rid in (own_again, foreign):
         async with session_factory() as s:
-            await process_qr_receipt(s, rid, FakeVerifier())
+            await process_qr_receipt(s, rid, reg())
     own_signals = {sig["signal"] for sig in (await _get(session_factory, own_again)).fraud_signals}
     foreign_signals = {sig["signal"] for sig in (await _get(session_factory, foreign)).fraud_signals}
     assert "historical_duplicate_fn_fd_fp" in own_signals
@@ -202,7 +210,7 @@ async def test_pipeline_job_is_idempotent(session_factory) -> None:
     rid = await _create(session_factory, _data())
     for _ in range(2):  # arq retry / duplicate job
         async with session_factory() as s:
-            await process_qr_receipt(s, rid, FakeVerifier())
+            await process_qr_receipt(s, rid, reg())
     assert len(await _attempts(session_factory, rid)) == 1
 
 
@@ -220,7 +228,7 @@ async def test_enqueue_failure_fallback_works_on_the_request_session(session_fac
 
     async with session_factory() as s:
         assert receipt.id in await due_receipt_ids(s)
-        await retry_due(s, FakeVerifier())
+        await retry_due(s, reg())
     assert (await _get(session_factory, receipt.id)).verification_status == "verified"
 
 
@@ -229,7 +237,7 @@ async def test_crash_between_review_and_first_attempt_is_picked_up_by_cron(sessi
     async with session_factory() as s, s.begin():  # worker died right after this commit
         await s.execute(update(Receipt).where(Receipt.id == rid).values(status="on_review"))
     async with session_factory() as s:
-        assert await retry_due(s, FakeVerifier()) == 1
+        assert await retry_due(s, reg()) == 1
     [attempt] = await _attempts(session_factory, rid)
     assert attempt.trigger == "cron"
 
@@ -250,7 +258,7 @@ async def test_attempt_in_flight_blocks_a_concurrent_admin_check(session_factory
             )
         )
     async with session_factory() as s:
-        assert await run_attempt(s, rid, FakeVerifier(), trigger="admin") is None
+        assert await run_round(s, rid, reg(), trigger="admin") is None
         assert rid not in await due_receipt_ids(s)
     assert await _attempts(session_factory, rid) == []
 
@@ -263,11 +271,11 @@ async def test_provider_limits_do_not_burn_the_retry_budget(session_factory) -> 
 
     rid = await _create(session_factory, _data())
     async with session_factory() as s:
-        await process_qr_receipt(s, rid, Limited())
+        await process_qr_receipt(s, rid, reg(Limited()))
     for _ in range(len(RETRY_DELAYS) + 2):
         await _make_due(session_factory, rid)
         async with session_factory() as s:
-            await retry_due(s, Limited())
+            await retry_due(s, reg(Limited()))
     r = await _get(session_factory, rid)
     assert r.verification_status == "retrying"  # never «failed» because of the provider
     assert r.verification_failures == 0

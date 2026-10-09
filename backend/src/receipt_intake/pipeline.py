@@ -14,10 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fraud.checks import FraudChecker
-from src.receipt.models import Receipt, ReceiptStatus
+from src.receipt.models import EventKind, Receipt, ReceiptStatus
 from src.receipt_intake.fiscal import FiscalValidationError, parse_qr
-from src.receipt_verification.service import run_attempt
-from src.receipt_verification.verifier import Verifier
+from src.receipt_journey import service as journey
+from src.receipt_verification.providers import ProviderRegistry
+from src.receipt_verification.service import run_round
 
 logger = logging.getLogger(__name__)
 _checker = FraudChecker()
@@ -61,7 +62,7 @@ async def _signals(session: AsyncSession, receipt: Receipt) -> list[dict]:
     return signals
 
 
-async def process_qr_receipt(session: AsyncSession, receipt_id: int, verifier: Verifier) -> None:
+async def process_qr_receipt(session: AsyncSession, receipt_id: int, registry: ProviderRegistry) -> None:
     async with session.begin():
         receipt = (
             await session.execute(select(Receipt).where(Receipt.id == receipt_id).with_for_update())
@@ -69,9 +70,16 @@ async def process_qr_receipt(session: AsyncSession, receipt_id: int, verifier: V
         if receipt is None or receipt.status != ReceiptStatus.pending.value:
             logger.info("qr_intake.skip, receipt_id=%d", receipt_id)  # retried job / already processed
             return
-        receipt.fraud_signals = [*(receipt.fraud_signals or []), *await _signals(session, receipt)]
+        signals = await _signals(session, receipt)
+        receipt.fraud_signals = [*(receipt.fraud_signals or []), *signals]
         receipt.status = ReceiptStatus.on_review.value
-    await run_attempt(session, receipt_id, verifier, trigger="pipeline")
+        if signals:
+            await journey.record(
+                session, receipt_id, EventKind.risk_flagged, actor_type="system",
+                data={"signals": [s["signal"] for s in signals]},
+            )
+        await journey.record(session, receipt_id, EventKind.sent_to_moderation, actor_type="system")
+    await run_round(session, receipt_id, registry, trigger="pipeline")
 
 
 async def stuck_pending_ids(session: AsyncSession, *, now: datetime | None = None, limit: int = 25) -> list[int]:

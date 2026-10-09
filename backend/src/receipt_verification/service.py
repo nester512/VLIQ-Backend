@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_, select, text, update
@@ -22,6 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fraud.checks import FraudChecker
 from src.receipt.models import (
+    CheckProvider,
+    EventKind,
     Receipt,
     ReceiptStatus,
     ReceiptVerificationAttempt,
@@ -29,6 +32,8 @@ from src.receipt.models import (
     VerificationStatus,
 )
 from src.receipt_intake.fiscal import FiscalData, FiscalValidationError, parse_qr
+from src.receipt_journey import service as journey
+from src.receipt_verification.providers import ProviderRegistry, register_outcome
 from src.receipt_verification.verifier import VerificationResult, Verifier
 
 logger = logging.getLogger(__name__)
@@ -80,13 +85,16 @@ def next_state(failures: int, outcome: VerificationOutcome, now: datetime) -> tu
     return VerificationStatus.failed.value, None
 
 
+_TRIGGER_ACTOR = {"pipeline": "system", "cron": "system", "admin": "admin"}
+
+
 async def _claim(session: AsyncSession, receipt_id: int, *, trigger: str, now: datetime) -> tuple[str, int] | None:
-    """Lease the receipt for one attempt. Returns (qr_raw, attempt_no) or None if not eligible."""
+    """Lease the receipt for one round. Returns (qr_raw, round_no) or None if not eligible."""
     conditions = [
         Receipt.id == receipt_id,
         Receipt.qr_raw.is_not(None),
         Receipt.is_deleted.is_(False),
-        # One attempt at a time for every trigger (cron, pipeline, admin).
+        # One round at a time for every trigger (cron, pipeline, admin).
         or_(Receipt.verification_locked_until.is_(None), Receipt.verification_locked_until < now),
     ]
     if trigger == "cron":
@@ -105,12 +113,12 @@ async def _claim(session: AsyncSession, receipt_id: int, *, trigger: str, now: d
                 update(Receipt)
                 .where(*conditions)
                 .values(verification_locked_until=now + ATTEMPT_LEASE)
-                .returning(Receipt.qr_raw, Receipt.verification_attempts)
+                .returning(Receipt.qr_raw, Receipt.check_rounds)
             )
         ).one_or_none()
     if row is None:
         return None
-    return row.qr_raw, row.verification_attempts + 1
+    return row.qr_raw, row.check_rounds + 1
 
 
 def _ofd_items(result: VerificationResult) -> list[dict]:
@@ -119,63 +127,172 @@ def _ofd_items(result: VerificationResult) -> list[dict]:
     return [{"raw_name": it.name, "qty": it.quantity, "price": it.price} for it in result.receipt.items]
 
 
-async def run_attempt(session: AsyncSession, receipt_id: int, verifier: Verifier, *, trigger: str) -> VerificationResult | None:
-    """Run one verification attempt; returns the result, or None if the receipt was not eligible."""
+def _parsed(result: VerificationResult) -> dict | None:
+    """Provider-independent normalised answer (what the journey shows and compares)."""
+    r = result.receipt
+    if r is None:
+        return None
+    return {
+        "total_sum": r.total_sum,
+        "purchase_date": r.purchase_date.isoformat() if r.purchase_date else None,
+        "shop_name": r.shop_name,
+        "shop_inn": r.shop_inn,
+        "items": [{"name": it.name, "qty": it.quantity, "price": it.price} for it in r.items],
+    }
+
+
+@dataclass
+class RoundResult:
+    round_no: int
+    outcome: VerificationOutcome  # ok if any provider confirmed the receipt
+    verified_by: str | None
+    calls: list[tuple[str, VerificationResult]]
+
+
+async def _call(verifier: Verifier, data: FiscalData | None, qr_raw: str, method: str, round_no: int) -> VerificationResult:
+    if data is None:
+        return VerificationResult(VerificationOutcome.invalid, {"qr": qr_raw}, error="QR не проходит валидацию")
+    try:
+        return await verifier.verify(data, method, round_no)
+    except Exception as exc:  # noqa: BLE001 — a provider bug must not leave the lease dangling
+        logger.exception("verification.provider_crash, provider=%s", verifier.provider)
+        return VerificationResult(VerificationOutcome.error, {}, error=f"{type(exc).__name__}: {exc}"[:500])
+
+
+async def run_round(  # noqa: PLR0913, PLR0915
+    session: AsyncSession,
+    receipt_id: int,
+    registry: ProviderRegistry,
+    *,
+    trigger: str,
+    actor_id: int | None = None,
+    only_provider: str | None = None,
+) -> RoundResult | None:
+    """One check round: the enabled, connected providers in order until one confirms.
+
+    Every provider call is an attempt row (exact request + raw response) and a
+    ``provider_checked`` journey event; the round start/end are events too.
+    Returns None when the receipt is not eligible (not QR, leased, nothing due).
+    """
     now = datetime.now(UTC)
     claimed = await _claim(session, receipt_id, trigger=trigger, now=now)
     if claimed is None:
         return None
-    qr_raw, attempt_no = claimed
-    method = method_for_attempt(verifier.methods, attempt_no)
-
+    qr_raw, round_no = claimed
+    actor = _TRIGGER_ACTOR.get(trigger, "system")
     try:
         data: FiscalData | None = parse_qr(qr_raw, now=now + timedelta(days=3650))
-    except FiscalValidationError as exc:
+    except FiscalValidationError:
         data = None
-        result = VerificationResult(VerificationOutcome.invalid, {"qr": qr_raw}, error=f"{exc.code}: {exc.message}")
-    if data is not None:
-        try:
-            result = await verifier.verify(data, method, attempt_no)
-        except Exception as exc:  # noqa: BLE001 — a provider bug must not leave the lease dangling
-            logger.exception("verification.provider_crash, receipt_id=%d", receipt_id)
-            result = VerificationResult(VerificationOutcome.error, {}, error=f"{type(exc).__name__}: {exc}"[:500])
 
-    done_at = datetime.now(UTC)
     async with session.begin():
-        receipt = (await session.execute(select(Receipt).where(Receipt.id == receipt_id).with_for_update())).scalar_one()
-        session.add(
-            ReceiptVerificationAttempt(
+        slots, skipped = await registry.chain(session, now, only=only_provider)
+        await journey.record(
+            session, receipt_id, EventKind.check_round_started, actor_type=actor, actor_id=actor_id,
+            data={"round": round_no, "providers": [s.row.code for s in slots], "trigger": trigger,
+                  **({"only": only_provider} if only_provider else {})},
+        )
+        for row in skipped:
+            await journey.record(
+                session, receipt_id, EventKind.provider_skipped, actor_type="system", source=row.code,
+                data={"round": round_no, "until": row.disabled_until.isoformat() if row.disabled_until else None},
+            )
+    plan = [(s.row.code, s.row.role, s.verifier) for s in slots]
+
+    calls: list[tuple[str, VerificationResult]] = []
+    verified_by: str | None = None
+    winner: VerificationResult | None = None
+    for code, role, verifier in plan:
+        method = method_for_attempt(verifier.methods, round_no)
+        result = await _call(verifier, data, qr_raw, method, round_no)
+        finished = datetime.now(UTC)
+        async with session.begin():
+            receipt = (await session.execute(select(Receipt).where(Receipt.id == receipt_id).with_for_update())).scalar_one()
+            attempt = ReceiptVerificationAttempt(
                 receipt_id=receipt_id,
-                attempt_no=attempt_no,
-                provider=verifier.provider,
+                attempt_no=receipt.verification_attempts + 1,
+                round_no=round_no,
+                provider=code,
+                provider_role=role,
+                adapter_version=getattr(verifier, "adapter_version", None),
                 method=method,
                 trigger=trigger,
                 outcome=result.outcome.value,
                 http_status=result.http_status,
                 request=result.request,
                 response=result.response,
+                parsed=_parsed(result),
                 error=result.error,
                 duration_ms=result.duration_ms,
             )
-        )
-        receipt.verification_attempts = attempt_no
+            session.add(attempt)
+            receipt.verification_attempts += 1
+            await session.flush()
+            provider_row = (await session.execute(select(CheckProvider).where(CheckProvider.code == code))).scalar_one()
+            register_outcome(provider_row, result.outcome, finished)
+            await journey.record(
+                session, receipt_id, EventKind.provider_checked, actor_type=actor, actor_id=actor_id, source=code,
+                outcome=result.outcome.value, check_id=attempt.id,
+                data={"round": round_no, "method": method, "role": role},
+            )
+        calls.append((code, result))
+        if result.outcome is VerificationOutcome.ok:
+            verified_by, winner = code, result
+            break
+
+    done_at = datetime.now(UTC)
+    async with session.begin():
+        receipt = (await session.execute(select(Receipt).where(Receipt.id == receipt_id).with_for_update())).scalar_one()
+        receipt.check_rounds = round_no
         receipt.verification_locked_until = None
-        if receipt.verification_status == VerificationStatus.verified.value and result.outcome is not VerificationOutcome.ok:
-            # A forced re-check that failed never downgrades an already verified receipt.
+        if winner is not None:
+            receipt.verification_status = VerificationStatus.verified.value
             receipt.next_verification_at = None
+            receipt.verified_by = verified_by
+            _apply_ofd_answer(receipt, winner, data, done_at)
+            await journey.record(
+                session, receipt_id, EventKind.verified, actor_type="system", source=verified_by, outcome="ok",
+                data={"round": round_no},
+            )
+            outcome = VerificationOutcome.ok
         else:
-            if result.outcome is not VerificationOutcome.ok and result.outcome not in _PROVIDER_SIDE:
-                receipt.verification_failures += 1
-            status, next_at = next_state(receipt.verification_failures, result.outcome, done_at)
-            receipt.verification_status = status
-            receipt.next_verification_at = next_at
-            if result.outcome is VerificationOutcome.ok:
-                _apply_ofd_answer(receipt, result, data, done_at)
+            outcome = _round_outcome(calls)
+            if receipt.verification_status == VerificationStatus.verified.value:
+                receipt.next_verification_at = None  # a failed forced re-check never downgrades «verified»
+            else:
+                if outcome not in _PROVIDER_SIDE:
+                    receipt.verification_failures += 1
+                status, next_at = next_state(receipt.verification_failures, outcome, done_at)
+                receipt.verification_status = status
+                receipt.next_verification_at = next_at
+            kind = (
+                EventKind.check_exhausted
+                if receipt.verification_status == VerificationStatus.failed.value
+                else EventKind.check_round_failed
+            )
+            await journey.record(
+                session, receipt_id, kind, actor_type="system", outcome=outcome.value,
+                data={
+                    "round": round_no,
+                    "next_at": receipt.next_verification_at.isoformat() if receipt.next_verification_at else None,
+                    **({} if calls else {"reason": "no_provider_available"}),
+                },
+            )
     logger.info(
-        "verification.attempt, receipt_id=%d, attempt=%d, provider=%s, method=%s, trigger=%s, outcome=%s",
-        receipt_id, attempt_no, verifier.provider, method, trigger, result.outcome.value,
+        "verification.round, receipt_id=%d, round=%d, trigger=%s, calls=%s, outcome=%s",
+        receipt_id, round_no, trigger, [(c, r.outcome.value) for c, r in calls], outcome.value,
     )
-    return result
+    return RoundResult(round_no=round_no, outcome=outcome, verified_by=verified_by, calls=calls)
+
+
+def _round_outcome(calls: list[tuple[str, VerificationResult]]) -> VerificationOutcome:
+    """A round without a confirmation: a receipt-side answer (not_found / invalid) wins over
+    provider faults; only-provider-faults (or no provider at all) → rate_limited = pause, no budget spent."""
+    outcomes = [r.outcome for _, r in calls]
+    for o in (VerificationOutcome.not_found, VerificationOutcome.invalid):
+        if o in outcomes:
+            return o
+    return VerificationOutcome.rate_limited
 
 
 def _apply_ofd_answer(receipt: Receipt, result: VerificationResult, data: FiscalData | None, now: datetime) -> None:
@@ -214,7 +331,9 @@ async def due_receipt_ids(session: AsyncSession, *, now: datetime | None = None,
     return ids
 
 
-async def retry_due(session: AsyncSession, verifier: Verifier, *, time_budget_s: float = CRON_TIME_BUDGET_S) -> int:
+async def retry_due(
+    session: AsyncSession, registry: ProviderRegistry, *, time_budget_s: float = CRON_TIME_BUDGET_S
+) -> int:
     """Cron body: one attempt per due receipt, sequential (provider rate limits) and
     time-bounded (arq job timeout) — what is left over runs on the next tick."""
     done = 0
@@ -222,6 +341,6 @@ async def retry_due(session: AsyncSession, verifier: Verifier, *, time_budget_s:
     for receipt_id in await due_receipt_ids(session):
         if time.monotonic() - started > time_budget_s:
             break
-        if await run_attempt(session, receipt_id, verifier, trigger="cron") is not None:
+        if await run_round(session, receipt_id, registry, trigger="cron") is not None:
             done += 1
     return done

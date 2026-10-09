@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     #   Retries apply to: network timeout, HTTP 5xx, HTTP 429.
     #   4xx errors other than 429 fail fast (no retry).
     OFD_TIMEOUT_SECONDS: float = 10.0
+    # Enables the deterministic OFD stub as a check provider. Stage/dev ONLY: on
+    # production it would «confirm» real receipts. Off by default; the stage
+    # overlay turns it on (docker-compose.stage.yml).
+    CHECK_PROVIDER_STUB: bool = False
     OFD_RETRY_MAX_ATTEMPTS: int = 3
 
     # B4: CORS — restrict origins via ENV in production.

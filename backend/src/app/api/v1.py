@@ -13,6 +13,7 @@ from src.notification.handlers.api.v1.router import router as notification_route
 from src.payout_request.handlers.api.v1.router import router as payout_request_router
 from src.promotion.handlers.api.v1.router import router as promotion_router
 from src.receipt.handlers.api.v1.router import router as receipt_router
+from src.receipt_intake.handlers.api.v1.router import providers_router as check_providers_router
 from src.receipt_intake.handlers.api.v1.router import router as receipt_intake_router
 from src.seller.handlers.api.v1.router import router as seller_router
 from src.sku.handlers.api.v1.router import router as sku_router
@@ -28,6 +29,7 @@ router.include_router(admin_router)
 router.include_router(sku_router)
 router.include_router(promotion_router)
 router.include_router(receipt_intake_router)
+router.include_router(check_providers_router)
 router.include_router(receipt_router)
 router.include_router(bonus_transaction_router)
 router.include_router(payout_request_router)

@@ -115,7 +115,24 @@ async def test_submit__admin_token__403(client: AsyncClient, not_blocked) -> Non
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("method", "path"), [("GET", "/api/v1/receipts/5/verification"), ("POST", "/api/v1/receipts/5/verify")])
-async def test_verification_endpoints__seller_token__403(client: AsyncClient, method: str, path: str) -> None:
-    response = await client.request(method, path, headers={"Authorization": f"Bearer {_seller_token()}"})
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/api/v1/receipts/5/journey"),
+        ("POST", "/api/v1/receipts/5/verify"),
+        ("GET", "/api/v1/check-providers"),
+        ("PATCH", "/api/v1/check-providers/fns"),
+    ],
+)
+async def test_journey_and_provider_endpoints__seller_token__403(client: AsyncClient, method: str, path: str) -> None:
+    response = await client.request(method, path, json={}, headers={"Authorization": f"Bearer {_seller_token()}"})
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_provider_settings__plain_admin__403(client: AsyncClient) -> None:
+    # Reordering / switching providers is a super_admin decision.
+    response = await client.patch(
+        "/api/v1/check-providers/fns", json={"enabled": False}, headers={"Authorization": f"Bearer {_admin_token()}"}
+    )
     assert response.status_code == 403

@@ -46,6 +46,7 @@ class VerificationResult:
 
 class Verifier(Protocol):
     provider: str
+    adapter_version: str
     methods: tuple[str, ...]
 
     async def verify(self, data: FiscalData, method: str, attempt_no: int) -> VerificationResult: ...
@@ -66,6 +67,7 @@ class ProverkachekaVerifier:
     """proverkacheka.com — methods: fields (no seconds), raw QR string, fields with seconds."""
 
     provider = "proverkacheka"
+    adapter_version = "1"  # bump when the request encoding / parsing changes (reproducibility)
     methods = ("fields", "qrraw", "fields_seconds")
 
     def __init__(self, *, token: str, timeout: float = 10.0, http_client: httpx.AsyncClient | None = None) -> None:
@@ -133,6 +135,7 @@ class FakeVerifier:
     """
 
     provider = "fake"
+    adapter_version = "1"
     methods = ("fields", "qrraw", "fields_seconds")
 
     async def verify(self, data: FiscalData, method: str, attempt_no: int) -> VerificationResult:
@@ -156,11 +159,3 @@ def _ms(t0: float) -> int:
 
 def _as_dict(body: object) -> dict:
     return body if isinstance(body, dict) else {"body": body}
-
-
-def get_verifier(*, provider: str, token: str | None, timeout: float = 10.0) -> Verifier:
-    if provider == "proverkacheka":
-        if not token:
-            raise RuntimeError("PROVERKACHEKA_TOKEN must be set when OFD_PROVIDER=proverkacheka")
-        return ProverkachekaVerifier(token=token, timeout=timeout)
-    return FakeVerifier()

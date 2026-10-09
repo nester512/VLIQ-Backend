@@ -22,7 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.app.postgres.base import DEFAULT_SCHEMA, IDModel, TimeStampedModel
+from src.app.postgres.base import DEFAULT_SCHEMA, BaseModel, IDModel, TimeStampedModel
 
 
 class ReceiptStatus(StrEnum):
@@ -189,6 +189,9 @@ class Receipt(TimeStampedModel):
     # The final («готовый») OFD answer of the successful attempt.
     ofd_response: Mapped[dict | None] = mapped_column(JSONB, default=None)
     verification_failures: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # Receipt journey (0011): which provider confirmed it, how many check rounds ran.
+    verified_by: Mapped[str | None] = mapped_column(String(32), default=None)
+    check_rounds: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     verification_locked_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
 
     # Not indexed on its own (never selective); live-row indexes are partial on it (0010).
@@ -282,3 +285,75 @@ class ReceiptVerificationAttempt(IDModel):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
+    # Receipt journey (0011)
+    round_no: Mapped[int | None] = mapped_column(Integer, default=None)
+    provider_role: Mapped[str | None] = mapped_column(String(16), default=None)
+    adapter_version: Mapped[str | None] = mapped_column(String(16), default=None)
+    parsed: Mapped[dict | None] = mapped_column(JSONB, default=None)  # normalised answer (sum, date, shop, items)
+
+
+class EventKind(StrEnum):
+    """Steps of a receipt's journey (docs/design/RECEIPT-JOURNEY.md)."""
+
+    received = "received"
+    validated = "validated"
+    risk_flagged = "risk_flagged"
+    sent_to_moderation = "sent_to_moderation"
+    check_round_started = "check_round_started"
+    provider_checked = "provider_checked"
+    provider_skipped = "provider_skipped"
+    verified = "verified"
+    check_round_failed = "check_round_failed"
+    check_exhausted = "check_exhausted"
+    recheck_requested = "recheck_requested"
+    approved = "approved"
+    rejected = "rejected"
+    sent_to_revision = "sent_to_revision"
+    bonus_changed = "bonus_changed"
+    comment_added = "comment_added"
+    edited = "edited"
+    reprocess_requested = "reprocess_requested"
+    deleted = "deleted"
+    included_in_payout = "included_in_payout"
+    paid_out = "paid_out"
+
+
+class ReceiptEvent(IDModel):
+    """One step of the receipt journey — append-only, ordered by ``seq`` within the receipt."""
+
+    __tablename__ = "receipt_event"
+    __table_args__ = (
+        UniqueConstraint("receipt_id", "seq", name="uq_receipt_event_seq"),
+        {"schema": DEFAULT_SCHEMA},
+    )
+
+    receipt_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey(f"{DEFAULT_SCHEMA}.receipt.id", ondelete="CASCADE"), nullable=False
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
+    source: Mapped[str | None] = mapped_column(String(32), default=None)
+    outcome: Mapped[str | None] = mapped_column(String(16), default=None)
+    check_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey(f"{DEFAULT_SCHEMA}.receipt_verification_attempt.id", ondelete="SET NULL"), default=None
+    )
+    data: Mapped[dict | None] = mapped_column(JSONB, default=None)
+
+
+class CheckProvider(BaseModel):
+    """A source that can confirm a receipt (ФНС, aggregator, OFD operator). Order = ``priority``."""
+
+    __tablename__ = "check_provider"
+    __table_args__ = {"schema": DEFAULT_SCHEMA}
+
+    code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    disabled_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)

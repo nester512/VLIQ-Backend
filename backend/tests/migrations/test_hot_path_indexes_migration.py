@@ -40,7 +40,11 @@ _SEED = [
        FROM generate_series(1, 300) g""",
 ]
 
-_FINGERPRINT = "SELECT count(*), sum(hashtext(r::text)::bigint) FROM vliq.receipt r"
+# Explicit business columns: later migrations ADD columns, which must not count as «data changed».
+_FINGERPRINT = (
+    "SELECT count(*), sum(hashtext(concat_ws('|', id, seller_id, brand_id, status, bonus_amount, total_sum, "
+    "is_deleted, created_at))::bigint) FROM vliq.receipt"
+)
 
 
 def _alembic(*args: str) -> None:

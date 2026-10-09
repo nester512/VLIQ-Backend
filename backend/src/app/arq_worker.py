@@ -40,8 +40,8 @@ from src.receipt_intake.pipeline import process_qr_receipt, stuck_pending_ids
 from src.receipt_ocr.qr_extractor import QRExtractor
 from src.receipt_ocr.storage import get_receipt_storage
 from src.receipt_pipeline.orchestrator import ReceiptPipelineOrchestrator
+from src.receipt_verification.providers import ProviderRegistry
 from src.receipt_verification.service import retry_due
-from src.receipt_verification.verifier import get_verifier
 from src.seller import models as _seller_models  # noqa: F401
 from src.sku import models as _sku_models  # noqa: F401
 from src.sku_matcher.matcher import SkuMatcher
@@ -93,7 +93,7 @@ async def process_qr_receipt_task(ctx: dict, receipt_id: int) -> None:
     """arq task: QR-intake receipt → fraud signals → on_review → first OFD attempt."""
     session_factory: async_sessionmaker[AsyncSession] = ctx["sessionmaker"]
     async with session_factory() as session:
-        await process_qr_receipt(session, receipt_id, ctx["verifier"])
+        await process_qr_receipt(session, receipt_id, ctx["registry"])
 
 
 async def retry_verifications_cron(ctx: dict) -> None:
@@ -101,8 +101,8 @@ async def retry_verifications_cron(ctx: dict) -> None:
     session_factory: async_sessionmaker[AsyncSession] = ctx["sessionmaker"]
     async with session_factory() as session:
         for receipt_id in await stuck_pending_ids(session):
-            await process_qr_receipt(session, receipt_id, ctx["verifier"])
-        done = await retry_due(session, ctx["verifier"])
+            await process_qr_receipt(session, receipt_id, ctx["registry"])
+        done = await retry_due(session, ctx["registry"])
     if done:
         logger.info("arq.verification_cron, attempts=%d", done)
 
@@ -140,8 +140,11 @@ async def on_startup(ctx: dict) -> None:
         ofd_client = FakeOFDClient()  # type: ignore[assignment]
         ofd_cache = InMemoryOFDCache()
 
-    ctx["verifier"] = get_verifier(
-        provider=provider, token=settings.PROVERKACHEKA_TOKEN, timeout=settings.OFD_TIMEOUT_SECONDS
+    ctx["registry"] = ProviderRegistry.from_settings(
+        provider=provider,
+        token=settings.PROVERKACHEKA_TOKEN,
+        stub=settings.CHECK_PROVIDER_STUB,
+        timeout=settings.OFD_TIMEOUT_SECONDS,
     )
 
     # Storage MUST match the API's backend (RECEIPT_STORAGE): otherwise photos

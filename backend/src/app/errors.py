@@ -36,6 +36,8 @@ USER_MESSAGES: dict[str, str] = {
     "QR_NOT_INCOME": "Это не чек продажи (возврат или коррекция).",
     "RECEIPT_NOT_VERIFIABLE": "У этого чека нет данных QR для проверки.",
     "VERIFICATION_IN_PROGRESS": "Проверка этого чека уже идёт — обновите через минуту.",
+    "CHECK_PROVIDER_UNAVAILABLE": "Этот источник проверки не подключён.",
+    "CHECK_PROVIDER_NOT_FOUND": "Источник проверки не найден.",
     "RECEIPT_NOT_YOURS": "Этот чек принадлежит другому продавцу.",
     "RECEIPT_DUPLICATE": "Этот чек уже был загружен ранее.",
     "RECEIPT_INVALID_STATE_TRANSITION": "Это действие недоступно для текущего статуса чека. Обновите очередь.",

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.receipt.models import (
     MAX_ATTACHMENTS_PER_RECEIPT,
     AttachmentKind,
+    EventKind,
     Receipt,
     ReceiptAttachment,
     ReceiptFileKind,
@@ -30,6 +31,7 @@ from src.receipt.models import (
     VerificationStatus,
     attachment_kind_for_mime,
 )
+from src.receipt_journey import service as journey
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +123,11 @@ async def create_receipt_package(  # noqa: PLR0913
                     )
                     return existing, False
             session.add(receipt)
+            await session.flush()
+            await journey.record(
+                session, receipt.id, EventKind.received, actor_type="seller", actor_id=seller_id, source="upload",
+                data={"attachments": len(ordered), "has_qr": bool(scanned_qr)},
+            )
     except IntegrityError:
         # Concurrent finalize with the same idempotency key won the race — return
         # the winner instead of surfacing a constraint error.
@@ -199,6 +206,16 @@ async def create_qr_receipt(  # noqa: PLR0913
                 if existing is not None:
                     return existing, False
             session.add(receipt)
+            await session.flush()
+            # Journey: the receipt and its first steps are one atomic fact.
+            await journey.record(
+                session, receipt.id, EventKind.received, actor_type="seller", actor_id=seller_id, source=source,
+                data={"fd": data.fd, "total_sum": data.total_sum_kop, "purchase_at": data.purchase_at.isoformat()},
+            )
+            await journey.record(
+                session, receipt.id, EventKind.validated, actor_type="system", outcome="ok",
+                data={"too_old": data.is_too_old},
+            )
     except IntegrityError:
         if idempotency_key:
             existing = await _find_by_idempotency_key(session, seller_id, idempotency_key)
