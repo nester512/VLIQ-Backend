@@ -45,7 +45,7 @@ class Seller(BaseModel):
         index=True,
     )
 
-    phone_e164: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    phone_e164: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)  # the UNIQUE key is the index (0010)
 
     first_name: Mapped[str | None] = mapped_column(String(255), default=None)
     last_name: Mapped[str | None] = mapped_column(String(255), default=None)

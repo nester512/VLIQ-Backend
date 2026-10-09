@@ -191,7 +191,8 @@ class Receipt(TimeStampedModel):
     verification_failures: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     verification_locked_until: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), default=None)
 
-    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    # Not indexed on its own (never selective); live-row indexes are partial on it (0010).
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     created_by: Mapped[int | None] = mapped_column(BigInteger, default=None)
     updated_by: Mapped[int | None] = mapped_column(BigInteger, default=None)
@@ -266,8 +267,8 @@ class ReceiptVerificationAttempt(IDModel):
     )
 
     receipt_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey(f"{DEFAULT_SCHEMA}.receipt.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+        BigInteger, ForeignKey(f"{DEFAULT_SCHEMA}.receipt.id", ondelete="CASCADE"), nullable=False
+    )  # indexed by UNIQUE (receipt_id, attempt_no)
     attempt_no: Mapped[int] = mapped_column(Integer, nullable=False)
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     method: Mapped[str] = mapped_column(String(32), nullable=False)

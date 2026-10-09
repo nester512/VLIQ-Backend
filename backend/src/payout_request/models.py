@@ -21,11 +21,11 @@ class PayoutRequest(TimeStampedModel):
     __tablename__ = "payout_request"
     __table_args__ = {"schema": DEFAULT_SCHEMA}
 
+    # No single-column index: covered by the composite (seller_id, …) index (0010).
     seller_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(f"{DEFAULT_SCHEMA}.seller.telegram_id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     brand_id: Mapped[int] = mapped_column(
         BigInteger,

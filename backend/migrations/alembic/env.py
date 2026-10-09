@@ -51,7 +51,16 @@ def run_migrations_offline() -> None:
         compare_type=True,  # B6: detect column type changes in autogenerate
     )
     with context.begin_transaction():
+        # Session-level (not LOCAL): survives the commits of autocommit_block()
+        # used by CONCURRENTLY index migrations.
+        context.execute(f"SET lock_timeout = '{MIGRATION_LOCK_TIMEOUT}'")
         context.run_migrations()
+
+
+# Production safety: a DDL statement that cannot get its lock quickly must FAIL
+# (the deploy then aborts before switching containers) instead of queueing behind
+# a long query and blocking every request to that table while it waits.
+MIGRATION_LOCK_TIMEOUT = "10s"
 
 
 def do_run_migrations(connection: Connection) -> None:
