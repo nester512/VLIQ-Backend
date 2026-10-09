@@ -14,10 +14,14 @@ type ZXingReader = typeof import('zxing-wasm/reader')
 
 /** Pages of a PDF that are rendered and scanned (an e-receipt is 1–2 pages). */
 export const MAX_PDF_PAGES = 5
-/** Longest side of the bitmap handed to the decoder for photos (speed vs. detail). */
-const PHOTO_MAX_SIDE = 2048
-/** PDF pages are rendered so that the page width is about this many pixels. */
+/** Photos are decoded downscaled first (fast, low memory), then once more in more detail. */
+const PHOTO_SIDES = [2048, 4096] as const
+/** PDF pages are rendered so that the page width is about this many pixels… */
 const PDF_TARGET_WIDTH = 1600
+/** …but never above this many pixels: iOS canvases over ~16.7 MP silently render blank. */
+const MAX_CANVAS_PIXELS = 12_000_000
+/** Files above this size are refused before decoding (a receipt photo/PDF is far smaller). */
+export const MAX_FILE_BYTES = 25 * 1024 * 1024
 
 const READER_OPTIONS: ReaderOptions = {
   formats: ['QRCode'],
@@ -40,17 +44,25 @@ async function zxing(): Promise<ZXingReader> {
       import('zxing-wasm/reader'),
       import('zxing-wasm/reader/zxing_reader.wasm?url'),
     ])
-    reader.prepareZXingModule({
-      overrides: {
-        locateFile: (path: string, prefix: string) => (path.endsWith('.wasm') ? wasm.default : prefix + path),
-      },
-    })
+    try {
+      // Instantiate NOW (fireImmediately) so a failed wasm fetch surfaces here and
+      // can be retried — a lazily failed init would be cached by the library forever.
+      await reader.prepareZXingModule({
+        overrides: {
+          locateFile: (path: string, prefix: string) => (path.endsWith('.wasm') ? wasm.default : prefix + path),
+        },
+        fireImmediately: true,
+      })
+    } catch (err) {
+      reader.purgeZXingModule()
+      throw err
+    }
     return reader
   })()
   try {
     return await zxingPromise
   } catch (err) {
-    zxingPromise = null // a failed load (offline) may succeed on the next attempt
+    zxingPromise = null // a flaky network drop: the next decode tries again
     throw err
   }
 }
@@ -67,14 +79,20 @@ export async function readQrTexts(input: Blob | ImageData, options: ReaderOption
 // ---- Photos / screenshots --------------------------------------------------
 
 /** Browser-decoded, EXIF-rotated, downscaled pixels (handles HEIC where the browser can). */
-async function bitmapPixels(file: Blob, maxSide: number): Promise<ImageData | null> {
+async function openBitmap(file: Blob): Promise<ImageBitmap | null> {
   if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') return null
-  let bitmap: ImageBitmap
   try {
-    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+    return await createImageBitmap(file, { imageOrientation: 'from-image' })
   } catch {
-    return null
+    try {
+      return await createImageBitmap(file) // older WebKit rejects the options object
+    } catch {
+      return null
+    }
   }
+}
+
+function pixelsOf(bitmap: ImageBitmap, maxSide: number): ImageData | null {
   const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height))
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(bitmap.width * scale))
@@ -82,45 +100,60 @@ async function bitmapPixels(file: Blob, maxSide: number): Promise<ImageData | nu
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) return null
   ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
-  bitmap.close?.()
   return ctx.getImageData(0, 0, canvas.width, canvas.height)
 }
 
+/**
+ * Photo / screenshot → QR texts. Browser-decoded (EXIF-rotated, HEIC on iOS) pixels,
+ * downscaled first — a 12 MP photo at full resolution would cost ~150 MB and seconds
+ * of a frozen UI; a larger pass only if the small one finds nothing. ZXing's own
+ * decoder (full resolution) is the fallback where the browser cannot decode.
+ */
 export async function decodeImageFile(file: Blob): Promise<string[]> {
-  // 1) ZXing decodes PNG/JPEG itself at full resolution — best for small/blurry codes.
-  try {
-    const texts = await readQrTexts(file)
-    if (texts.length) return texts
-  } catch {
-    /* format ZXing cannot read (e.g. HEIC) → let the browser decode it below */
+  const bitmap = await openBitmap(file)
+  if (bitmap) {
+    try {
+      const largest = Math.max(bitmap.width, bitmap.height)
+      for (const side of PHOTO_SIDES) {
+        const pixels = pixelsOf(bitmap, side)
+        if (pixels) {
+          const texts = await readQrTexts(pixels)
+          if (texts.length) return texts
+        }
+        if (largest <= side) break // already tried at full size
+      }
+      return []
+    } finally {
+      bitmap.close?.()
+    }
   }
-  // 2) Browser-decoded pixels (EXIF rotation, HEIC on iOS), downscaled.
-  const pixels = await bitmapPixels(file, PHOTO_MAX_SIDE)
-  return pixels ? readQrTexts(pixels) : []
+  return readQrTexts(file)
 }
 
 // ---- PDF -------------------------------------------------------------------
 
 export interface PdfRenderer {
-  /** Render up to `maxPages` pages to pixels. */
-  renderPages(data: ArrayBuffer, maxPages: number): Promise<ImageData[]>
+  /** Render up to `maxPages` pages, handing each page's pixels to `onPage` before the next
+   *  (one page in memory at a time). */
+  renderPages(data: ArrayBuffer, maxPages: number, onPage: (page: ImageData) => Promise<void>): Promise<void>
 }
 
 const pdfjsRenderer: PdfRenderer = {
-  async renderPages(data, maxPages) {
+  async renderPages(data, maxPages, onPage) {
     const [pdfjs, worker] = await Promise.all([
       import('pdfjs-dist/legacy/build/pdf.mjs'),
       import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'),
     ])
     pdfjs.GlobalWorkerOptions.workerSrc = worker.default
     const task = pdfjs.getDocument({ data: new Uint8Array(data), enableXfa: false })
-    const doc = await task.promise
     try {
-      const pages: ImageData[] = []
+      const doc = await task.promise // inside try: an encrypted/broken PDF still frees the worker
       for (let n = 1; n <= Math.min(doc.numPages, maxPages); n++) {
         const page = await doc.getPage(n)
         const base = page.getViewport({ scale: 1 })
-        const viewport = page.getViewport({ scale: Math.min(4, PDF_TARGET_WIDTH / base.width) })
+        const byWidth = PDF_TARGET_WIDTH / base.width
+        const byArea = Math.sqrt(MAX_CANVAS_PIXELS / (base.width * base.height))
+        const viewport = page.getViewport({ scale: Math.max(0.5, Math.min(4, byWidth, byArea)) })
         const canvas = document.createElement('canvas')
         canvas.width = Math.ceil(viewport.width)
         canvas.height = Math.ceil(viewport.height)
@@ -129,10 +162,11 @@ const pdfjsRenderer: PdfRenderer = {
         ctx.fillStyle = '#fff' // transparent PDFs would otherwise decode as black-on-black
         ctx.fillRect(0, 0, canvas.width, canvas.height)
         await page.render({ canvas, canvasContext: ctx, viewport }).promise
-        pages.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height)
         page.cleanup()
+        canvas.width = canvas.height = 0 // release the backing store before the next page
+        await onPage(pixels)
       }
-      return pages
     } finally {
       await task.destroy()
     }
@@ -144,13 +178,18 @@ export async function decodePdfFile(
   renderer: PdfRenderer = pdfjsRenderer,
   read: (page: ImageData) => Promise<string[]> = (page) => readQrTexts(page),
 ): Promise<string[]> {
-  const pages = await renderer.renderPages(await file.arrayBuffer(), MAX_PDF_PAGES)
   const texts: string[] = []
-  for (const page of pages) texts.push(...(await read(page)))
+  await renderer.renderPages(await file.arrayBuffer(), MAX_PDF_PAGES, async (page) => {
+    texts.push(...(await read(page)))
+  })
   return distinct(texts)
 }
 
 export const isPdf = (file: File) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
+
+/** Anything that is not a PDF is tried as an image — some phones report HEIC/JFIF with an empty MIME. */
+export const looksLikeImage = (file: File) =>
+  file.type.startsWith('image/') || (file.type === '' && /\.(jpe?g|jfif|png|webp|heic|heif|gif|bmp)$/i.test(file.name))
 
 // ---- Camera frames (fallback where BarcodeDetector is missing, e.g. iOS) ----
 

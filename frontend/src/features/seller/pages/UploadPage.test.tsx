@@ -30,6 +30,8 @@ vi.mock('../qr/decode', () => ({
   decodeImageFile: (...a: unknown[]) => decodeImageFile(...a),
   decodePdfFile: (...a: unknown[]) => decodePdfFile(...a),
   isPdf: (f: File) => f.type === 'application/pdf',
+  looksLikeImage: (f: File) => f.type.startsWith('image/') || /\.heic$/i.test(f.name),
+  MAX_FILE_BYTES: 25 * 1024 * 1024,
 }))
 
 import { UploadPage } from './UploadPage'
@@ -346,6 +348,38 @@ describe('UploadPage — photo / screenshot / PDF (decoded on the device)', () =
     renderPage()
     pickFile(photo())
     expect(await screen.findByText(/Не удалось прочитать файл/)).toBeInTheDocument()
+  })
+
+  it('a HEIC photo with an empty MIME type is still decoded', async () => {
+    decodeImageFile.mockResolvedValue([goodQr()])
+    renderPage()
+    pickFile(new File([new Uint8Array([1])], 'IMG_0001.HEIC', { type: '' }))
+    expect(await screen.findByText('Источник: Фото')).toBeInTheDocument()
+  })
+
+  it('a huge file is refused before decoding', async () => {
+    renderPage()
+    const big = new File([new Uint8Array(1)], 'huge.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(big, 'size', { value: 30 * 1024 * 1024 })
+    pickFile(big)
+    expect(await screen.findByText(/Файл слишком большой/)).toBeInTheDocument()
+    expect(decodeImageFile).not.toHaveBeenCalled()
+  })
+
+  it('a decode that finishes after a newer one started is ignored', async () => {
+    let finishFirst: (v: string[]) => void = () => {}
+    decodeImageFile
+      .mockReturnValueOnce(new Promise<string[]>((r) => { finishFirst = r }))
+      .mockResolvedValueOnce([])
+    renderPage()
+    pickFile(photo())
+    await waitFor(() => expect(decodeImageFile).toHaveBeenCalledTimes(1))
+    // the seller picks another photo while the first is still decoding — it has no QR
+    pickFile(photo())
+    expect(await screen.findByText(/QR-код не найден/)).toBeInTheDocument()
+    finishFirst([goodQr()]) // the stale result must NOT open the confirmation card
+    await new Promise((r) => setTimeout(r, 20))
+    expect(screen.queryByText('Проверьте данные чека')).not.toBeInTheDocument()
   })
 
   it('a non-image, non-PDF file is refused before decoding', async () => {

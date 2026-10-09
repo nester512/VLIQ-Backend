@@ -19,6 +19,8 @@ export function CameraScanner({ onScan, onClose, hint }: CameraScannerProps) {
   const onScanRef = useRef(onScan)
   const onCloseRef = useRef(onClose)
   const [error, setError] = useState<string | null>(null)
+  // The wasm decoder (iOS) loads on first open: say so instead of a silent black screen.
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
     onScanRef.current = onScan
@@ -88,6 +90,7 @@ export function CameraScanner({ onScan, onClose, hint }: CameraScannerProps) {
       video.srcObject = stream
       await video.play().catch(() => undefined)
       if (stopped) return
+      setReady(true)
       void tick(video)
     }
 
@@ -116,7 +119,9 @@ export function CameraScanner({ onScan, onClose, hint }: CameraScannerProps) {
         }}
       />
       <div style={{ position: 'absolute', left: 16, right: 16, bottom: 32, textAlign: 'center', color: '#fff' }}>
-        <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Наведите камеру на QR-код чека</p>
+        <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }} aria-live="polite">
+          {ready || error ? 'Наведите камеру на QR-код чека' : 'Запускаем камеру…'}
+        </p>
         {(error ?? hint) && (
           <p role="alert" style={{ fontSize: 13, fontWeight: 600, color: error ? '#ffb4b4' : '#ffe08a', marginBottom: 12 }}>
             {error ?? hint}

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -281,22 +281,33 @@ function UploadContent() {
   const [decoding, setDecoding] = useState(false)
   const [fileHint, setFileHint] = useState<string | null>(null)
   const [candidates, setCandidates] = useState<Array<FiscalCandidate & { source: ReceiptSource }>>([])
+  // Each decode gets a token: a result that arrives after a newer decode started or
+  // after the page unmounted is dropped instead of yanking the seller to another step.
+  const decodeIdRef = useRef(0)
+  useEffect(() => () => { decodeIdRef.current = -1 }, [])
 
   /** Photo / screenshot / PDF → QR text ON THE DEVICE → the same validation as a scan. */
   async function decodeFile(file: File) {
+    const id = ++decodeIdRef.current
+    const current = () => decodeIdRef.current === id
     setError(null)
     setScanHint(null)
     setFileHint(null)
     setDecoding(true)
     try {
-      const { decodeImageFile, decodePdfFile, isPdf } = await import('../qr/decode')
+      const { decodeImageFile, decodePdfFile, isPdf, looksLikeImage, MAX_FILE_BYTES } = await import('../qr/decode')
       const pdf = isPdf(file)
-      if (!pdf && !file.type.startsWith('image/')) {
-        setFileHint('Подойдёт фото, скриншот или PDF чека')
+      if (!pdf && !looksLikeImage(file)) {
+        if (current()) setFileHint('Подойдёт фото, скриншот или PDF чека')
+        return
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        if (current()) setFileHint('Файл слишком большой — сделайте скриншот чека или снимите ближе')
         return
       }
       const source: ReceiptSource = pdf ? 'pdf_decode' : 'image_decode'
       const texts = pdf ? await decodePdfFile(file) : await decodeImageFile(file)
+      if (!current()) return
       const picked = pickFiscal(texts)
       if (picked.kind === 'one') {
         accept(picked.candidate.data, source, picked.candidate.raw)
@@ -308,10 +319,11 @@ function UploadContent() {
         setFileHint(picked.message)
       }
     } catch {
+      if (!current()) return
       notification('error')
       setFileHint('Не удалось прочитать файл. Попробуйте другое фото или введите данные вручную.')
     } finally {
-      setDecoding(false)
+      if (current()) setDecoding(false)
     }
   }
 
@@ -321,6 +333,7 @@ function UploadContent() {
     setConfirmed(false)
     setError(null)
     setScanHint(null)
+    setFileHint(null)
     setStep('confirm')
   }
 
@@ -340,8 +353,10 @@ function UploadContent() {
   }
 
   function scan() {
+    if (decoding) return
     setError(null)
     setScanHint(null)
+    setFileHint(null)
     lastRejectedRef.current = null
     if (telegramScanner && openTelegramScanner('Наведите камеру на QR-код чека', (raw) => handleScan(raw, 'telegram_scan'))) {
       return
@@ -431,6 +446,8 @@ function UploadContent() {
             title="Ввести вручную"
             text="Если QR не читается: дата, сумма, ФН, ФД, ФП"
             onClick={() => {
+              if (decoding) return
+              setFileHint(null)
               setServerErrors({})
               setManualSeed(EMPTY_SEED)
               setStep('manual')

@@ -88,7 +88,12 @@ describe('decodePdfFile', () => {
 
   it('scans every rendered page and merges the codes', async () => {
     const other = FISCAL.replace('i=12345', 'i=777')
-    const renderer = { renderPages: async () => [await pixelsOf(FISCAL), await pixelsOf('https://ofd.ru/x'), await pixelsOf(other)] }
+    const pages = [await pixelsOf(FISCAL), await pixelsOf('https://ofd.ru/x'), await pixelsOf(other)]
+    const renderer = {
+      renderPages: async (_d: ArrayBuffer, _max: number, onPage: (p: ImageData) => Promise<void>) => {
+        for (const p of pages) await onPage(p)
+      },
+    }
     const texts = await decodePdfFile(pdf, renderer)
     expect(texts).toEqual([FISCAL, 'https://ofd.ru/x', other])
     const picked = pickFiscal(texts, NOW)
@@ -97,7 +102,7 @@ describe('decodePdfFile', () => {
 
   it('asks the renderer for at most 5 pages', async () => {
     let asked = 0
-    await decodePdfFile(pdf, { renderPages: async (_d, max) => { asked = max; return [] } })
+    await decodePdfFile(pdf, { renderPages: async (_d, max) => { asked = max } })
     expect(asked).toBe(5)
   })
 })
