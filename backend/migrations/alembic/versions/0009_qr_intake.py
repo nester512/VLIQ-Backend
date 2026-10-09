@@ -1,7 +1,7 @@
 """QR intake: receipt source + automatic OFD verification with attempt history.
 
 Receipts are now submitted as dry fiscal data (the QR contents) instead of files
-(docs/design/QR-INTAKE.md). Each receipt gets an automatic OFD check whose every
+(docs/design/RECEIPT-JOURNEY.md). Each receipt gets an automatic OFD check whose every
 attempt is stored; a cron retries failed checks with other methods.
 
 Additive and backward-compatible: existing receipts get

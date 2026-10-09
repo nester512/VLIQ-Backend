@@ -1,5 +1,5 @@
 /**
- * QR decoding ON THE DEVICE (phase 2, docs/design/QR-INTAKE.md): photos,
+ * QR decoding ON THE DEVICE (phase 2, docs/design/RECEIPT-JOURNEY.md): photos,
  * screenshots and PDFs become QR text locally — nothing but the resulting
  * fiscal data is ever sent.
  *

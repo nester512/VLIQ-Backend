@@ -2,7 +2,7 @@
 
 | | **Stage** (тестовый стенд) | **Production** (`shamilara.fun`) |
 |---|---|---|
-| Назначение | ручное и приёмочное тестирование, аудит по BRD | живые продавцы |
+| Назначение | ручное и приёмочное тестирование, аудит по use cases (`docs/use-cases/`) | живые продавцы |
 | Ветка | `develop` | `main` |
 | Деплой | автоматически на push в `develop` | автоматически на push в `main`; ручное подтверждение включается required reviewer в Environment `test` |
 | GitHub Environment | `stage` | `test` (историческое имя, секреты `TEST_*`) |

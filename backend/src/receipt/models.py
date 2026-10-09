@@ -178,7 +178,7 @@ class Receipt(TimeStampedModel):
     # T4: admin internal comments — JSONB array of {author_telegram_id, text, created_at}
     admin_comments: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
 
-    # QR intake (docs/design/QR-INTAKE.md): source of the fiscal data + automatic OFD check.
+    # QR intake (docs/design/RECEIPT-JOURNEY.md): source of the fiscal data + automatic OFD check.
     source: Mapped[str | None] = mapped_column(String(32), default=None)
     verification_status: Mapped[str] = mapped_column(
         String(16), default=VerificationStatus.not_required.value, server_default="not_required", nullable=False

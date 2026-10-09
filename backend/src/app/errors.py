@@ -24,7 +24,7 @@ USER_MESSAGES: dict[str, str] = {
     "MULTIPLE_RECEIPTS_DETECTED": "В одной загрузке обнаружены признаки нескольких разных чеков. Администратор проверит их вручную.",
     # --- Receipt (general / admin actions) ---
     "RECEIPT_NOT_FOUND": "Чек не найден или был удалён.",
-    # QR intake (docs/design/QR-INTAKE.md) — the field-level message comes from the validator.
+    # QR intake (docs/design/RECEIPT-JOURNEY.md) — the field-level message comes from the validator.
     "QR_NOT_FISCAL": "Это не QR-код кассового чека.",
     "QR_FN_INVALID": "ФН — ровно 16 цифр.",
     "QR_FD_INVALID": "ФД — число до 10 цифр.",

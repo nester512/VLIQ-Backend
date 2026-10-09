@@ -1,6 +1,6 @@
 """QR intake API: sellers submit dry fiscal data; admins see/force the OFD check.
 
-docs/design/QR-INTAKE.md
+docs/design/RECEIPT-JOURNEY.md
 """
 
 from __future__ import annotations

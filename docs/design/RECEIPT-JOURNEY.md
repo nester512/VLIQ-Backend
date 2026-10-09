@@ -1,84 +1,55 @@
-# Путь чека: от получения до решения админа — единый журнал по каждому чеку
+# Приём чека по QR и «Путь чека» — техническое описание
 
-Статус: **проект на согласование** (2026-10-09). Расширяет `QR-INTAKE.md`.
+Бизнес-описание: `docs/use-cases/01-seller.md` (UC-S4), `02-admin.md` (UC-A4), `04-system.md` (UC-SYS1–2).
+Здесь — то, что нужно разработчику. Состояние на 2026-10-09, реализовано.
 
-## Зачем
-Сейчас «что происходило с чеком» размазано по трём местам и неполно: статус в `receipt`,
-попытки ОФД в `receipt_verification_attempt`, часть действий админа в `audit_log` (удаление чека,
-выплаты и шаги системы туда не попадают). Нужен **один воспроизводимый журнал на чек**: кто/что,
-когда, по какому источнику, с каким результатом — от приёма до ручного подтверждения и выплаты.
+## Приём
+- `POST /receipts/qr` (продавец, не заблокирован, 20/мин) → 202 `{receipt_id, warnings[]}`.
+  Тело: `fn, fd, fp, t, s, n, source, idempotency_key, brand_id, qr_raw?`.
+- Валидация — `receipt_intake/fiscal.py`, зеркало на фронте `features/seller/qr/fiscalQr.ts` (общие
+  коды ошибок `QR_*`, 422 с `extra.field`).
+- `source`: `telegram_scan | camera_scan | image_decode | pdf_decode | manual`; у старых файловых
+  чеков `NULL`, `verification_status = not_required`.
+- Идемпотентность: `(seller_id, upload_idempotency_key)`.
+- Дубль ФН+ФД+ФП (только среди `source IS NOT NULL`, не удалённых) → предупреждение
+  `POSSIBLE_DUPLICATE` и сигнал, не отказ.
+- Воркер `process_qr_receipt_task`: сигналы риска → `on_review` → первый раунд проверки. Если задачу
+  не поставить — сразу `on_review` с сигналом `pipeline_enqueue_failed`.
+- Файловые эндпоинты (`/receipts/upload`, `/upload-urls`, `/finalize`) оставлены для старых клиентов;
+  фронт их не вызывает. `/receipts/qr-payload` → 400 `QR_ONLY_DEPRECATED`.
+- Распознавание QR из фото/PDF — только на телефоне: `zxing-wasm` + `pdf.js` (`qr/decode.ts`).
 
-## Модель
-```
-receipt ──1:N── receipt_event          (журнал, только вставка — «путь чека»)
-        ──1:N── receipt_check          (каждый вызов источника проверки: запрос/ответ как есть)
-check_provider (справочник источников: код, роль, порядок, вкл/выкл, версия адаптера)
-```
+## Проверка у источников
+- Справочник `check_provider` (`code, title, role, priority, enabled, disabled_until,
+  consecutive_failures`). Адаптеры — `receipt_verification/providers.py`.
+  Реально есть: `proverkacheka` (нужен `PROVERKACHEKA_TOKEN`), `fake` (только `CHECK_PROVIDER_STUB=true`,
+  стенд). `fns`, `platformaofd`, `taxcom` — записи без адаптера, `available=false`.
+- Раунд (`receipt_verification/service.py::run_round`): подключённые и включённые источники по
+  `priority` до первого `ok`; метод чередуется по номеру раунда (`fields`, `qrraw`, `fields_seconds`);
+  аренда чека на 10 мин против параллельных раундов.
+- Расписание по ответам о чеке (`not_found`, `invalid`): 5 мин, 15 мин, 1 ч, 3 ч, 6 ч, 12 ч, 24 ч,
+  48 ч → `failed` + `check_exhausted`.
+- Сбои источника (`rate_limited`, `blocked`, `error`) бюджет не тратят: пауза `PROVIDER_PAUSES`
+  1→3→6→12→24 ч; 5 сбоев подряд — источник пропускается 15 мин (`provider_skipped`).
+- Нет ни одного источника — один `check_round_failed` (`no_provider_available`), дальше тихие
+  переносы (≈2× прошедшего, 1–24 ч).
+- Cron `retry_verifications_cron` — каждые 5 мин, до 25 чеков, только `status = on_review`.
+- Админ: `POST /receipts/{id}/verify` `{provider?}` (409 `CHECK_PROVIDER_UNAVAILABLE`,
+  `RECEIPT_NOT_VERIFIABLE`, `VERIFICATION_IN_PROGRESS`). Неуспешная ручная проверка не снимает
+  `verified`.
+- Проверка не трогает `status` и `bonus_amount`. При `ok` заполняет пустые `shop_name`, `shop_inn`,
+  `items`; расхождение суммы > 1% → сигнал `qr_ofd_mismatch`.
 
-### `receipt_event` — путь чека (append-only, неизменяемый)
-| поле | что |
-|---|---|
-| `seq` | номер события внутри чека (1, 2, 3…) — порядок без споров о часах |
-| `at` | время (UTC) |
-| `kind` | тип события (словарь ниже) |
-| `actor_type` / `actor_id` | `seller` / `system` / `admin` + telegram_id (для system — имя воркера/cron) |
-| `source` | источник: способ ввода (`telegram_scan`, `manual`…) или провайдер проверки (`fns`, `proverkacheka`…) |
-| `outcome` | итог шага: `ok` / `not_found` / `mismatch` / `error` / … |
-| `check_id` | ссылка на `receipt_check`, если событие — проверка у провайдера |
-| `data` | компактные детали (без ПДн и секретов): статус «из → в», сумма бонуса, код причины… |
-
-Словарь `kind` (полный путь):
-`received` → `validated` → (`duplicate_flagged`, `risk_flagged`)* →
-`check_round_started` → `provider_checked`×N → `verified` | `check_round_failed` → … → `check_exhausted` →
-`moderation_opened`? → `approved` | `rejected` | `sent_to_revision` → (`bonus_set`, `comment_added`)* →
-`included_in_payout` → `paid_out` | `payout_reverted`; служебные: `deleted`, `restored`, `recheck_requested`.
-
-### `receipt_check` — вызов источника (эволюция `receipt_verification_attempt`)
-`receipt_id, round_no, provider, provider_role (main|fallback), adapter_version, method, trigger
-(pipeline|cron|admin), started_at, finished_at, outcome, http_status, request (без токенов),
-response (сырой ответ как есть), parsed (нормализованный ответ: сумма, дата, магазин, ИНН, позиции),
-error`. Уже существующие записи переносятся как есть (миграция только добавляет).
-
-**Воспроизводимость:** сохранены точный запрос, версия адаптера и сырой ответ → любую проверку
-можно повторить тем же источником тем же способом («Повторить у источника X») и сравнить ответы.
-
-## Источники проверки (по умолчанию ≥ 3: 2 основных + 2 запасных)
-Порядок и включение — в `check_provider` (меняется без релиза).
-
-| роль | источник | что даёт | что нужно от владельца |
-|---|---|---|---|
-| основной 1 | **ФНС «Проверка чеков»** (официальный источник правды) | факт регистрации чека, позиции, ИНН | учётная запись (телефон/ИНН) для API |
-| основной 2 | **proverkacheka.com** (агрегатор, уже интегрирован) | то же + стабильнее при сбоях ФНС | платный токен |
-| запасной 1 | **ОФД оператора** — Платформа ОФД (публичный поиск по ФН/ФД/ФП) | чеки, прошедшие через этого оператора | — (публичный) |
-| запасной 2 | **ОФД оператора** — Такском / OFD.ru (публичный поиск) | то же для другого оператора | — (публичный) |
-| последний | **ручная проверка админом** | решение «подтверждаю/не подтверждаю» с комментарием | — |
-
-### Раунд проверки
-1. Раунд = проход по включённым источникам **по порядку**: основной 1 → основной 2 → запасные.
-2. Первый ответ `ok` завершает раунд → `verified` (кем и когда — в журнале). Остальные не вызываются.
-3. `not_found` / ошибка / лимит у источника → сразу следующий источник в этом же раунде.
-4. Источник, падающий подряд N раз, временно выключается (circuit breaker) — раунды его пропускают,
-   в журнал пишется `provider_skipped`.
-5. Все источники без `ok` → `check_round_failed`, следующий раунд по расписанию (5 мин … 48 ч);
-   после последнего → `check_exhausted`: только ручная проверка.
-6. Админ в любой момент: «Проверить сейчас» (новый раунд) или «Повторить у источника X».
-
-## Что видит админ — «Путь чека» в карточке
-Лента событий сверху вниз, у каждого: время, кто/что, источник, итог; у проверок — раскрыть
-запрос/ответ. Сверху сводка: **Получен** (источник ввода, время) · **Проверен** (источником, когда)
-или **Не подтверждён** (сколько раундов, следующий) · **Решение** (кто, когда, бонус) · **Выплата**.
-
-Продавец видит упрощённо: «Получен → Проверяется → Подтверждён налоговой → На модерации → Одобрен».
-
-## Совместимость и данные прода
-- Миграция только добавляет (`receipt_event`, `check_provider`, колонки `receipt_check`);
-  backfill событий для существующих чеков — идемпотентно из того, что есть (`created_at`, текущий
-  статус, `audit_log`, попытки ОФД), с пометкой `data.backfilled=true`; ничего не удаляется.
-- Запись в журнал — в той же транзакции, что и изменение чека (событие без изменения или изменение
-  без события невозможны).
-- `audit_log` остаётся для действий не по чекам (продавцы, выплаты как сущность).
-
-## Связь с выплатами (следующий этап)
-`included_in_payout` / `paid_out` / `payout_reverted` — точки, где путь чека пересекается с
-выплатами; при переделке выплат события пишутся из того же сервиса, чтобы баланс, статус чека
-«выплачен» и заявка на выплату не расходились.
+## Хранение
+- `receipt_verification_attempt` — каждый вызов источника: запрос (без токена), сырой и
+  нормализованный ответ, итог, HTTP-статус, длительность, раунд, метод, `trigger`
+  (`pipeline | cron | admin`), версия адаптера. Только вставка.
+- `receipt_event` — «Путь чека», только вставка, пишется в той же транзакции, что и изменение чека
+  (`receipt_journey/service.py::record`). Поля: `seq, at, kind, actor_type, actor_id, source,
+  outcome, check_id, data`.
+- `kind`: `received, validated, risk_flagged, sent_to_moderation, check_round_started,
+  provider_checked, provider_skipped, verified, check_round_failed, check_exhausted, approved,
+  rejected, bonus_changed, comment_added, edited, reprocess_requested, deleted, included_in_payout,
+  paid_out, payout_reverted` (`sent_to_revision` пишет отключённое действие «на доработку», которое отклоняет чек; `recheck_requested` не пишется).
+- Миграция `0011` восстановила события старых чеков с `data.backfilled = true`.
+- Чтение: `GET /receipts/{id}/journey` (админ). Продавцу недоступно.

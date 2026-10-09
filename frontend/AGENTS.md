@@ -138,8 +138,7 @@ API proxy: `/api/*` → `http://localhost:8000` (via `vite.config.ts`).
 ## Related Docs
 
 - Backend: `/Users/kexibo/VLIQ-BOT/backend/AGENTS.md`
-- Frontend Plan: `/Users/kexibo/VLIQ-BOT/docs/reviews/07-frontend-plan.md`
-- Prototype: `/Users/kexibo/VLIQ-BOT/docs/VLIQ-BOT-prototype.html`
+- Требования: `../docs/use-cases/` (источник правды по продукту)
 - Auth API: `backend/src/auth/handlers/api/v1/router.py`
 
 ## Known Issues / TODO

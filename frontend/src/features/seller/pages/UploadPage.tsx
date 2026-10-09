@@ -30,7 +30,7 @@ import { wasSentFromThisDevice } from '../qr/sentReceipts'
 import { CameraScanner } from '../qr/CameraScanner'
 
 /**
- * «Добавить чек» — QR intake (docs/design/QR-INTAKE.md).
+ * «Добавить чек» — QR intake (docs/design/RECEIPT-JOURNEY.md).
  *
  * The device produces the fiscal data (scan or manual entry), validates it and
  * shows it back for confirmation; only then ONE small JSON request is sent. A

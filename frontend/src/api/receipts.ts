@@ -255,7 +255,7 @@ export const uploadReceiptPackage = (
 }
 
 // ---------------------------------------------------------------------------
-// QR intake (docs/design/QR-INTAKE.md): the device sends ONLY the fiscal data.
+// QR intake (docs/design/RECEIPT-JOURNEY.md): the device sends ONLY the fiscal data.
 // ---------------------------------------------------------------------------
 
 export type ReceiptSource = 'telegram_scan' | 'camera_scan' | 'image_decode' | 'pdf_decode' | 'manual'

@@ -8,8 +8,9 @@
 чеков → проверка ФНС/OFD → бонусы → выплаты; роли seller/admin/super_admin).
 - `backend/` — FastAPI + SQLAlchemy 2.1 async + asyncpg + Alembic, Python 3.14, Poetry 2.
 - `frontend/` — React 19 + Vite 8 + TanStack Query + Telegram SDK (TMA), Node 26.
-- `docs/` — **источник правды по продукту: `docs/VLIQ PRD+BRD/Use cases VLIQ.md`** (+ `FLOW Seller`s recipt.md`).
-  Реализация в коде аргументом не является. Удалённое/устаревшее — выжимкой в `docs/DEPRECATED.md`, архив — `docs/NOT_ACTUAL_DOCS/`.
+- `docs/` — **источник правды по продукту: `docs/use-cases/`** (обзор `00-overview.md` + UC по интерфейсам;
+  карта документов — `docs/README.md`). Расхождения кода с решениями владельца указаны в разделах «Расхождения».
+  Устаревшее удаляется (история — в git); старые номера S1…A6 из комментариев кода → таблица в `00-overview.md`.
 - `docker-compose.yml` (+ `docker-compose.override.yml` для прод-домена) — весь стек.
 - **Прод (живые продавцы):** `https://shamilara.fun`, ветка `main`, сервер `/srv/VLIQ-things/VLIQ-Backend`.
 - **Stage (тестовый стенд):** ветка `develop`, `docker-compose.stage.yml`, отдельный бот и данные — см. `docs/CI-CD.md`.
@@ -189,6 +190,6 @@ session-mgmt, …) в **каждую** новую сессию. Передава
 
 ## Указатели
 - Код-конвенции/модули: `backend/AGENTS.md`, `frontend/AGENTS.md` (часть статусов там устарела — сверяйся с кодом).
-- Требования: `docs/VLIQ PRD+BRD/Use cases VLIQ.md` (источник правды). Схема БД: `backend/erd.md`.
+- Требования: `docs/use-cases/` (источник правды). Схема БД: `backend/erd.md`.
 - Приватная auto-memory (только эта машина): `~/.claude/projects/-srv-VLIQ-things-VLIQ-Backend/memory/`.
 - История правок: `git log` (последняя волна — коммит `7fd0599`, ветка `dev-validate-seller-use-cases`).

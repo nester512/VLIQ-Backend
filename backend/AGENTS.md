@@ -20,7 +20,7 @@ Telegram Mini App backend для мотивационной программы �
 
 **Согласованная схема БД:** см. `erd.md` (10 таблиц, 3NF с прагматичной денормализацией). Схема финальная — менять не предлагать без явной просьбы.
 
-**Punch-list ревью:** `../docs/reviews/00-PUNCH-LIST.md` — 8 BLOCKERS, 30+ HIGH/MEDIUM пунктов.
+**Требования:** `../docs/use-cases/` (источник правды по продукту).
 
 ## Минимальный чеклист после правок
 
@@ -44,8 +44,8 @@ Telegram Mini App backend для мотивационной программы �
 
 ## Связанные репо
 
-- **Frontend:** `../frontend/` — Vite + React 18 + TypeScript + Tailwind + `@telegram-apps/sdk-react` + TanStack Query (см. `../docs/reviews/07-frontend-plan.md`).
-- **Документы:** `../docs/` — ТЗ, use cases, прототип HTML, 7 файлов ревью.
+- **Frontend:** `../frontend/` — Vite + React 18 + TypeScript + Tailwind + `@telegram-apps/sdk-react` + TanStack Query.
+- **Документы:** `../docs/` — карта в `../docs/README.md`.
 
 ## Удалённые
 

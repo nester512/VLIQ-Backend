@@ -67,6 +67,11 @@ _TEMPLATES: dict[str, str] = {
     "payout.amount_changed": (
         "✏️ Сумма заявки на выплату изменена: {old_amount} ₽ → <b>{amount} ₽</b>\nРеквизиты: {payout_masked}"
     ),
+    "seller.blocked": (
+        "🚫 Ваш аккаунт VLIQ заблокирован: загрузка чеков и выплаты недоступны.{reason_line}\n"
+        "Если это ошибка — напишите в поддержку."
+    ),
+    "seller.unblocked": "✅ Ваш аккаунт VLIQ разблокирован — можно снова загружать чеки и запрашивать выплаты.",
 }
 
 
@@ -77,7 +82,10 @@ def _render(template: str, payload: dict) -> str:
     try:
         # Money fields are stored in kopecks — convert to rubles before rendering
         # next to ₽ (otherwise the bot shows kopecks as rubles).
-        return tpl.format_map(render_money_payload(payload))
+        data = render_money_payload(payload)
+        # An empty reason is left out instead of «Причина: » with nothing after it.
+        data.setdefault("reason_line", f"\nПричина: {payload['reason']}" if payload.get("reason") else "")
+        return tpl.format_map(data)
     except KeyError:
         return tpl
 

@@ -56,3 +56,12 @@ def test_worker_render__bonus_changed_shows_new_amount_in_rubles() -> None:
 def test_worker_render__non_money_template_unchanged() -> None:
     text = _render("receipt.rejected", {"receipt_id": 7, "reason": "плохой чек"})
     assert text == "❌ Чек №7 отклонён\nПричина: плохой чек"
+
+
+def test_worker_render__block_and_unblock_are_real_messages() -> None:
+    blocked = _render("seller.blocked", {"reason": "Дубли чеков"})
+    assert "заблокирован" in blocked
+    assert "Причина: Дубли чеков" in blocked
+    assert "seller.blocked" not in blocked
+    assert "Причина" not in _render("seller.blocked", {"reason": ""})
+    assert "разблокирован" in _render("seller.unblocked", {})
