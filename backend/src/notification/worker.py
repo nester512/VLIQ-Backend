@@ -30,6 +30,7 @@ from datetime import UTC, datetime
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from src.app.prometheus_metrics import serve_worker_metrics
 from src.notification import outbox as notification_outbox
 from src.notification.formatting import render_money_payload
 from src.notification.models import Notification, NotificationDeliveryStatus, NotificationType
@@ -255,6 +256,7 @@ async def run_worker() -> None:
     signal.signal(signal.SIGTERM, _handle_sigterm)
     signal.signal(signal.SIGINT, _handle_sigterm)
 
+    serve_worker_metrics(9102)  # notification_outbox_pending / _dead → Prometheus
     logger.info("worker.started poll_interval=%ds batch_size=%d", _POLL_INTERVAL, _BATCH_SIZE)
 
     async with httpx.AsyncClient() as http_client:

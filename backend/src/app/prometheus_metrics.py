@@ -18,7 +18,25 @@ Usage:
 
 from __future__ import annotations
 
-from prometheus_client import Counter, Gauge, Histogram
+import logging
+import os
+
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
+
+_log = logging.getLogger(__name__)
+
+
+def serve_worker_metrics(default_port: int) -> None:
+    """Workers are not HTTP apps: expose their metrics on their own port for Prometheus
+    (WORKER_METRICS_PORT overrides; 0 switches it off). Best effort — never stops the worker."""
+    port = int(os.environ.get("WORKER_METRICS_PORT", default_port))
+    if port <= 0:
+        return
+    try:
+        start_http_server(port)
+        _log.info("metrics.served port=%d", port)
+    except OSError as exc:  # port taken (e.g. a second worker on the same host): run without it
+        _log.warning("metrics.not_served port=%d error=%s", port, exc)
 
 # ---------------------------------------------------------------------------
 # OFD client metrics

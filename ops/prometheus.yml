@@ -7,6 +7,16 @@ scrape_configs:
     static_configs:
       - targets: ["backend:8000"]
 
+  # Workers are not HTTP apps: each serves its metrics on its own port
+  # (src/app/prometheus_metrics.serve_worker_metrics).
+  - job_name: vliq-receipt-pipeline-worker
+    static_configs:
+      - targets: ["receipt-pipeline-worker:9101"]
+
+  - job_name: vliq-notifications-worker
+    static_configs:
+      - targets: ["notifications-worker:9102"]
+
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]

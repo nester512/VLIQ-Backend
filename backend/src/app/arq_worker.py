@@ -19,12 +19,14 @@ from arq import cron
 from arq.connections import RedisSettings
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from src.admin import models as _admin_models  # noqa: F401
+from src.app.depends import get_config
+
 # Side-effect imports: register every ORM model so SQLAlchemy can resolve
 # cross-table FK relationships (Receipt.seller_id → Seller.telegram_id, etc.)
 # before the worker issues its first query. Without this the worker raises
 # `Foreign key … could not find table 'vliq.seller'` on the first task.
-from src.admin import models as _admin_models  # noqa: F401
-from src.app.depends import get_config
+from src.app.prometheus_metrics import serve_worker_metrics
 from src.audit_log import models as _audit_models  # noqa: F401
 from src.bonus_transaction import models as _bonus_models  # noqa: F401
 from src.brand import models as _brand_models  # noqa: F401
@@ -114,6 +116,7 @@ async def retry_verifications_cron(ctx: dict) -> None:
 
 async def on_startup(ctx: dict) -> None:
     """Initialise DB engine, session factory, and orchestrator on worker start."""
+    serve_worker_metrics(9101)  # check-provider calls, pipeline timings → Prometheus
     settings = get_config()
 
     engine = create_async_engine(

@@ -21,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.prometheus_metrics import ofd_request_duration_seconds, ofd_requests_total
 from src.fraud.checks import FraudChecker
 from src.receipt.models import (
     CheckProvider,
@@ -230,6 +231,9 @@ async def run_round(  # noqa: PLR0913, PLR0915
             await session.flush()
             provider_row = (await session.execute(select(CheckProvider).where(CheckProvider.code == code))).scalar_one()
             register_outcome(provider_row, result.outcome, finished)
+            ofd_requests_total.labels(provider=code, status=result.outcome.value).inc()
+            if result.duration_ms is not None:
+                ofd_request_duration_seconds.labels(provider=code).observe(result.duration_ms / 1000)
             await journey.record(
                 session, receipt_id, EventKind.provider_checked, actor_type=actor, actor_id=actor_id, source=code,
                 outcome=result.outcome.value, check_id=attempt.id,

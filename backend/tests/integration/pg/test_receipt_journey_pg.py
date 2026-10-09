@@ -60,6 +60,9 @@ async def _events(sm, rid: int) -> list[ReceiptEvent]:
 
 
 async def test_full_path_is_one_ordered_log(session_factory) -> None:
+    from prometheus_client import REGISTRY
+
+    calls_before = REGISTRY.get_sample_value("ofd_requests_total", {"provider": "fake", "status": "ok"}) or 0
     rid = await _new(session_factory)
     async with session_factory() as s:
         await process_qr_receipt(s, rid, ProviderRegistry({"fake": FakeVerifier()}))
@@ -67,6 +70,8 @@ async def test_full_path_is_one_ordered_log(session_factory) -> None:
         await approve_receipt(rid, ReceiptReviewAction(comment="ок", bonus_amount=5000), ADMIN, s)
 
     events = await _events(session_factory, rid)
+    # Every provider call is also a metric (Prometheus scrapes the pipeline worker).
+    assert REGISTRY.get_sample_value("ofd_requests_total", {"provider": "fake", "status": "ok"}) == calls_before + 1
     assert [e.seq for e in events] == list(range(1, len(events) + 1))  # gapless order
     assert [e.kind for e in events] == [
         "received", "validated", "sent_to_moderation", "check_round_started",
