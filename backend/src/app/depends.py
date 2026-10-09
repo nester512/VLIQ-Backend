@@ -39,7 +39,7 @@ def get_engine(config: Annotated[Settings, Depends(get_config)]) -> AsyncEngine:
 
 
 # H18: Session comes from app.state.sessionmaker (set in lifespan), no per-request factory.
-async def get_pg_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
+async def get_pg_session(request: Request) -> AsyncGenerator[AsyncSession]:
     session_factory: async_sessionmaker[AsyncSession] = request.app.state.sessionmaker
     # `async with` already calls session.close() on exit — no need for explicit try/finally.
     async with session_factory() as session:

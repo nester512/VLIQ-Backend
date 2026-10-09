@@ -66,7 +66,7 @@ def _make_test_settings(**kwargs) -> Settings:
 # ---------------------------------------------------------------------------
 
 
-async def _mock_get_pg_session() -> AsyncGenerator[MagicMock, None]:
+async def _mock_get_pg_session() -> AsyncGenerator[MagicMock]:
     """Dependency override that yields a mock session without touching the DB."""
     session = MagicMock(spec=AsyncSession)
     session.__aenter__ = AsyncMock(return_value=session)

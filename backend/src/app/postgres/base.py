@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
-    declarative_mixin,
     declared_attr,
     mapped_column,
     registry,
@@ -39,7 +38,6 @@ class CreateTableNameMixin:
         return self.__name__.lower()
 
 
-@declarative_mixin
 class ModelDumpMixin:
     def model_dump(self) -> dict:
         return {column.name: getattr(self, column.name) for column in self.__table__.columns}

@@ -258,7 +258,7 @@ poetry run pytest tests/ -m "not integration" -q        # unit tests only
 
 ```
 VLIQ-BOT/
-├── backend/             FastAPI + SQLAlchemy 2.0 async + Alembic (Python 3.12, Poetry)
+├── backend/             FastAPI + SQLAlchemy 2.1 async + Alembic (Python 3.14, Poetry 2)
 │   ├── src/
 │   │   ├── app/         FastAPI app factory, lifespan, middleware, settings
 │   │   ├── auth/        TMA initData verification + DEV login

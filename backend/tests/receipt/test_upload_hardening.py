@@ -110,7 +110,7 @@ async def test_upload__partial_invalid_package__cleans_up_saved_files(client: As
     original_save = router_mod._storage.save
     original_delete = router_mod._storage.delete
     router_mod._storage.save = AsyncMock(return_value="local://saved-1.jpg")
-    router_mod._storage.delete = AsyncMock(side_effect=lambda uri: deleted.append(uri))
+    router_mod._storage.delete = AsyncMock(side_effect=deleted.append)
     try:
         resp = await client.post(
             "/api/v1/receipts/upload",

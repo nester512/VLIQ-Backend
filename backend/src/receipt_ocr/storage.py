@@ -51,7 +51,7 @@ _MIME_EXTENSION: dict[str, str] = {
 
 def _ext_for_mime(mime: str) -> str:
     """Return a safe file extension for *mime*, defaulting to 'bin'."""
-    return _MIME_EXTENSION.get(mime.split(";")[0].strip().lower(), "bin")
+    return _MIME_EXTENSION.get(mime.split(";", maxsplit=1)[0].strip().lower(), "bin")
 
 
 # ---------------------------------------------------------------------------

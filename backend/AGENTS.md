@@ -1,6 +1,6 @@
 # VLIQ Backend — контекст для агентов
 
-FastAPI + SQLAlchemy 2.0 async + asyncpg + Alembic. Python 3.12. Poetry.
+FastAPI + SQLAlchemy 2.1 async + asyncpg + Alembic. Python 3.14. Poetry 2.
 Telegram Mini App backend для мотивационной программы продавцов: загрузка чеков → проверка через ФНС/OFD → начисление бонусов → выплаты.
 
 ## Где что лежит

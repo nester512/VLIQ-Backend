@@ -461,7 +461,7 @@ async def test_step9_create_payout_request(client: AsyncClient) -> None:
 
         original_pg = client._transport.app.dependency_overrides.get(get_pg_session)  # type: ignore[attr-defined]
         client._transport.app.dependency_overrides[get_pg_session] = _fake_pg  # type: ignore[attr-defined]
-        client._transport.app.dependency_overrides[get_redis] = lambda: MagicMock()  # type: ignore[attr-defined]
+        client._transport.app.dependency_overrides[get_redis] = lambda: MagicMock()  # type: ignore[attr-defined]  # noqa: PLW0108 — FastAPI would read MagicMock's *args/**kwargs as query params
         try:
             response = await client.post(
                 f"{PREFIX}/payout-requests",

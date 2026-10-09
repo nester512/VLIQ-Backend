@@ -95,7 +95,7 @@ def attachment_kind_for_mime(mime: str) -> AttachmentKind:
 
     ``application/pdf`` → ``pdf``; all accepted image types → ``image``.
     """
-    return AttachmentKind.pdf if mime.split(";")[0].strip().lower() == "application/pdf" else AttachmentKind.image
+    return AttachmentKind.pdf if mime.split(";", maxsplit=1)[0].strip().lower() == "application/pdf" else AttachmentKind.image
 
 
 class Receipt(TimeStampedModel):

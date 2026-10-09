@@ -88,7 +88,7 @@ def _pg_schema() -> None:
 
 
 @pytest_asyncio.fixture
-async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], None]:
+async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession]]:
     """A real async_sessionmaker bound to vliq_test.
 
     Truncates receipt tables and (re)seeds a brand + seller before each test so a
@@ -123,7 +123,7 @@ async def session_factory() -> AsyncGenerator[async_sessionmaker[AsyncSession], 
 @pytest_asyncio.fixture
 async def db_session(
     session_factory: async_sessionmaker[AsyncSession],
-) -> AsyncGenerator[AsyncSession, None]:
+) -> AsyncGenerator[AsyncSession]:
     """A single real session for direct assertions/seeding."""
     async with session_factory() as session:
         yield session

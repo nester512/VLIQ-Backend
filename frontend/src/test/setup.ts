@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 
 // jsdom does not implement Object URLs — stub them so components that preview
 // selected files (URL.createObjectURL / revokeObjectURL) work under test.

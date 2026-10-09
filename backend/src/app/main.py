@@ -30,7 +30,7 @@ config: Settings = get_config()
 
 # H16: Lifespan — engine and sessionmaker live in app.state, disposed on shutdown.
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     engine = get_engine_by_dsn(config.postgres.POSTGRES_URL)
     app.state.engine = engine
     app.state.sessionmaker = async_sessionmaker(

@@ -6,8 +6,8 @@
 ## Что это
 Монорепо Telegram Mini App «VLIQ» (мотивационная программа продавцов: загрузка
 чеков → проверка ФНС/OFD → бонусы → выплаты; роли seller/admin/super_admin).
-- `backend/` — FastAPI + SQLAlchemy 2.0 async + asyncpg + Alembic, Python 3.12, Poetry.
-- `frontend/` — React 19 + Vite + TanStack Query + Telegram SDK (TMA).
+- `backend/` — FastAPI + SQLAlchemy 2.1 async + asyncpg + Alembic, Python 3.14, Poetry 2.
+- `frontend/` — React 19 + Vite 8 + TanStack Query + Telegram SDK (TMA), Node 26.
 - `docs/` — **источник правды по продукту: `docs/VLIQ PRD+BRD/Use cases VLIQ.md`** (+ `FLOW Seller`s recipt.md`).
   Реализация в коде аргументом не является. Удалённое/устаревшее — выжимкой в `docs/DEPRECATED.md`, архив — `docs/NOT_ACTUAL_DOCS/`.
 - `docker-compose.yml` (+ `docker-compose.override.yml` для прод-домена) — весь стек.
@@ -56,9 +56,14 @@
 Runtime-образ — `--only main` (без pytest). Чтобы НЕ платить `pip install` на каждый прогон
 (главный тормоз debug-цикла), **один раз** собери тест-образ с dev-deps:
 ```bash
-docker build -t vliq-backend-test - <<'EOF'
-FROM vliq-backend-backend
-RUN pip install --no-cache-dir "pytest>=8,<9" "pytest-asyncio>=0.23,<0.24" "respx>=0.21,<0.22"
+docker build --memory=1500m -t vliq-backend-test -f - /srv/VLIQ-things/VLIQ-Backend/backend <<'EOF'
+FROM python:3.14-slim
+ENV POETRY_VIRTUALENVS_CREATE=false POETRY_NO_INTERACTION=1 POETRY_INSTALLER_ONLY_BINARY=":all:"
+RUN pip install --no-cache-dir "poetry==2.5.1"
+WORKDIR /deps
+COPY pyproject.toml poetry.lock ./
+RUN poetry install --no-root --with dev
+WORKDIR /work
 EOF
 ```
 Дальше каждый прогон мгновенный (deps уже в образе), исходники монтируем в /work:
@@ -80,7 +85,7 @@ node_modules монтируется на хост (gitignore) и пережив�
 package.json/lock, иначе сразу `npx`. Гоняй tsc+vitest+eslint **вместе** — раздельно легко принять
 зелёный vitest за общий успех, а tsc упадёт (напр. на типах в тесте):
 ```bash
-docker run --rm -v /srv/VLIQ-things/VLIQ-Backend/frontend:/app -w /app node:22-alpine sh -c \
+docker run --rm -v /srv/VLIQ-things/VLIQ-Backend/frontend:/app -w /app node:26-alpine sh -c \
   'npm ci && npx tsc -b && npx vitest run && npx eslint src/<путь>'
 ```
 - vitest заскоплен на `src/**` (`vitest.config.ts` → `include`/`exclude`).

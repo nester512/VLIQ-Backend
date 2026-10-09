@@ -1,22 +1,20 @@
 # ---------------------------------------------------------------------------
 # Stage 1: Build — install Python dependencies via Poetry
 # ---------------------------------------------------------------------------
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    POETRY_VERSION=1.8.5 \
+    POETRY_VERSION=2.5.1 \
     POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_IN_PROJECT=true
+    POETRY_VIRTUALENVS_IN_PROJECT=true \
+    POETRY_INSTALLER_ONLY_BINARY=":all:"
 
+# Wheels only (POETRY_INSTALLER_ONLY_BINARY): every locked package ships a manylinux
+# wheel for this Python. A package without one must FAIL the build, not compile —
+# compiling scipy from source once OOM-crashed the shared stage host (2026-10-09).
+# No compilers in the image either.
 RUN pip install --no-cache-dir "poetry==$POETRY_VERSION"
-
-# Build tools required by native extension packages (zxing-cpp, Pillow, imagehash).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    cmake \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -29,7 +27,7 @@ RUN poetry install --no-root --only main
 # ---------------------------------------------------------------------------
 # Stage 2: Runtime — copy the venv + application source
 # ---------------------------------------------------------------------------
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
