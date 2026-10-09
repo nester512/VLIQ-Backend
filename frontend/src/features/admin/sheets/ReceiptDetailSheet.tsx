@@ -4,7 +4,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@/components/atoms/Icon'
 import { Btn } from '@/components/atoms/Btn'
 import { Spinner } from '@/components/atoms/Spinner'
-import { ReceiptGraphic } from '@/components/molecules/ReceiptGraphic'
 import { ReceiptInfoCard } from '@/components/molecules/ReceiptInfoCard'
 import { AttachmentViewer } from '@/components/organisms/AttachmentViewer'
 import { EditBonusSheet } from '@/components/molecules/EditBonusSheet'
@@ -152,40 +151,23 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
     <>
       {/* Sheet sc: padding 6px 16px 16px (prototype: .sc) */}
       <div className="pt-[6px] vliq-pad pb-5">
-        {/* Attachments — ALL files (images / PDFs) in one reusable viewer.
-            Image tap opens a fullscreen lightbox; PDF opens externally; nav is
-            via tap-zones / arrows (no nested horizontal swipe). When there are
-            no attachments we fall back to the skeuomorphic ReceiptGraphic. */}
-        <div
-          className="relative h-[330px] rounded-[18px] overflow-hidden mb-4"
-          style={{ background: 'linear-gradient(160deg, #5a6172, #3d4350)' }}
-        >
-          <AttachmentViewer
-            attachments={receipt.attachments}
-            className="absolute inset-0"
-            // finalCard only when there ARE attachments — a legacy receipt with
-            // none keeps falling back to the skeuomorphic ReceiptGraphic mock
-            // (otherwise the info-card page would suppress emptyFallback). The
-            // full ReceiptInfoCard still renders below the viewer regardless.
-            finalCard={
-              hasAttachments ? (
+        {/* Files exist only on legacy receipts (before QR intake): new receipts are
+            pure fiscal data — the QR is decoded on the seller's phone and the
+            source file is never uploaded, so there is nothing to show here. */}
+        {hasAttachments && (
+          <div
+            className="relative h-[330px] rounded-[18px] overflow-hidden mb-4"
+            style={{ background: 'linear-gradient(160deg, #5a6172, #3d4350)' }}
+          >
+            <AttachmentViewer
+              attachments={receipt.attachments}
+              className="absolute inset-0"
+              finalCard={
                 <div className="vliq-pad py-4">
                   <ReceiptInfoCard receipt={receipt} />
                 </div>
-              ) : undefined
-            }
-            emptyFallback={
-              <div className="absolute inset-0 grid place-items-center">
-                <div className="scale-[1.18] rotate-[-2deg]">
-                  <ReceiptGraphic receipt={receipt} />
-                </div>
-              </div>
-            }
-          />
-        </div>
-        {!hasAttachments && (
-          <div className="text-[12px] text-[var(--vliq-hint)] -mt-2 mb-3 text-center">
-            {receipt.source ? 'Чек принят по данным QR — фото не требуется' : 'Фото чека недоступно — показан макет'}
+              }
+            />
           </div>
         )}
 

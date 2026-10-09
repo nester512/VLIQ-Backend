@@ -125,13 +125,10 @@ describe('ReceiptDetailSheet (KAN-15 Entity View)', () => {
     expect(infoCard).toHaveTextContent('MULTIPLE_RECEIPTS_DETECTED')
   })
 
-  it('falls back gracefully (no crash, shows the mock) for a legacy receipt with no attachments', () => {
-    renderSheet(receipt({ attachments: [] }))
-    // Viewer still mounts (emptyFallback), no nav, and the "макет" hint shows.
-    expect(screen.getByTestId('attachment-viewer')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Следующее вложение')).toBeNull()
-    expect(screen.getByText('Фото чека недоступно — показан макет')).toBeInTheDocument()
-    // The full info card below the viewer still renders.
+  it('a receipt without files (QR intake) shows no photo area and no mock — data only', () => {
+    renderSheet(receipt({ attachments: [], source: 'telegram_scan' }))
+    expect(screen.queryByTestId('attachment-viewer')).toBeNull()
+    expect(screen.queryByText(/макет/)).toBeNull()
     expect(screen.getByTestId('receipt-info-card')).toBeInTheDocument()
   })
 })
