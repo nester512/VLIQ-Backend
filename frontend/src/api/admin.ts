@@ -29,6 +29,8 @@ export interface AdminPayoutsFilters {
   page?: number
   limit?: number
   search?: string
+  /** By creation time: newest first (default) or oldest first. */
+  order?: 'desc' | 'asc'
 }
 
 export type SellerRiskLevel = 'low' | 'medium' | 'high'
@@ -266,6 +268,7 @@ interface BackendPayoutRequest {
   seller_id: number
   seller_name?: string | null
   seller_store?: string | null
+  seller_status?: string | null
   brand_id: number
   amount: number
   payout_kind: PayoutMethod
@@ -397,6 +400,7 @@ function mapPayout(p: BackendPayoutRequest): PayoutRequest {
     seller_id: p.seller_id,
     seller_name: p.seller_name ?? undefined,
     seller_store: p.seller_store ?? undefined,
+    seller_status: p.seller_status ?? undefined,
     amount: p.amount,
     method: p.payout_kind,
     details: p.payout_masked,
@@ -667,6 +671,7 @@ export const getAdminPayouts = (filters: AdminPayoutsFilters = {}) => {
   if (filters.page != null) params['page'] = filters.page
   if (filters.limit != null) params['limit'] = filters.limit
   if (filters.search) params['search'] = filters.search
+  if (filters.order) params['order'] = filters.order
   return api
     .get<PaginatedResponse<BackendPayoutRequest>>('/payout-requests', { params })
     .then((r) => mapPagedPayouts(r.data))

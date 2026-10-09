@@ -79,6 +79,8 @@ export interface PayoutRequest {
   seller_id: number
   seller_name?: string
   seller_store?: string
+  /** Admin views: a blocked seller cannot be paid (take / «Выплачено» refused). */
+  seller_status?: string
   amount: number
   method: PayoutMethod
   details?: string

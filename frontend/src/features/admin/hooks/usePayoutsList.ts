@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getAdminPayouts,
   getPayoutReceipts,
@@ -13,10 +13,15 @@ import { extractApiError } from '@/api/client'
 import { invalidateAfterPayoutChange } from '@/features/admin/invalidate'
 import type { PayoutRequest } from '@/types/models'
 
-export function usePayoutsList(filters: AdminPayoutsFilters = {}) {
-  return useQuery({
-    queryKey: ['admin', 'payouts', filters],
-    queryFn: () => getAdminPayouts(filters),
+export const PAYOUTS_PAGE_SIZE = 50
+
+/** Every payout request under the filters, page by page (infinite scroll) — not just the first page. */
+export function usePayoutsInfinite(filters: Omit<AdminPayoutsFilters, 'page' | 'limit'> = {}) {
+  return useInfiniteQuery({
+    queryKey: ['admin', 'payouts', 'infinite', filters],
+    queryFn: ({ pageParam }) => getAdminPayouts({ ...filters, page: pageParam as number, limit: PAYOUTS_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.has_more ? last.page + 1 : undefined),
     staleTime: 20_000,
   })
 }

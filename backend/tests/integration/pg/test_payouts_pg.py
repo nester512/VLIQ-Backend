@@ -206,6 +206,32 @@ async def test_next_payout_covers_the_rest_of_a_partly_paid_receipt(session_fact
     assert await _status(sm, r1) == "paid_out"
 
 
+async def test_blocked_seller_cannot_be_paid_but_can_be_refused(session_factory) -> None:
+    sm = session_factory
+    await _approved(sm, 600_000)
+    first = await _create(sm, 300_000, key="blk-key-1")
+    second = await _create(sm, 300_000, key="blk-key-2")
+    async with sm() as s, s.begin():
+        await s.execute(text("UPDATE vliq.seller SET status = 'blocked' WHERE telegram_id = :t"), {"t": SEED_SELLER_ID})
+
+    for action in (
+        lambda s: take_payout_request(payout_id=first.id, admin_id=777, session=s),
+        lambda s: approve_payout_request(payout_id=first.id, admin_id=777, session=s),
+    ):
+        with pytest.raises(AppError) as err:
+            async with sm() as s:
+                await action(s)
+        assert err.value.code == "PAYOUT_SELLER_BLOCKED"
+    assert await _all(sm, BonusTransaction, BonusTransaction.kind == "payout_completed") == []
+
+    async with sm() as s:
+        await reject_payout_request(payout_id=second.id, admin_id=777, admin_comment="Продавец заблокирован", session=s)
+    async with sm() as s:
+        listed = await list_payout_requests(ADMIN, s, page=1, limit=50, seller_id=None, brand_id=None, req_status=None,
+                                            date_from=None, date_to=None, search=None, order="desc")  # fmt: skip
+    assert {p.seller_status for p in listed.items} == {"blocked"}
+
+
 # ---- reject ------------------------------------------------------------------
 
 
@@ -355,10 +381,12 @@ async def test_summary_counts_every_request_not_one_page(session_factory) -> Non
 
     async with sm() as s:
         page = await list_payout_requests(ADMIN, s, page=1, limit=2, seller_id=None, brand_id=None, req_status=None,
-                                          date_from=None, date_to=None, search=None)  # fmt: skip
+                                          date_from=None, date_to=None, search=None, order="desc")  # fmt: skip
         summary = await payout_summary(ADMIN, s, seller_id=None, brand_id=None, date_from=None, date_to=None, search=None)
         found = await list_payout_requests(ADMIN, s, page=1, limit=50, seller_id=None, brand_id=None, req_status=None,
-                                           date_from=None, date_to=None, search=str(SEED_SELLER_ID))  # fmt: skip
+                                           date_from=None, date_to=None, search=str(SEED_SELLER_ID), order="desc")  # fmt: skip
+        oldest = await list_payout_requests(ADMIN, s, page=1, limit=50, seller_id=None, brand_id=None, req_status=None,
+                                            date_from=None, date_to=None, search=None, order="asc")  # fmt: skip
         covered = await payout_receipts(ids[0], ADMIN, s)
 
     assert (page.total, len(page.items)) == (5, 2)
@@ -366,4 +394,6 @@ async def test_summary_counts_every_request_not_one_page(session_factory) -> Non
     assert (summary.paid.count, summary.rejected.count, summary.in_progress.count) == (1, 1, 0)
     assert (summary.paid_this_month.count, summary.paid_this_month.amount) == (1, 300_000)
     assert found.total == 5
+    assert [p.id for p in found.items] == sorted(ids, reverse=True)  # newest first by default
+    assert [p.id for p in oldest.items] == sorted(ids)  # «сначала старые»
     assert [(c.amount, c.receipt_status) for c in covered] == [(300_000, "approved")]

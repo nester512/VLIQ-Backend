@@ -7,8 +7,10 @@ import { Pill } from '@/components/atoms/Pill'
 import { FilterPills } from '@/components/molecules/FilterPills'
 import { EmptyState } from '@/components/molecules/EmptyState'
 import { useUiStore } from '@/store/uiStore'
-import { usePayoutsList, usePayoutSummary } from '@/features/admin/hooks/usePayoutsList'
+import { usePayoutsInfinite, usePayoutSummary } from '@/features/admin/hooks/usePayoutsList'
 import { fmtMoney } from '@/utils/formatMoney'
+import { formatDateTime } from '@/utils/formatDate'
+import { LoadMore } from '@/features/admin/components/LoadMore'
 import type { PayoutRequest } from '@/types/models'
 
 /** Returns the Russian prepositional (locative) month name for "Выплачено в …" */
@@ -55,6 +57,7 @@ const FILTER_PILLS: Array<{ value: StatusFilter; label: string }> = [
   { value: 'new',         label: 'Новые' },
   { value: 'in_progress', label: 'В обработке' },
   { value: 'paid',        label: 'Выплачены' },
+  { value: 'rejected',    label: 'Отклонены' },
 ]
 
 interface PayoutRowProps {
@@ -79,6 +82,10 @@ function PayoutRow({ payout, onClick }: PayoutRowProps) {
       <div className="vliq-row-tx">
         <b>{sellerLabel}</b>
         <span>{sellerMeta}</span>
+        <span style={{ fontSize: 11.5 }} data-testid="payout-created">
+          {formatDateTime(payout.created_at)}
+          {payout.status === 'paid' && payout.paid_at ? ` · выплачена ${formatDateTime(payout.paid_at)}` : ''}
+        </span>
       </div>
       <div style={{ flex: 'none', textAlign: 'right', maxWidth: 120 }}>
         <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
@@ -89,6 +96,11 @@ function PayoutRow({ payout, onClick }: PayoutRowProps) {
     </button>
   )
 }
+
+const ORDER_PILLS = [
+  { value: 'desc', label: 'Сначала новые' },
+  { value: 'asc', label: 'Сначала старые' },
+]
 
 function PayoutsContent() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -103,6 +115,17 @@ function PayoutsContent() {
     ? statusParam
     : 'all'
 
+  // Sort survives «назад» and reloads like the status filter (URL, not component state).
+  const order: 'desc' | 'asc' = searchParams.get('order') === 'asc' ? 'asc' : 'desc'
+  function setOrder(next: 'desc' | 'asc') {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current)
+      if (next === 'asc') params.set('order', 'asc')
+      else params.delete('order')
+      return params
+    }, { replace: true })
+  }
+
   function setStatusFilter(next: StatusFilter) {
     setSearchParams((current) => {
       const params = new URLSearchParams(current)
@@ -115,9 +138,12 @@ function PayoutsContent() {
   // Totals come from the server over EVERY request (not the sum of a loaded page).
   const { data: summary, isLoading: aggLoading } = usePayoutSummary()
   const apiStatus = statusFilter === 'all' ? undefined : statusFilter
-  const { data: visible, isLoading: listLoading } = usePayoutsList({ status: apiStatus, limit: 100 })
+  const {
+    data: pages, isLoading: listLoading, fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError,
+  } = usePayoutsInfinite({ status: apiStatus, order })
 
-  const items = visible?.items ?? []
+  const items = pages?.pages.flatMap((p) => p.items) ?? []
+  const listTotal = pages?.pages[0]?.total
   const pendingTotal = (summary?.new.amount ?? 0) + (summary?.in_progress.amount ?? 0)
   const newCount = summary?.new.count ?? 0
   const inProgressCount = summary?.in_progress.count ?? 0
@@ -170,11 +196,17 @@ function PayoutsContent() {
           value={statusFilter}
           onChange={(v) => setStatusFilter(v as StatusFilter)}
         />
+        <div style={{ height: 8 }} />
+        <FilterPills
+          options={ORDER_PILLS}
+          value={order}
+          onChange={(v) => setOrder(v === 'asc' ? 'asc' : 'desc')}
+        />
       </div>
 
       <div className="vliq-pad">
         <div className="vliq-sec-t">
-          <b>Заявки</b>
+          <b>Заявки{listTotal != null ? ` · ${listTotal}` : ''}</b>
           <button type="button" onClick={() => pushToast('Excel-выгрузка — скоро', 'info')}>
             Excel-выгрузка
           </button>
@@ -196,6 +228,12 @@ function PayoutsContent() {
                 onClick={() => openSheet('payout', { payoutId: p.id, payout: p })}
               />
             ))}
+            <LoadMore
+              hasMore={Boolean(hasNextPage)}
+              isLoading={isFetchingNextPage}
+              isError={isFetchNextPageError}
+              onLoadMore={fetchNextPage}
+            />
           </div>
         ) : (
           <EmptyState

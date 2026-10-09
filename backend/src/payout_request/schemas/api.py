@@ -67,6 +67,7 @@ class PayoutRequestRead(BaseModel):
     seller_id: int
     seller_name: str | None = None
     seller_store: str | None = None
+    seller_status: str | None = None  # admin views: a blocked seller cannot be paid
     brand_id: int
     amount: int
     payout_kind: PayoutKind

@@ -107,6 +107,17 @@ async def _lock_seller(session: AsyncSession, seller_id: int) -> Seller:
     return seller
 
 
+async def _forbid_blocked_seller(session: AsyncSession, seller_id: int) -> None:
+    """No money goes out to a blocked seller (S1 «двойной заслон»): take / pay are refused,
+    rejecting (money back to the balance) stays possible. FOR SHARE: a concurrent block
+    waits for this transaction, and this one sees a block that committed first."""
+    status = (
+        await session.execute(select(Seller.status).where(Seller.telegram_id == seller_id).with_for_update(read=True))
+    ).scalar_one_or_none()
+    if status == SellerStatus.blocked.value:
+        raise AppError("PAYOUT_SELLER_BLOCKED", status_code=409)
+
+
 def _insufficient(available: int) -> AppError:
     return AppError(
         "PAYOUT_INSUFFICIENT_BALANCE",
@@ -285,6 +296,7 @@ async def take_payout_request(*, payout_id: int, admin_id: int, session: AsyncSe
     async with session.begin():
         payout = await _lock_payout(session, payout_id)
         if payout.status == PayoutRequestStatus.new.value:
+            await _forbid_blocked_seller(session, payout.seller_id)
             payout.status = PayoutRequestStatus.in_progress.value
             payout.taken_at = datetime.now(UTC)
             payout.updated_by = admin_id
@@ -309,6 +321,7 @@ async def approve_payout_request(
             return _read(payout)  # idempotent: nothing is written or sent twice
         if payout.status not in ACTIVE_PAYOUT_STATUSES:
             raise AppError("PAYOUT_INVALID_STATE", status_code=409)
+        await _forbid_blocked_seller(session, payout.seller_id)
 
         now = datetime.now(UTC)
         payout.status = PayoutRequestStatus.paid.value

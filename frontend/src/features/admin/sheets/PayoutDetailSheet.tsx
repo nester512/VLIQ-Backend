@@ -72,6 +72,8 @@ export function PayoutDetailSheet({ payoutId, payout: initial }: PayoutDetailShe
   const sellerLabel = payout.seller_name?.trim() || `Продавец #${payout.seller_id}`
   const busy = take.isPending || approve.isPending || reject.isPending
   const isActionable = payout.status === 'new' || payout.status === 'in_progress'
+  // No money goes out to a blocked seller; refusing (money back to the balance) stays possible.
+  const blocked = payout.seller_status === 'blocked'
 
   return (
     <div className="vliq-pad" style={{ paddingTop: 6, paddingBottom: 16 }} data-testid="payout-detail">
@@ -114,15 +116,25 @@ export function PayoutDetailSheet({ payoutId, payout: initial }: PayoutDetailShe
         )}
       </div>
 
+      {isActionable && blocked && (
+        <div role="alert" style={{
+          display: 'flex', gap: 8, alignItems: 'flex-start', borderRadius: 14, padding: '12px 16px', marginBottom: 12,
+          background: 'var(--vliq-dg-bg)', color: 'var(--vliq-dg-ink)', fontSize: 13, fontWeight: 600, lineHeight: 1.4,
+        }}>
+          <Icon name="block" size={16} className="flex-none" />
+          <span>Продавец заблокирован — выплатить нельзя. Отклоните заявку (сумма вернётся на его баланс) или разблокируйте продавца.</span>
+        </div>
+      )}
+
       {isActionable ? (
         <div style={{ display: 'grid', gap: 8 }}>
-          {payout.status === 'new' && (
+          {payout.status === 'new' && !blocked && (
             <button type="button" disabled={busy} onClick={() => take.mutate(payoutId)}
               style={btn('var(--vliq-field)', 'var(--vliq-brand)', busy)}>
               <Icon name="clock" size={18} /> Взять в работу
             </button>
           )}
-          <input
+          {!blocked && <input
             aria-label="Номер транзакции"
             value={txnId}
             maxLength={128}
@@ -132,12 +144,14 @@ export function PayoutDetailSheet({ payoutId, payout: initial }: PayoutDetailShe
               width: '100%', boxSizing: 'border-box', padding: '12px 14px', borderRadius: 14, border: 'none',
               background: 'var(--vliq-field)', color: 'var(--vliq-text)', fontSize: 14, fontFamily: 'inherit',
             }}
-          />
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 8 }}>
-            <button type="button" disabled={busy} onClick={() => approve.mutate({ id: payoutId, externalTxnId: txnId })}
-              style={btn('var(--vliq-ok-bg)', 'var(--vliq-ok-ink)', busy)}>
-              <Icon name="check" size={18} /> Выплачено
-            </button>
+          />}
+          <div style={{ display: 'grid', gridTemplateColumns: blocked ? '1fr' : 'minmax(0,1fr) minmax(0,1fr)', gap: 8 }}>
+            {!blocked && (
+              <button type="button" disabled={busy} onClick={() => approve.mutate({ id: payoutId, externalTxnId: txnId })}
+                style={btn('var(--vliq-ok-bg)', 'var(--vliq-ok-ink)', busy)}>
+                <Icon name="check" size={18} /> Выплачено
+              </button>
+            )}
             <button type="button" disabled={busy} onClick={() => setRejectOpen(true)}
               style={btn('var(--vliq-dg-bg)', 'var(--vliq-dg-ink)', busy)}>
               <Icon name="x" size={18} /> Отклонить

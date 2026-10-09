@@ -8,7 +8,7 @@ receipts covered by a request.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, Header, Query, status
@@ -70,6 +70,7 @@ async def _attach_seller_info(
         name = " ".join(p for p in [seller.first_name, seller.last_name] if p).strip()
         item.seller_name = name or seller.phone_e164 or f"Продавец #{item.seller_id}"
         item.seller_store = seller.outlet_name
+        item.seller_status = str(getattr(seller.status, "value", seller.status))
     return items
 
 
@@ -192,13 +193,17 @@ async def list_payout_requests(  # noqa: PLR0913
     date_from: datetime | None = Query(default=None),  # noqa: B008
     date_to: datetime | None = Query(default=None),  # noqa: B008
     search: str | None = Query(default=None, max_length=100),
+    order: Literal["desc", "asc"] = Query(default="desc", description="By creation time: newest (desc) or oldest first"),
 ) -> PagedResponse[PayoutRequestRead]:
     stmt = _filtered(
         select(PayoutRequest), seller_id=seller_id, brand_id=brand_id,
         req_status=req_status.value if req_status else None, date_from=date_from, date_to=date_to, search=search,
     )  # fmt: skip
     total: int = (await session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
-    stmt = stmt.order_by(PayoutRequest.created_at.desc(), PayoutRequest.id.desc()).offset((page - 1) * limit).limit(limit)
+    by = (PayoutRequest.created_at.asc(), PayoutRequest.id.asc()) if order == "asc" else (
+        PayoutRequest.created_at.desc(), PayoutRequest.id.desc()
+    )
+    stmt = stmt.order_by(*by).offset((page - 1) * limit).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
 
     items = [PayoutRequestRead.model_validate(r, from_attributes=True) for r in rows]
