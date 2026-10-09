@@ -51,7 +51,11 @@ function ReceiptRow({ receipt, onClick }: { receipt: AdminReceipt; onClick: () =
         <Icon name="receipt" size={21} />
       </div>
       <div className="vliq-row-tx">
-        <b>{receipt.shop_name ?? `Чек #${receipt.id}`}</b>
+        {/* The backend receipt id — what logs, API and support use — always visible. */}
+        <b>
+          <span data-testid="receipt-id" style={{ userSelect: 'text' }}>Чек #{receipt.id}</span>
+          {receipt.shop_name?.trim() ? ` · ${receipt.shop_name.trim()}` : ''}
+        </b>
         <span>{formatDateTime(receipt.created_at)}</span>
       </div>
       <div style={{ flex: 'none', textAlign: 'right', maxWidth: 130 }}>

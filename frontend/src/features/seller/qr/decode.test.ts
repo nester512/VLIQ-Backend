@@ -9,7 +9,7 @@ import { createRequire } from 'node:module'
 import { beforeAll, describe, expect, it } from 'vitest'
 import * as reader from 'zxing-wasm/reader'
 import * as writer from 'zxing-wasm/writer'
-import { decodeImageFile, decodePdfFile, readQrTexts, setZXingReaderForTests } from './decode'
+import { decodeImageFile, decodePdfFile, PDF_PROBLEM_MESSAGE, PdfDecodeError, readQrTexts, setZXingReaderForTests } from './decode'
 import { pickFiscal } from './fiscalQr'
 
 const require = createRequire(import.meta.url)
@@ -83,6 +83,9 @@ describe('decodeImageFile — photo / screenshot', () => {
   })
 })
 
+/** A white page with no code on it (jsdom has no ImageData constructor). */
+const blankPage = () => ({ data: new Uint8ClampedArray(40 * 40 * 4).fill(255), width: 40, height: 40, colorSpace: 'srgb' }) as ImageData
+
 describe('decodePdfFile', () => {
   const pdf = new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])], { type: 'application/pdf' })
 
@@ -100,9 +103,31 @@ describe('decodePdfFile', () => {
     expect(picked.kind).toBe('many') // two different receipts → the seller chooses
   })
 
-  it('asks the renderer for at most 5 pages', async () => {
+  it('scans every page — the QR on page 7 of 7 is found', async () => {
+    const blank = blankPage()
+    const pages = [...Array(6).fill(blank), await pixelsOf(FISCAL)]
     let asked = 0
-    await decodePdfFile(pdf, { renderPages: async (_d, max) => { asked = max } })
-    expect(asked).toBe(5)
+    const renderer = {
+      renderPages: async (_d: ArrayBuffer, max: number, onPage: (p: ImageData) => Promise<void>) => {
+        asked = max
+        for (const p of pages.slice(0, max)) await onPage(p)
+      },
+    }
+    expect(await decodePdfFile(pdf, renderer)).toEqual([FISCAL])
+    expect(asked).toBeGreaterThanOrEqual(50) // not the old 5-page cut
+  })
+
+  it('a broken / password PDF and an unrenderable one say why, not «не удалось»', async () => {
+    for (const reason of ['pdf_unreadable', 'pdf_not_rasterized', 'pdf_too_long'] as const) {
+      const renderer = { renderPages: async () => { throw new PdfDecodeError(reason) } }
+      await expect(decodePdfFile(pdf, renderer)).rejects.toMatchObject({ reason })
+      expect(PDF_PROBLEM_MESSAGE[reason]).toMatch(/вручную/)
+    }
+  })
+
+  it('a PDF without a QR yields no codes (the page shows the PDF hint, not «снимите ближе»)', async () => {
+    const renderer = { renderPages: async (_d: ArrayBuffer, _m: number, onPage: (p: ImageData) => Promise<void>) => onPage(blankPage()) }
+    expect(await decodePdfFile(pdf, renderer)).toEqual([])
+    expect(PDF_PROBLEM_MESSAGE.pdf_no_qr).toMatch(/В PDF не найден QR-код/)
   })
 })

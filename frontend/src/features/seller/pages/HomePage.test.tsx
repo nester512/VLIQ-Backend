@@ -30,3 +30,17 @@ describe('HomePage — FAQ', () => {
     expect(screen.getByText('Нет. В системе мотивации участвуют только актуальные линейки бренда VLIQ.')).toBeInTheDocument()
   })
 })
+
+describe('HomePage — FAQ: several outlets, profile data, login, lost account', () => {
+  it.each([
+    ['Можно ли работать в нескольких магазинах сети?', /любых торговых точек сети/],
+    ['Почему торговая точка из регистрации не ограничивает работу?', /Приём чеков к ней не привязан/],
+    ['Можно ли изменить данные профиля?', /реквизиты для выплаты вы вводите в каждой заявке/],
+    ['Влияет ли смена username в Telegram на вход?', /username можно менять/],
+    ['Что делать, если потерян доступ к аккаунту Telegram?', /сотрудник перенесёт доступ/],
+  ])('«%s» is answered', (question, answer) => {
+    render(<MemoryRouter><HomePage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: question }))
+    expect(screen.getByText(answer)).toBeInTheDocument()
+  })
+})

@@ -12,8 +12,30 @@ import type { ReaderOptions } from 'zxing-wasm/reader'
 
 type ZXingReader = typeof import('zxing-wasm/reader')
 
-/** Pages of a PDF that are rendered and scanned (an e-receipt is 1–2 pages). */
-export const MAX_PDF_PAGES = 5
+/** EVERY page of a PDF is scanned (the QR may be on the last one); this cap only guards
+ *  the phone against a huge non-receipt document — it is far above any e-receipt. */
+export const MAX_PDF_PAGES = 50
+
+/** Why a PDF gave no codes — shown to the seller instead of a generic «не удалось». */
+export type PdfProblem = 'pdf_unreadable' | 'pdf_not_rasterized' | 'pdf_too_long'
+
+export class PdfDecodeError extends Error {
+  readonly reason: PdfProblem
+  constructor(reason: PdfProblem) {
+    super(reason)
+    this.name = 'PdfDecodeError'
+    this.reason = reason
+  }
+}
+
+export const PDF_PROBLEM_MESSAGE: Record<PdfProblem | 'pdf_no_qr', string> = {
+  pdf_unreadable:
+    'PDF не открывается (повреждён или защищён паролем). Сохраните чек заново из приложения банка или ОФД — или введите данные вручную.',
+  pdf_not_rasterized: 'Не удалось отрисовать страницы PDF на этом телефоне. Сделайте скриншот чека или введите данные вручную.',
+  pdf_too_long: `В PDF больше ${MAX_PDF_PAGES} страниц — это не похоже на чек. Загрузите сам чек или введите данные вручную.`,
+  pdf_no_qr:
+    'В PDF не найден QR-код чека. Введите данные вручную — ФН, ФД, ФП, дата и сумма напечатаны на чеке.',
+}
 /** Photos are decoded downscaled first (fast, low memory), then once more in more detail. */
 const PHOTO_SIDES = [2048, 4096] as const
 /** PDF pages are rendered so that the page width is about this many pixels… */
@@ -147,8 +169,15 @@ const pdfjsRenderer: PdfRenderer = {
     pdfjs.GlobalWorkerOptions.workerSrc = worker.default
     const task = pdfjs.getDocument({ data: new Uint8Array(data), enableXfa: false })
     try {
-      const doc = await task.promise // inside try: an encrypted/broken PDF still frees the worker
-      for (let n = 1; n <= Math.min(doc.numPages, maxPages); n++) {
+      let doc: Awaited<typeof task.promise>
+      try {
+        doc = await task.promise // inside try: an encrypted/broken PDF still frees the worker
+      } catch {
+        throw new PdfDecodeError('pdf_unreadable')
+      }
+      if (doc.numPages > maxPages) throw new PdfDecodeError('pdf_too_long')
+      let rendered = 0
+      for (let n = 1; n <= doc.numPages; n++) {
         const page = await doc.getPage(n)
         const base = page.getViewport({ scale: 1 })
         const byWidth = PDF_TARGET_WIDTH / base.width
@@ -165,8 +194,10 @@ const pdfjsRenderer: PdfRenderer = {
         const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height)
         page.cleanup()
         canvas.width = canvas.height = 0 // release the backing store before the next page
+        rendered++
         await onPage(pixels)
       }
+      if (rendered === 0) throw new PdfDecodeError('pdf_not_rasterized')
     } finally {
       await task.destroy()
     }

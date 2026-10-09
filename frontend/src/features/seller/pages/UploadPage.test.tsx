@@ -26,13 +26,18 @@ vi.mock('@/store/uiStore', () => ({
 
 const decodeImageFile = vi.fn()
 const decodePdfFile = vi.fn()
-vi.mock('../qr/decode', () => ({
-  decodeImageFile: (...a: unknown[]) => decodeImageFile(...a),
-  decodePdfFile: (...a: unknown[]) => decodePdfFile(...a),
-  isPdf: (f: File) => f.type === 'application/pdf',
-  looksLikeImage: (f: File) => f.type.startsWith('image/') || /\.heic$/i.test(f.name),
-  MAX_FILE_BYTES: 25 * 1024 * 1024,
-}))
+vi.mock('../qr/decode', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../qr/decode')>()
+  return {
+    decodeImageFile: (...a: unknown[]) => decodeImageFile(...a),
+    decodePdfFile: (...a: unknown[]) => decodePdfFile(...a),
+    isPdf: (f: File) => f.type === 'application/pdf',
+    looksLikeImage: (f: File) => f.type.startsWith('image/') || /\.heic$/i.test(f.name),
+    MAX_FILE_BYTES: 25 * 1024 * 1024,
+    PdfDecodeError: real.PdfDecodeError,
+    PDF_PROBLEM_MESSAGE: real.PDF_PROBLEM_MESSAGE,
+  }
+})
 
 import { UploadPage } from './UploadPage'
 
@@ -314,6 +319,23 @@ describe('UploadPage — photo / screenshot / PDF (decoded on the device)', () =
     pickFile(pdf())
     expect(await screen.findByText('Источник: PDF')).toBeInTheDocument()
     expect(decodeImageFile).not.toHaveBeenCalled()
+  })
+
+  it('a corrupted / password PDF → says the PDF does not open, nothing sent', async () => {
+    const { PdfDecodeError } = await import('../qr/decode')
+    decodePdfFile.mockRejectedValue(new PdfDecodeError('pdf_unreadable'))
+    renderPage()
+    pickFile(pdf())
+    expect(await screen.findByText(/PDF не открывается/)).toBeInTheDocument()
+    expect(submitQrReceipt).not.toHaveBeenCalled()
+  })
+
+  it('a PDF without a QR → PDF-specific advice (manual entry), not «снимите ближе»', async () => {
+    decodePdfFile.mockResolvedValue([])
+    renderPage()
+    pickFile(pdf())
+    expect(await screen.findByText(/В PDF не найден QR-код чека/)).toBeInTheDocument()
+    expect(screen.queryByText(/Снимите чек ближе/)).toBeNull()
   })
 
   it('several different receipts on one photo → the seller picks one', async () => {

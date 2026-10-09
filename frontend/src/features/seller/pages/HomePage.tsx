@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { HeroBalance } from '@/components/molecules/HeroBalance'
 import { QuickActionCard } from '@/components/molecules/QuickActionCard'
 import { ReceiptRow } from '@/components/molecules/ReceiptRow'
@@ -9,86 +8,10 @@ import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
 import { HeroSkeleton, ReceiptRowSkeleton } from '@/components/atoms/Skeleton'
 import { useBalance } from '../hooks/useBalance'
 import { useReceipts } from '../hooks/useReceipts'
+import { SellerFaq } from '../components/SellerFaq'
 import { fmtMoney } from '@/utils/formatMoney'
 import { isApprovedStatus, isPendingStatus } from '@/utils/receiptStatus'
 
-const FAQ_ITEMS = [
-  {
-    question: 'Какая сумма выплаты за единицу продукции?',
-    answer: 'За каждую подтверждённую единицу продукции начисляется 20 рублей.',
-  },
-  {
-    question: 'За какую продукцию VLIQ можно получить выплаты?',
-    answer: 'Выплаты начисляются за продукцию бренда VLIQ из линеек MAX FLAVOR, SHOCK и HOLODNO PISEC.',
-  },
-  {
-    question: 'Участвуют ли коллаборации в системе мотивации?',
-    answer: 'Нет. В системе мотивации участвуют только актуальные линейки бренда VLIQ.',
-  },
-  {
-    question: 'Какой срок выплаты средств?',
-    answer: 'После одобрения чека выплата производится в течение 7 рабочих дней.',
-  },
-  {
-    question: 'Какая минимальная сумма доступна для вывода?',
-    answer: 'Минимальная сумма для вывода составляет 3 000 рублей.',
-  },
-  {
-    question: 'Сколько времени занимает проверка чека?',
-    answer: 'Мы проверяем чеки в порядке очереди и стараемся делать это максимально быстро. Средний срок проверки составляет 2–3 рабочих дня.',
-  },
-  {
-    question: 'Есть ли ограничение на количество чеков на проверке?',
-    answer: 'Нет, ограничения нет. Загружайте сколько нужно — все чеки сохраняются и будут проверены. В разделе «Чеки» видны все загруженные чеки, включая те, что ещё на проверке.',
-  },
-] as const
-
-function SellerFaq() {
-  const location = useLocation()
-  const [openIndex, setOpenIndex] = useState<number | null>(null)
-
-  useEffect(() => {
-    if (location.hash !== '#faq') return
-    document.getElementById('faq')?.scrollIntoView?.({ block: 'start' })
-  }, [location.hash])
-
-  return (
-    <section id="faq" className="vliq-pad" style={{ paddingBottom: 24 }}>
-      <div className="vliq-sec-t">
-        <b>Вопросы и ответы</b>
-      </div>
-      <div className="vliq-list">
-        {FAQ_ITEMS.map((item, index) => {
-          const isOpen = openIndex === index
-          return (
-            <div key={item.question}>
-              <button
-                type="button"
-                className="vliq-row"
-                aria-expanded={isOpen}
-                onClick={() => setOpenIndex((current) => current === index ? null : index)}
-              >
-                <div className="vliq-row-tx">
-                  <b style={isOpen ? { whiteSpace: 'normal', overflow: 'visible', textOverflow: 'clip' } : undefined}>
-                    {item.question}
-                  </b>
-                </div>
-                <span aria-hidden style={{ flex: 'none', color: 'var(--vliq-hint)', display: 'inline-flex', transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform .15s ease' }}>
-                  <Icon name="chev" size={18} />
-                </span>
-              </button>
-              {isOpen && (
-                <p style={{ margin: '0', padding: '0 48px 14px 16px', fontSize: 13, fontWeight: 500, lineHeight: 1.45, color: 'var(--vliq-hint)' }}>
-                  {item.answer}
-                </p>
-              )}
-            </div>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
 
 function HomeContent() {
   const navigate = useNavigate()

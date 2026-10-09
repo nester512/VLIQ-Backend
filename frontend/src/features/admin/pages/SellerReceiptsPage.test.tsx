@@ -103,13 +103,24 @@ describe('SellerReceiptsPage — seller page with stats, risk and full history',
     getAdminReceipts.mockResolvedValue({ items: [receipt(1), receipt(2, 'rejected')], total: 2, page: 1, limit: 30, has_more: false })
     renderPage()
 
-    expect(await screen.findByText('Магазин 1')).toBeInTheDocument()
+    expect(await screen.findByText(/Магазин 1/)).toBeInTheDocument()
     expect(getAdminReceipts).toHaveBeenCalledWith({ seller_id: 555, status: undefined, order: 'desc', page: 1, limit: 30 })
 
     fireEvent.click(screen.getByRole('button', { name: 'Отклонены' }))
     await waitFor(() =>
       expect(getAdminReceipts).toHaveBeenLastCalledWith({ seller_id: 555, status: ['rejected'], order: 'desc', page: 1, limit: 30 }),
     )
+  })
+
+  it('every row shows the backend receipt id — with or without a shop name', async () => {
+    getAdminSellerById.mockResolvedValue(detail())
+    const noShop = { ...receipt(42), shop_name: undefined } as AdminReceipt
+    getAdminReceipts.mockResolvedValue({ items: [receipt(7), noShop], total: 2, page: 1, limit: 30, has_more: false })
+    renderPage()
+
+    const ids = await screen.findAllByTestId('receipt-id')
+    expect(ids.map((el) => el.textContent)).toEqual(['Чек #7', 'Чек #42'])
+    expect(ids[0]!.parentElement).toHaveTextContent('Чек #7 · Магазин 7')
   })
 
   it('pages through the history', async () => {
@@ -122,11 +133,11 @@ describe('SellerReceiptsPage — seller page with stats, risk and full history',
       ),
     )
     renderPage()
-    await screen.findByText('Магазин 1')
+    await screen.findByText(/Магазин 1/)
 
     fireEvent.click(screen.getByRole('button', { name: 'Загрузить ещё' }))
 
-    expect(await screen.findByText('Магазин 2')).toBeInTheDocument()
+    expect(await screen.findByText(/Магазин 2/)).toBeInTheDocument()
   })
 
   it('opens the receipt sheet from the history', async () => {
@@ -134,7 +145,7 @@ describe('SellerReceiptsPage — seller page with stats, risk and full history',
     getAdminReceipts.mockResolvedValue({ items: [receipt(9)], total: 1, page: 1, limit: 30, has_more: false })
     renderPage()
 
-    fireEvent.click(await screen.findByText('Магазин 9'))
+    fireEvent.click(await screen.findByText(/Магазин 9/))
 
     expect(openSheet).toHaveBeenCalledWith('detail', expect.objectContaining({ receiptId: '9' }))
   })

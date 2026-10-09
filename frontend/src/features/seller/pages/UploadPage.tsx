@@ -295,7 +295,8 @@ function UploadContent() {
     setFileHint(null)
     setDecoding(true)
     try {
-      const { decodeImageFile, decodePdfFile, isPdf, looksLikeImage, MAX_FILE_BYTES } = await import('../qr/decode')
+      const { decodeImageFile, decodePdfFile, isPdf, looksLikeImage, MAX_FILE_BYTES, PdfDecodeError, PDF_PROBLEM_MESSAGE } =
+        await import('../qr/decode')
       const pdf = isPdf(file)
       if (!pdf && !looksLikeImage(file)) {
         if (current()) setFileHint('Подойдёт фото, скриншот или PDF чека')
@@ -306,7 +307,17 @@ function UploadContent() {
         return
       }
       const source: ReceiptSource = pdf ? 'pdf_decode' : 'image_decode'
-      const texts = pdf ? await decodePdfFile(file) : await decodeImageFile(file)
+      let texts: string[]
+      try {
+        texts = pdf ? await decodePdfFile(file) : await decodeImageFile(file)
+      } catch (err) {
+        if (!(err instanceof PdfDecodeError)) throw err
+        if (current()) {
+          notification('error')
+          setFileHint(PDF_PROBLEM_MESSAGE[err.reason]) // say WHY the PDF gave nothing
+        }
+        return
+      }
       if (!current()) return
       const picked = pickFiscal(texts)
       if (picked.kind === 'one') {
@@ -316,7 +327,8 @@ function UploadContent() {
         setStep('choose')
       } else {
         notification('error')
-        setFileHint(picked.message)
+        // A PDF has no «снимите ближе»: tell the seller what to do with a PDF.
+        setFileHint(pdf && texts.length === 0 ? PDF_PROBLEM_MESSAGE.pdf_no_qr : picked.message)
       }
     } catch {
       if (!current()) return

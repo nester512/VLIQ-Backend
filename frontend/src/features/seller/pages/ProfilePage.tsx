@@ -8,6 +8,7 @@ import { useUiStore } from '@/store/uiStore'
 import { useAuthStore } from '@/store/authStore'
 import { getMe } from '@/api/sellers'
 import { getTgWebApp } from '@/utils/tma'
+import { SellerFaq } from '../components/SellerFaq'
 
 // Single support contact for everyone (spec S9: @kovalyova_yekaterina).
 const ADMIN_SUPPORT_USERNAME = 'kovalyova_yekaterina'
@@ -124,7 +125,7 @@ export function ProfilePage() {
       <div className="vliq-list">
         <NavRow icon={<Icon name="wallet"  size={21} />} label="Мой баланс"             onClick={() => navigate('/seller/balance')} />
         <NavRow icon={<Icon name="cashout" size={21} />} label="Мои заявки на выплату"   onClick={() => navigate('/seller/payouts')} />
-        <NavRow icon={<Icon name="list"    size={21} />} label="Вопросы и ответы"        onClick={() => navigate('/seller/home#faq')} />
+        <NavRow icon={<Icon name="list"    size={21} />} label="Вопросы и ответы"        onClick={() => document.getElementById('profile-faq')?.scrollIntoView?.({ block: 'start' })} />
         <NavRow
           icon={<Icon name="user" size={21} />}
           label="Помощь"
@@ -155,6 +156,11 @@ export function ProfilePage() {
           [DEV] Выйти
         </button>
       )}
+
+      {/* The same «Вопросы и ответы» as on the home screen (KAN: несколько точек, вход, потеря аккаунта). */}
+      <div style={{ margin: '18px -16px 0' }}>
+        <SellerFaq id="profile-faq" />
+      </div>
 
       <p
         style={{

@@ -91,7 +91,7 @@ async function completeStep1(user: ReturnType<typeof userEvent.setup>, phone = '
   const next = screen.getByRole('button', { name: 'Далее' })
   await waitFor(() => expect(next).toBeEnabled())
   await user.click(next)
-  await screen.findByLabelText('Торговая точка')
+  await screen.findByLabelText('Основная торговая точка / сеть')
 }
 
 beforeEach(() => {
@@ -162,6 +162,14 @@ describe('RegPage — city combobox', () => {
 // ---------------------------------------------------------------------------
 
 describe('RegPage — submit', () => {
+  it('outlet field explains it is the MAIN outlet, not a restriction', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await completeStep1(user)
+    expect(screen.getByLabelText('Основная торговая точка / сеть')).toBeInTheDocument()
+    expect(screen.getByText('Вы можете работать в разных торговых точках сети; укажите основную')).toBeInTheDocument()
+  })
+
   it('reg_no_payout_fields: step 2 has no payout method/details inputs', async () => {
     const user = userEvent.setup()
     renderPage()
@@ -176,7 +184,7 @@ describe('RegPage — submit', () => {
     const user = userEvent.setup()
     renderPage()
     await completeStep1(user)
-    await user.type(screen.getByLabelText('Торговая точка'), 'Дымов · ТЦ Авиапарк')
+    await user.type(screen.getByLabelText('Основная торговая точка / сеть'), 'Дымов · ТЦ Авиапарк')
     await user.type(screen.getByLabelText('Количество торговых точек в сети'), '3')
 
     const submit = screen.getByRole('button', { name: 'Завершить регистрацию' })
@@ -223,7 +231,7 @@ describe('RegPage — submit', () => {
     }))
 
     renderPage()
-    expect(screen.getByLabelText('Торговая точка')).toHaveValue('Дымов · ТЦ Авиапарк')
+    expect(screen.getByLabelText('Основная торговая точка / сеть')).toHaveValue('Дымов · ТЦ Авиапарк')
     expect(screen.getByLabelText('Количество торговых точек в сети')).toHaveValue('21')
     expect(screen.getByRole('checkbox', { name: /обработку персональных данных/i })).toHaveAttribute('aria-checked', 'true')
   })
@@ -233,7 +241,7 @@ describe('RegPage — submit', () => {
     updateMe.mockRejectedValueOnce(new Error('409'))
     renderPage()
     await completeStep1(user)
-    await user.type(screen.getByLabelText('Торговая точка'), 'Дымов · ТЦ Авиапарк')
+    await user.type(screen.getByLabelText('Основная торговая точка / сеть'), 'Дымов · ТЦ Авиапарк')
     await user.type(screen.getByLabelText('Количество торговых точек в сети'), '1')
     await user.click(screen.getByRole('checkbox', { name: /обработку персональных данных/i }))
     await user.click(screen.getByRole('checkbox', { name: /офертой №1/i }))

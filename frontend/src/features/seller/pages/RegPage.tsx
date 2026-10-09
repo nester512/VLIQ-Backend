@@ -188,7 +188,7 @@ export function RegPage() {
     if (!form.city.trim())              e.city       = 'Укажите город'
     else if (!cities.some((c) => c.name === form.city)) e.city = 'Выберите город из списка'
     if (step === 2) {
-      if (!form.store_name.trim())      e.store_name = 'Название точки'
+      if (!form.store_name.trim())      e.store_name = 'Укажите основную точку'
       const outletCount = Number(form.store_count)
       if (!form.store_count)             e.store_count = 'Укажите количество точек'
       else if (!Number.isInteger(outletCount) || outletCount < 1 || outletCount > 1000) e.store_count = 'От 1 до 1 000 точек'
@@ -344,7 +344,7 @@ export function RegPage() {
         </>
       ) : (
         <>
-          <Field label="Торговая точка" value={form.store_name}    onChange={(e) => update('store_name',    e.target.value)} onBlur={() => setTouched((t) => ({ ...t, store_name: true }))} error={showErr('store_name')} placeholder="Дымов · ТЦ Авиапарк" />
+          <Field label="Основная торговая точка / сеть" value={form.store_name} onChange={(e) => update('store_name', e.target.value)} onBlur={() => setTouched((t) => ({ ...t, store_name: true }))} error={showErr('store_name')} hint="Вы можете работать в разных торговых точках сети; укажите основную" placeholder="Дымов · ТЦ Авиапарк" />
           <Field label="Адрес"           value={form.store_address} onChange={(e) => update('store_address', e.target.value)} placeholder="Адрес точки (необязательно)" />
           <Field label="Количество торговых точек в сети" inputMode="numeric" value={form.store_count} onChange={(e) => update('store_count', e.target.value.replace(/[^\d]/g, ''))} onBlur={() => setTouched((t) => ({ ...t, store_count: true }))} error={showErr('store_count')} hint="От 1 до 1 000" placeholder="1" />
           <Field label="Должность"       value={form.position}      onChange={(e) => update('position',      e.target.value)} placeholder="Продавец-консультант" />
