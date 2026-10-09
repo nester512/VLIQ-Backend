@@ -124,7 +124,10 @@ async def get_me_receipts(  # noqa: PLR0913
     session: Annotated[AsyncSession, Depends(get_pg_session)],
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=50, ge=1, le=200),
-    status: str | None = Query(default=None, description="Filter by receipt status"),
+    status: str | None = Query(
+        default=None,
+        description="Receipt status or several, comma-separated (e.g. approved,paid_out — «Одобрены» incl. paid out)",
+    ),
 ) -> PagedResponse[SellerReceiptRead]:
     seller_id = token["user_id"]
 
@@ -132,10 +135,11 @@ async def get_me_receipts(  # noqa: PLR0913
 
     if status is not None:
         try:
-            receipt_status = ReceiptStatus(status)
+            statuses = [ReceiptStatus(s.strip()).value for s in status.split(",") if s.strip()]
         except ValueError as exc:
             raise AppError("VALIDATION_ERROR", status_code=422) from exc
-        stmt = stmt.where(Receipt.status == receipt_status.value)
+        if statuses:
+            stmt = stmt.where(Receipt.status.in_(statuses))
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total: int = (await session.execute(count_stmt)).scalar_one()

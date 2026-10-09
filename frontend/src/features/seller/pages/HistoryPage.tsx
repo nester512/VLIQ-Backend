@@ -8,11 +8,14 @@ import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
 import { EmptyState } from '@/components/molecules/EmptyState'
 import { useReceiptsInfinite } from '../hooks/useReceipts'
 
+// Seller-facing groups of statuses (sent to the API comma-separated): a paid out
+// receipt is still «одобрен», a just-sent QR receipt (pending) is «на проверке».
 const FILTER_OPTIONS = [
-  { value: '',          label: 'Все' },
-  { value: 'approved',  label: 'Одобрены' },
-  { value: 'on_review', label: 'На проверке' },
-  { value: 'rejected',  label: 'Отклонены' },
+  { value: '',                                   label: 'Все' },
+  { value: 'pending,ocr_in_progress,on_review,needs_revision', label: 'На проверке' },
+  { value: 'approved,paid_out',                  label: 'Одобрены' },
+  { value: 'paid_out',                           label: 'Выплачены' },
+  { value: 'rejected',                           label: 'Отклонены' },
 ]
 
 function HistoryContent() {

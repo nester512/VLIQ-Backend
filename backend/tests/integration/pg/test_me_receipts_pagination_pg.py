@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from src.app.errors import AppError
 from src.receipt.models import Receipt
 from src.seller.handlers.api.v1.router import get_me_receipts
 
@@ -70,3 +71,22 @@ async def test_on_review_receipts_paginate_completely(
     assert total == 40
     assert len(seen) == 40
     assert len(set(seen)) == 40
+
+
+async def test_status_groups__approved_includes_paid_out_and_review_includes_pending(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """«Одобрены» must not lose receipts once they are paid out (0014 / «Выплачено»); a QR
+    receipt just sent (pending) is «на проверке» too."""
+    async with session_factory() as s, s.begin():
+        for st in ("pending", "on_review", "approved", "paid_out", "paid_out", "rejected"):
+            s.add(Receipt(seller_id=SEED_SELLER_ID, brand_id=SEED_BRAND_ID, status=st, created_at=_TS))
+
+    async with session_factory() as s:
+        _, approved = await _walk_all(s, status="approved,paid_out", limit=20)
+        _, review = await _walk_all(s, status="pending,ocr_in_progress,on_review,needs_revision", limit=20)
+        _, paid = await _walk_all(s, status="paid_out", limit=20)
+        with pytest.raises(AppError):
+            await _walk_all(s, status="approved,nonsense", limit=20)
+
+    assert (approved, review, paid) == (3, 2, 2)

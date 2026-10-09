@@ -173,6 +173,34 @@ async def test_no_connected_provider_is_recorded_not_silent(session_factory) -> 
     assert r.verification_failures == 0  # no provider ≠ the receipt's fault
 
 
+async def test_no_provider_rounds_do_not_flood_the_journey(session_factory) -> None:
+    """The cron coming by again while nothing is connected: rescheduled quietly, waiting about
+    twice as long as it has been so (≥ 1 h, ≤ 24 h) — not two new steps every hour forever."""
+    rid = await _new(session_factory)
+    async with session_factory() as s:
+        await process_qr_receipt(s, rid, ProviderRegistry({}))
+    before = await _events(session_factory, rid)
+
+    async def cron_round_after(hours_since_noted: float) -> timedelta:
+        now = datetime.now(UTC)
+        async with session_factory() as s, s.begin():
+            await s.execute(update(Receipt).where(Receipt.id == rid).values(next_verification_at=now))
+            await s.execute(  # «no provider» was noted this long ago
+                update(ReceiptEvent).where(ReceiptEvent.receipt_id == rid, ReceiptEvent.seq == before[-1].seq)
+                .values(at=now - timedelta(hours=hours_since_noted))
+            )
+        async with session_factory() as s:
+            await run_round(s, rid, ProviderRegistry({}), trigger="cron")
+        async with session_factory() as s:
+            r = (await s.execute(select(Receipt).where(Receipt.id == rid))).scalar_one()
+        return r.next_verification_at - now
+
+    assert timedelta(minutes=59) < await cron_round_after(0) <= timedelta(hours=1, minutes=1)
+    assert timedelta(hours=3, minutes=59) < await cron_round_after(2) <= timedelta(hours=4, minutes=1)
+    assert timedelta(hours=23, minutes=59) < await cron_round_after(30) <= timedelta(hours=24, minutes=1)
+    assert len(await _events(session_factory, rid)) == len(before)  # nothing new in the journey
+
+
 async def test_bonus_edit_is_a_journey_step(session_factory) -> None:
     rid = await _new(session_factory)
     async with session_factory() as s:

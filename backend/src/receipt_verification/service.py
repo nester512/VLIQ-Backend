@@ -27,6 +27,7 @@ from src.receipt.models import (
     CheckProvider,
     EventKind,
     Receipt,
+    ReceiptEvent,
     ReceiptStatus,
     ReceiptVerificationAttempt,
     VerificationOutcome,
@@ -56,6 +57,11 @@ ATTEMPT_LEASE = timedelta(minutes=10)
 # Provider-side refusals (request limit, token blocked) are not the receipt's fault:
 # they do not spend the retry budget — retry after a pause instead.
 PROVIDER_PAUSE = timedelta(hours=1)
+# …growing with every such round in a row (a quota that ran out, no provider connected
+# at all): checking every hour forever only filled the receipt journey with noise.
+PROVIDER_PAUSES: tuple[timedelta, ...] = (
+    PROVIDER_PAUSE, timedelta(hours=3), timedelta(hours=6), timedelta(hours=12), timedelta(hours=24),
+)
 _PROVIDER_SIDE = (VerificationOutcome.rate_limited, VerificationOutcome.blocked)
 # The cron runs under arq's job timeout: stop taking new receipts after this budget.
 CRON_BATCH = 25
@@ -71,16 +77,21 @@ def method_for_attempt(methods: tuple[str, ...], attempt_no: int) -> str:
     return methods[(attempt_no - 1) % len(methods)]
 
 
-def next_state(failures: int, outcome: VerificationOutcome, now: datetime) -> tuple[str, datetime | None]:
+def next_state(
+    failures: int, outcome: VerificationOutcome, now: datetime, *, provider_rounds: int = 1
+) -> tuple[str, datetime | None]:
     """(verification_status, next_verification_at) after an attempt.
 
     ``failures`` — budget-counting failures INCLUDING this attempt (unchanged for
     provider-side outcomes, which pause instead of spending the budget).
+    ``provider_rounds`` — how many rounds so far ended on the provider side (incl. this one):
+    the pause grows 1 h → 24 h.
     """
     if outcome is VerificationOutcome.ok:
         return VerificationStatus.verified.value, None
     if outcome in _PROVIDER_SIDE:
-        return VerificationStatus.retrying.value, now + PROVIDER_PAUSE
+        pause = PROVIDER_PAUSES[min(max(provider_rounds, 1), len(PROVIDER_PAUSES)) - 1]
+        return VerificationStatus.retrying.value, now + pause
     if failures <= len(RETRY_DELAYS):
         return VerificationStatus.retrying.value, now + RETRY_DELAYS[failures - 1]
     return VerificationStatus.failed.value, None
@@ -160,7 +171,7 @@ async def _call(verifier: Verifier, data: FiscalData | None, qr_raw: str, method
         return VerificationResult(VerificationOutcome.error, {}, error=f"{type(exc).__name__}: {exc}"[:500])
 
 
-async def run_round(  # noqa: PLR0913, PLR0915
+async def run_round(  # noqa: PLR0912, PLR0913, PLR0915
     session: AsyncSession,
     receipt_id: int,
     registry: ProviderRegistry,
@@ -188,11 +199,18 @@ async def run_round(  # noqa: PLR0913, PLR0915
 
     async with session.begin():
         slots, skipped = await registry.chain(session, now, only=only_provider)
-        await journey.record(
-            session, receipt_id, EventKind.check_round_started, actor_type=actor, actor_id=actor_id,
-            data={"round": round_no, "providers": [s.row.code for s in slots], "trigger": trigger,
-                  **({"only": only_provider} if only_provider else {})},
+        # Still no provider connected, and the journey already says so: reschedule silently
+        # instead of writing the same two steps again every time the cron comes by.
+        quiet_since = (
+            await _last_said_no_provider(session, receipt_id) if not slots and not skipped and trigger == "cron" else None
         )
+        quiet = quiet_since is not None
+        if not quiet:
+            await journey.record(
+                session, receipt_id, EventKind.check_round_started, actor_type=actor, actor_id=actor_id,
+                data={"round": round_no, "providers": [s.row.code for s in slots], "trigger": trigger,
+                      **({"only": only_provider} if only_provider else {})},
+            )
         for row in skipped:
             await journey.record(
                 session, receipt_id, EventKind.provider_skipped, actor_type="system", source=row.code,
@@ -247,7 +265,8 @@ async def run_round(  # noqa: PLR0913, PLR0915
     done_at = datetime.now(UTC)
     async with session.begin():
         receipt = (await session.execute(select(Receipt).where(Receipt.id == receipt_id).with_for_update())).scalar_one()
-        receipt.check_rounds = round_no
+        if not quiet:
+            receipt.check_rounds = round_no
         receipt.verification_locked_until = None
         if winner is not None:
             receipt.verification_status = VerificationStatus.verified.value
@@ -266,7 +285,13 @@ async def run_round(  # noqa: PLR0913, PLR0915
             else:
                 if outcome not in _PROVIDER_SIDE:
                     receipt.verification_failures += 1
-                status, next_at = next_state(receipt.verification_failures, outcome, done_at)
+                status, next_at = next_state(
+                    receipt.verification_failures, outcome, done_at,
+                    provider_rounds=max(round_no - receipt.verification_failures, 1),
+                )
+                if quiet_since is not None:  # still nothing connected: wait about twice as long as so far
+                    wait = min(max((done_at - quiet_since) * 2, PROVIDER_PAUSES[0]), PROVIDER_PAUSES[-1])
+                    next_at = done_at + wait
                 receipt.verification_status = status
                 receipt.next_verification_at = next_at
             kind = (
@@ -274,19 +299,34 @@ async def run_round(  # noqa: PLR0913, PLR0915
                 if receipt.verification_status == VerificationStatus.failed.value
                 else EventKind.check_round_failed
             )
-            await journey.record(
-                session, receipt_id, kind, actor_type="system", outcome=outcome.value,
-                data={
-                    "round": round_no,
-                    "next_at": receipt.next_verification_at.isoformat() if receipt.next_verification_at else None,
-                    **({} if calls else {"reason": "no_provider_available"}),
-                },
-            )
+            if not quiet:
+                await journey.record(
+                    session, receipt_id, kind, actor_type="system", outcome=outcome.value,
+                    data={
+                        "round": round_no,
+                        "next_at": receipt.next_verification_at.isoformat() if receipt.next_verification_at else None,
+                        **({} if calls else {"reason": "no_provider_available"}),
+                    },
+                )
     logger.info(
         "verification.round, receipt_id=%d, round=%d, trigger=%s, calls=%s, outcome=%s",
         receipt_id, round_no, trigger, [(c, r.outcome.value) for c, r in calls], outcome.value,
     )
     return RoundResult(round_no=round_no, outcome=outcome, verified_by=verified_by, calls=calls)
+
+
+async def _last_said_no_provider(session: AsyncSession, receipt_id: int) -> datetime | None:
+    """When the journey's last step already says «no provider connected» — its time, else None."""
+    last = (
+        await session.execute(
+            select(ReceiptEvent.kind, ReceiptEvent.data, ReceiptEvent.at)
+            .where(ReceiptEvent.receipt_id == receipt_id)
+            .order_by(ReceiptEvent.seq.desc())
+            .limit(1)
+        )
+    ).one_or_none()
+    said = last and last.kind == EventKind.check_round_failed and (last.data or {}).get("reason") == "no_provider_available"
+    return last.at if said else None
 
 
 def _round_outcome(calls: list[tuple[str, VerificationResult]]) -> VerificationOutcome:

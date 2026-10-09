@@ -9,7 +9,13 @@ import pytest
 import respx
 from src.receipt.models import VerificationOutcome, VerificationStatus
 from src.receipt_intake.fiscal import validate_fields
-from src.receipt_verification.service import PROVIDER_PAUSE, RETRY_DELAYS, method_for_attempt, next_state
+from src.receipt_verification.service import (
+    PROVIDER_PAUSE,
+    PROVIDER_PAUSES,
+    RETRY_DELAYS,
+    method_for_attempt,
+    next_state,
+)
 from src.receipt_verification.verifier import FakeVerifier, ProverkachekaVerifier
 
 NOW = datetime(2026, 10, 8, 12, 0, tzinfo=UTC)
@@ -112,3 +118,11 @@ async def test_fake_verifier_rules() -> None:
     late = validate_fields(fn="9960440300712345", fd="1", fp="10", t="20261008T1000", s="1", now=NOW)
     assert (await fake.verify(late, "fields", 2)).outcome is VerificationOutcome.not_found
     assert (await fake.verify(late, "fields_seconds", 3)).outcome is VerificationOutcome.ok
+
+
+
+def test_provider_side_pause_grows_and_caps_at_a_day() -> None:
+    """A quota that ran out / no provider at all: 1 h, 3 h, 6 h, 12 h, then daily — not hourly forever."""
+    pauses = [next_state(1, VerificationOutcome.rate_limited, NOW, provider_rounds=k)[1] - NOW for k in range(1, 9)]
+    assert pauses[:5] == list(PROVIDER_PAUSES)
+    assert set(pauses[4:]) == {PROVIDER_PAUSES[-1]}
