@@ -104,7 +104,8 @@ def test_rerun_after_a_failed_concurrent_index_step(migrated) -> None:
     """CONCURRENTLY runs after a commit: if it fails, 0012 stays unapplied with its DDL in place."""
     before = coverage()
     sql(f"DROP INDEX vliq.{m0012.IDEM_INDEX}", "UPDATE public.alembic_version SET version_num = '0011_receipt_journey'")
-    _alembic("upgrade", "head")
+    # Re-run 0012 itself (0014 later changes receipt statuses on purpose — not this test's subject).
+    _alembic("upgrade", "0012_payouts")
     assert indexes().get(m0012.IDEM_INDEX) is True
     assert coverage() == before
     assert fingerprint() == migrated
@@ -115,5 +116,5 @@ def test_downgrade_removes_only_what_it_added(migrated) -> None:
     assert sql("SELECT to_regclass('vliq.payout_receipt')")[0][0] is None
     assert m0012.IDEM_INDEX not in indexes()
     assert fingerprint() == migrated
-    _alembic("upgrade", "head")
+    _alembic("upgrade", "0012_payouts")
     assert coverage() == [(1, 1, 200000), (1, 2, 100000), (3, 2, 100000), (3, 3, 50000)]
