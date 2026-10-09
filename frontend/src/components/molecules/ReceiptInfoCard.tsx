@@ -7,6 +7,7 @@ import { receiptCheckUrl } from '@/utils/receiptCheckUrl'
 import { fmtMoney, fmtMoneyDelta } from '@/utils/formatMoney'
 import { formatDate, formatDateTime } from '@/utils/formatDate'
 import type { AdminReceipt, FiscalIdentity } from '@/api/admin'
+import { ReceiptItems } from '@/components/molecules/ReceiptItems'
 import { DuplicateOf } from '@/features/admin/components/DuplicateOf'
 
 function fiscalLine(idn: FiscalIdentity): string {
@@ -188,6 +189,20 @@ export function ReceiptInfoCard({ receipt, actions, className = '', onSellerClic
             <span className="min-w-0 leading-tight">Проверить чек на check.ofd.ru</span>
           </a>
         )}
+      </Section>
+
+      {/* What was bought — from the check source (ФНС / ОФД); the photo is gone with QR intake. */}
+      <Section title={receipt.items?.length ? `Состав чека · ${receipt.items.length}` : 'Состав чека'}>
+        <div className="rounded-[16px] bg-[var(--vliq-field)] p-4">
+          <ReceiptItems
+            items={receipt.items}
+            empty={
+              <span className="text-[13px] text-[var(--vliq-hint)] font-semibold leading-snug" data-testid="receipt-items-empty">
+                Состав появится после проверки чека в ФНС / ОФД.{checkUrl ? ' Пока можно открыть чек по кнопке выше.' : ''}
+              </span>
+            }
+          />
+        </div>
       </Section>
 
       {/* Multiple distinct fiscal identities (MULTIPLE_RECEIPTS_DETECTED) */}

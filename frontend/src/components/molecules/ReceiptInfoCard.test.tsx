@@ -207,3 +207,16 @@ describe('ReceiptInfoCard — QR intake badges', () => {
     expect(screen.queryByTestId('receipt-intake-badges')).toBeNull()
   })
 })
+
+describe('ReceiptInfoCard — composition (the photo is gone with QR intake)', () => {
+  it('lists the products from the check', () => {
+    render(<ReceiptInfoCard receipt={base({ items: [{ name: 'VLIQ MAX FLAVOR', price: 70000, qty: 3 }] })} />)
+    expect(screen.getByText('Состав чека · 1')).toBeInTheDocument()
+    expect(screen.getByTestId('receipt-items')).toHaveTextContent('VLIQ MAX FLAVOR ×3')
+  })
+
+  it('says when the composition will appear (not an empty block)', () => {
+    render(<ReceiptInfoCard receipt={base({ items: [] })} />)
+    expect(screen.getByTestId('receipt-items-empty')).toHaveTextContent('Состав появится после проверки чека в ФНС / ОФД')
+  })
+})

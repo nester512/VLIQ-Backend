@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/molecules/EmptyState'
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
 import { RECEIPT_STATUS, type StatusKind } from '@/utils/receiptStatus'
 import { fmtMoney } from '@/utils/formatMoney'
+import { itemsSummary } from '@/utils/receiptItems'
 import { formatDateTime } from '@/utils/formatDate'
 import { useUiStore } from '@/store/uiStore'
 
@@ -44,6 +45,7 @@ function ReceiptRow({ receipt, onClick }: { receipt: AdminReceipt; onClick: () =
       <div className="vliq-row-tx">
         <b>{shop}</b>
         <span>{seller} · {formatDateTime(receipt.created_at)}</span>
+        {itemsSummary(receipt.items) && <span data-testid="row-items">{itemsSummary(receipt.items)}</span>}
       </div>
       <div style={{ flex: 'none', textAlign: 'right', maxWidth: 120 }}>
         <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>

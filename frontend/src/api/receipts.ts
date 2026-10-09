@@ -82,6 +82,8 @@ interface BackendReceiptStatus {
   file_url?: string | null
   /** Ordered package attachments (preferred over the legacy single file_url). */
   attachments?: BackendAttachment[]
+  /** What was bought (from the check source's answer). */
+  items?: BackendReceiptItem[]
 }
 
 // TODO: unit test — mock BackendReceipt with total_sum, bonus_amount, items[{raw_name,qty,price}]
@@ -181,6 +183,7 @@ export const getReceiptStatus = (id: string): Promise<Receipt> =>
       rejection_code: r.data.rejection_code ?? undefined,
       attachments: mapAttachments(r.data.attachments),
       file_url: r.data.file_url ?? undefined,
+      items: r.data.items?.map((it) => ({ name: it.raw_name ?? it.name ?? '—', price: it.price, qty: it.qty })),
       // /status doesn't carry the created_at — the page falls back gracefully.
       created_at: new Date().toISOString(),
     }))

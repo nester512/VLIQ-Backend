@@ -21,6 +21,7 @@ import {
 import { RECEIPT_STATUS, type StatusKind } from '@/utils/receiptStatus'
 import { fmtInt, fmtMoney } from '@/utils/formatMoney'
 import { formatDate, formatDateTime } from '@/utils/formatDate'
+import { itemsSummary } from '@/utils/receiptItems'
 import { getFullName, getInitials } from '@/utils/initials'
 import { useUiStore } from '@/store/uiStore'
 
@@ -57,6 +58,7 @@ function ReceiptRow({ receipt, onClick }: { receipt: AdminReceipt; onClick: () =
           {receipt.shop_name?.trim() ? ` · ${receipt.shop_name.trim()}` : ''}
         </b>
         <span>{formatDateTime(receipt.created_at)}</span>
+        {itemsSummary(receipt.items) && <span data-testid="row-items">{itemsSummary(receipt.items)}</span>}
       </div>
       <div style={{ flex: 'none', textAlign: 'right', maxWidth: 130 }}>
         <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--vliq-text)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>

@@ -5,6 +5,8 @@ import { fmtMoney, fmtMoneyDelta, plural } from '@/utils/formatMoney'
 import { formatDate, formatDateTime } from '@/utils/formatDate'
 import { SOURCE_LABEL, VERIFICATION_KIND, verificationLabel } from '@/features/admin/verificationLabels'
 import type { AdminReceipt } from '@/api/admin'
+import { ReceiptItems } from '@/components/molecules/ReceiptItems'
+import { receiptCheckUrl } from '@/utils/receiptCheckUrl'
 
 /** Short chip labels for the signals an admin must notice before deciding. */
 const SIGNAL_SHORT: Record<string, string> = {
@@ -47,6 +49,7 @@ export function ReviewCardSummary({ receipt, onDetails, onSellerClick }: ReviewC
   const signals = (receipt.fraud_signal ?? []).filter((s) => !HIDDEN_SIGNALS.has(s.type))
   const chips = [...new Set(signals.map((s) => SIGNAL_SHORT[s.type] ?? 'Сигнал риска'))]
   const files = receipt.attachments.length
+  const checkUrl = receiptCheckUrl(receipt)
   const items = receipt.items?.length ?? 0
   const verification = receipt.verification_status && receipt.verification_status !== 'not_required'
     ? receipt.verification_status
@@ -106,6 +109,29 @@ export function ReviewCardSummary({ receipt, onDetails, onSellerClick }: ReviewC
           </div>
         ))}
       </dl>
+
+      {/* Composition from the check source — no photo any more, this is what was bought. */}
+      <div className="vliq-review-summary__items" aria-label="Состав чека">
+        <span className="vliq-review-summary__label">Состав чека</span>
+        <ReceiptItems
+          items={receipt.items}
+          max={3}
+          empty={
+            <span className="vliq-review-summary__muted" data-testid="receipt-items-empty">
+              Появится после проверки в ФНС / ОФД
+              {checkUrl && (
+                <>
+                  {' · '}
+                  <a href={checkUrl} target="_blank" rel="noopener noreferrer" {...control}
+                    style={{ color: 'var(--vliq-brand)', fontWeight: 700 }}>
+                    открыть чек
+                  </a>
+                </>
+              )}
+            </span>
+          }
+        />
+      </div>
 
       <div className="vliq-review-summary__chips">
         {receipt.source && <Pill kind="muted">{SOURCE_LABEL[receipt.source]}</Pill>}

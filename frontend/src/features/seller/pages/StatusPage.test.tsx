@@ -102,3 +102,17 @@ describe('StatusPage — attachment rendering', () => {
     expect(screen.getByText('Не начисляется')).toBeInTheDocument()
   })
 })
+
+describe('StatusPage — what was in the receipt', () => {
+  it('shows the composition from the check', async () => {
+    getReceiptStatus.mockResolvedValue(baseReceipt({ items: [{ name: 'VLIQ SHOCK Лёд', price: 65000, qty: 2 }] }))
+    renderPage()
+    expect(await screen.findByTestId('receipt-items')).toHaveTextContent('VLIQ SHOCK Лёд ×2')
+  })
+
+  it('before the check says when it appears', async () => {
+    getReceiptStatus.mockResolvedValue(baseReceipt({ items: [] }))
+    renderPage()
+    expect(await screen.findByTestId('receipt-items-empty')).toHaveTextContent('Появится после проверки чека в ФНС')
+  })
+})

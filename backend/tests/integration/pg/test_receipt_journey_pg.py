@@ -183,3 +183,17 @@ async def test_bonus_edit_is_a_journey_step(session_factory) -> None:
         await edit_receipt_bonus(rid, ReceiptEditBonusRequest(bonus_amount=7000), ADMIN, s)
     last = (await _events(session_factory, rid))[-1]
     assert (last.kind, last.data) == ("bonus_changed", {"before": 5000, "after": 7000})
+
+
+async def test_verified_receipt_carries_its_composition_to_the_seller(session_factory) -> None:
+    """QR intake has no photo: the products come from the check source and reach the seller's screen."""
+    from src.receipt.schemas.api import ReceiptStatusResponse
+
+    rid = await _new(session_factory, fp="3826178541")
+    async with session_factory() as s:
+        await process_qr_receipt(s, rid, ProviderRegistry({"fake": FakeVerifier()}))
+    async with session_factory() as s:
+        receipt = await s.get(Receipt, rid)
+        status = ReceiptStatusResponse.model_validate(receipt)
+    assert receipt.items and receipt.items[0]["raw_name"]
+    assert [(i.raw_name, i.qty) for i in status.items] == [(receipt.items[0]["raw_name"], receipt.items[0]["qty"])]

@@ -10,6 +10,7 @@ import type { TimelineStep } from '@/components/molecules/Timeline'
 import type { Attachment, Receipt, ReceiptStatus } from '@/types/models'
 import { RECEIPT_STATUS, type StatusKind } from '@/utils/receiptStatus'
 import { fmtMoney } from '@/utils/formatMoney'
+import { ReceiptItems } from '@/components/molecules/ReceiptItems'
 
 type IconName = Parameters<typeof Icon>[0]['name']
 
@@ -268,6 +269,19 @@ export function StatusPage() {
           Статус обработки
         </h3>
         <Timeline steps={steps} />
+      </div>
+
+      {/* What was bought — from the check (ФНС / ОФД). */}
+      <div className="vliq-card" style={{ padding: 18, marginTop: 14 }}>
+        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: 'var(--vliq-text)' }}>Состав чека</h3>
+        <ReceiptItems
+          items={receipt.items}
+          empty={
+            <span style={{ fontSize: 13, color: 'var(--vliq-hint)', fontWeight: 500 }} data-testid="receipt-items-empty">
+              Появится после проверки чека в ФНС.
+            </span>
+          }
+        />
       </div>
 
       {/* Uploaded receipt package (S4): render ALL attachments by position.

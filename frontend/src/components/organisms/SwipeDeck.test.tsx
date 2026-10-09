@@ -280,6 +280,20 @@ describe('SwipeDeck — decision card without the photo', () => {
     expect(screen.queryByTestId('attachment-viewer')).toBeNull()
   })
 
+  it('shows WHAT was bought (composition from the check), or how to see it before the check', () => {
+    const withItems = { ...full(), items: [{ name: 'VLIQ SHOCK Лёд', price: 65000, qty: 2 }] }
+    const { unmount } = render(<SwipeDeck receipts={[withItems]} onSwipe={vi.fn()} onTap={vi.fn()} />)
+    const block = screen.getByLabelText('Состав чека')
+    expect(block).toHaveTextContent('VLIQ SHOCK Лёд ×2')
+    expect(block).toHaveTextContent(/1\s?300/)
+    unmount()
+
+    render(<SwipeDeck receipts={[full()]} onSwipe={vi.fn()} onTap={vi.fn()} />)
+    const empty = screen.getByTestId('receipt-items-empty')
+    expect(empty).toHaveTextContent('Появится после проверки в ФНС / ОФД')
+    expect(screen.getByRole('link', { name: 'открыть чек' })).toHaveAttribute('href', expect.stringContaining('9960440300712345'))
+  })
+
   it('«Подробнее» opens the details without swiping or capturing the pointer', () => {
     const onSwipe = vi.fn()
     const onTap = vi.fn()

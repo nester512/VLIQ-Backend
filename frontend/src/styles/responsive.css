@@ -488,6 +488,7 @@
 .vliq-review-summary__rows dt { color: var(--vliq-hint); flex: none; }
 .vliq-review-summary__rows dd { margin: 0; font-weight: 700; color: var(--vliq-text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 .vliq-review-summary__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.vliq-review-summary__items { display: grid; gap: 6px; min-width: 0; }
 .vliq-review-summary__details {
   margin-top: auto; display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
   padding: 11px; border: 0; border-radius: 14px; font: inherit; font-size: 13px; font-weight: 700;

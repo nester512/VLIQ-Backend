@@ -3,6 +3,7 @@ import { Pill } from '@/components/atoms/Pill'
 import { RECEIPT_STATUS, isApprovedStatus, type StatusKind } from '@/utils/receiptStatus'
 import { fmtMoneyDelta } from '@/utils/formatMoney'
 import type { Receipt } from '@/types/models'
+import { itemsSummary } from '@/utils/receiptItems'
 
 const ICON_BG: Record<StatusKind, string> = {
   ok:    'bg-[var(--vliq-ok-bg)] text-[var(--vliq-ok-ink)]',
@@ -41,6 +42,7 @@ export function ReceiptRow({ receipt, onClick }: ReceiptRowProps) {
       <div className="vliq-row-tx">
         <b>Чек #{receipt.id}</b>
         <span>{formatDate(receipt.created_at)}</span>
+        {itemsSummary(receipt.items) && <span data-testid="row-items">{itemsSummary(receipt.items)}</span>}
       </div>
       {/* Trailing: amount + pill — max-width prevents the pill from escaping the card corner */}
       <div style={{ flex: 'none', textAlign: 'right', maxWidth: 120, minWidth: 0, overflow: 'hidden' }}>

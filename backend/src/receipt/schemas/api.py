@@ -137,6 +137,8 @@ class ReceiptStatusResponse(BaseModel):
     file_url: str | None = None
     # Ordered package attachments (S4: seller sees every uploaded photo/file).
     attachments: list[ReceiptAttachmentRead] = Field(default_factory=list)
+    # What was bought — from the check source's answer (QR intake has no photo).
+    items: list[ReceiptItem] = Field(default_factory=list)
 
 
 class ReceiptReviewAction(BaseModel):
