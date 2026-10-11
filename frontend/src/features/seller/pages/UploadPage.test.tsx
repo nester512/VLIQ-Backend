@@ -87,6 +87,10 @@ function apiError(status: number, data: unknown) {
 }
 
 beforeEach(() => {
+  // Freeze the clock (Date only — timers stay real): the tests build «now» several times and
+  // compare; a run crossing a minute boundary used to fail in CI (191607 vs 191707).
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-11T09:00:30Z'))
   submitQrReceipt.mockReset()
   submitQrReceipt.mockResolvedValue({ id: '42', warnings: [] })
   navigate.mockReset()
@@ -96,6 +100,7 @@ beforeEach(() => {
   try { localStorage.clear() } catch { /* jsdom */ }
 })
 afterEach(() => {
+  vi.useRealTimers()
   cleanup()
   delete (window as unknown as { Telegram?: unknown }).Telegram
 })

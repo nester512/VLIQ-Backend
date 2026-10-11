@@ -46,6 +46,6 @@ describe('AccrualRow — a debit is not shown as an accrual (regress 2026-10-11)
     expect(screen.getByTitle('+2 ₽').dataset.tone).toBe('ok')
     cleanup()
     render(<AccrualRow transaction={{ ...base, type: 'payout', amount: -300000, description: 'Резерв на выплату' }} />)
-    expect(screen.getByTitle('−3 000 ₽').dataset.tone).toBe('neutral')
+    expect(screen.getByTitle('−3 000 ₽').dataset.tone).toBe('neutral') // the query normalises the DOM's thousands space
   })
 })
