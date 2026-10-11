@@ -14,7 +14,7 @@ interface FilterPillsProps {
 }
 
 /**
- * Horizontal segmented control of pill-shaped buttons.
+ * Segmented control of pill-shaped buttons; wraps to the next line on narrow screens.
  * Active pill = brand; inactive = card surface with subtle shadow (matches prototype).
  */
 export function FilterPills({ options, value, onChange, className = '', style }: FilterPillsProps) {
@@ -24,8 +24,8 @@ export function FilterPills({ options, value, onChange, className = '', style }:
       style={{
         display: 'flex',
         gap: 8,
-        overflowX: 'auto',
-        overflowY: 'hidden',
+        // Wrap instead of a hidden horizontal scroll: a pill cut at the screen edge read as a broken layout.
+        flexWrap: 'wrap',
         ...style,
       }}
     >

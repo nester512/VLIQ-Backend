@@ -29,3 +29,15 @@ describe('MetricCard — actionable variant', () => {
     expect(screen.getByText('требует действий')).toBeTruthy()
   })
 })
+
+describe('MetricCard — money stays money', () => {
+  it('a sum with ₽ and kopecks is shown as is, not turned into a bare number', () => {
+    render(<MetricCard title="К выплате" value="1 646,48 ₽" tween />)
+    expect(screen.getByText('1 646,48 ₽')).toBeInTheDocument()
+  })
+
+  it('passes the value length so CSS can fit it on one line', () => {
+    render(<MetricCard title="К выплате" value="38 384 384 ₽" />)
+    expect(screen.getByText('38 384 384 ₽').style.getPropertyValue('--vliq-len')).toBe('12')
+  })
+})

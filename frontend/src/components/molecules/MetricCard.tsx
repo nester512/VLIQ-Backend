@@ -45,8 +45,10 @@ function TweenedValue({ raw, style, title }: { raw: number; style: React.CSSProp
 export function MetricCard({
   title, value, delta, deltaColor: tone = 'hint', className = '', tween = false, onClick,
 }: MetricCardProps) {
-  const valueStyle: React.CSSProperties = { fontSize: 'clamp(17px, 5.6vw, 23px)' }
-  const parsedNum = parseFloat(value.replace(/[^0-9.-]/g, ''))
+  // The value's length lets CSS pick a font size that fits the card on one line (index.css).
+  const valueStyle = { '--vliq-len': Math.max(value.length, 4) } as React.CSSProperties
+  // Only plain counts animate: a sum like «1 646,48 ₽» would lose its ₽ and its comma.
+  const parsedNum = /^[\d\s]+$/.test(value) ? Number(value.replace(/\D/g, '')) : NaN
   const canTween = tween && !isNaN(parsedNum)
 
   const body = (

@@ -529,6 +529,8 @@ button.vliq-btn:focus-visible,
   padding: 16px;
   overflow: hidden;
   min-width: 0;
+  /* The value sizes itself to the card width (cqi), not to the screen. */
+  container-type: inline-size;
 }
 .vliq-metric-card__title {
   font-size: 12px;
@@ -548,7 +550,11 @@ button.vliq-btn:focus-visible,
   letter-spacing: -0.4px;
   color: var(--vliq-text);
   line-height: 1.1;
-  /* A sum is never cut to «38 384 3…»: it wraps at the thousands space if it must. */
+  /* A sum is never cut to «38 384 3…» and never broken over lines: the font shrinks to fit the
+     card (bold digits ≈ 0.62em, --vliq-len set by MetricCard). Below 14px it may wrap as a last
+     resort. Without container units the first, viewport-based size applies. */
+  font-size: clamp(17px, 5.6vw, 23px);
+  font-size: clamp(14px, calc(100cqi / (var(--vliq-len, 8) * 0.62)), 23px);
   white-space: normal;
   overflow-wrap: break-word;
   font-variant-numeric: tabular-nums;
