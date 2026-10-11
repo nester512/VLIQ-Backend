@@ -364,10 +364,9 @@ button.vliq-btn:focus-visible,
   border: 0;
   cursor: pointer;
   flex: none;
-  white-space: nowrap;
-  max-width: 60%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Never cut to «Запросить выплат…» (344 px): the label wraps inside the chip if it must. */
+  white-space: normal;
+  max-width: 100%;
   transition: transform 0.12s ease;
 }
 .vliq-hero-chip:active { transform: scale(0.97); }

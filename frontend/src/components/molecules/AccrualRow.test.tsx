@@ -36,3 +36,16 @@ describe('AccrualRow — money rendered from kopecks', () => {
     expect(screen.getByTitle(expected)).toBeTruthy()
   })
 })
+
+describe('AccrualRow — a debit is not shown as an accrual (regress 2026-10-11)', () => {
+  it('a negative correction (cancelled receipt / lowered bonus) is red; an accrual is green; a payout neutral', () => {
+    render(<AccrualRow transaction={{ ...base, type: 'adjustment', amount: -200, description: 'Корректировка' }} />)
+    expect(screen.getByTitle('−2 ₽').dataset.tone).toBe('dg')
+    cleanup()
+    render(<AccrualRow transaction={{ ...base, type: 'adjustment', amount: 200, description: 'Корректировка' }} />)
+    expect(screen.getByTitle('+2 ₽').dataset.tone).toBe('ok')
+    cleanup()
+    render(<AccrualRow transaction={{ ...base, type: 'payout', amount: -300000, description: 'Резерв на выплату' }} />)
+    expect(screen.getByTitle('−3 000 ₽').dataset.tone).toBe('neutral')
+  })
+})

@@ -12,6 +12,10 @@ function formatDate(iso: string) {
 
 export function AccrualRow({ transaction }: AccrualRowProps) {
   const isPayout = transaction.type === 'payout'
+  // A correction that takes money back (a cancelled receipt, a lowered bonus) is a debit:
+  // red, not the green of an accrual.
+  const isDebit = !isPayout && transaction.amount < 0
+  const tone = isPayout ? null : isDebit ? 'dg' : 'ok'
   // Money is stored in KOPECKS — fmtMoneyDelta divides by 100, adds the ₽ and a
   // +/− sign from the amount's own sign (was rendering raw kopecks: "10000 ₽").
   const amountStr = fmtMoneyDelta(transaction.amount)
@@ -28,9 +32,11 @@ export function AccrualRow({ transaction }: AccrualRowProps) {
       <div
         className={[
           'vliq-row-ic',
-          isPayout
+          tone === null
             ? 'bg-[var(--vliq-field)] text-[var(--vliq-hint)]'
-            : 'bg-[var(--vliq-ok-bg)] text-[var(--vliq-ok-ink)]',
+            : tone === 'dg'
+              ? 'bg-[var(--vliq-dg-bg)] text-[var(--vliq-dg-ink)]'
+              : 'bg-[var(--vliq-ok-bg)] text-[var(--vliq-ok-ink)]',
         ].join(' ')}
       >
         <Icon name={isPayout ? 'cashout' : 'gift'} size={21} />
@@ -42,7 +48,8 @@ export function AccrualRow({ transaction }: AccrualRowProps) {
       {/* Use .vliq-row-amount for stable truncation near the card's rounded corner */}
       <div
         className="vliq-row-amount"
-        style={{ color: isPayout ? 'var(--vliq-text)' : 'var(--vliq-ok-ink)' }}
+        style={{ color: tone === null ? 'var(--vliq-text)' : `var(--vliq-${tone}-ink)` }}
+        data-tone={tone ?? 'neutral'}
         title={amountStr}
       >
         {amountStr}
