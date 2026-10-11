@@ -511,6 +511,11 @@ def main() -> None:  # noqa: C901, PLR0915
         check("R-S-5", not q_ids and b_rev in hist and b_old in hist, f"queue has {len(q_ids)} of his receipts; history keeps #{b_old}, #{b_rev}")
         check("R-S-5", st == 409 and b.get("code") == "RECEIPT_SELLER_BLOCKED", f"approve opened card #{b_rev} → {st} {b.get('code')}")
         check("R-D-2", dash["receipts_on_review"] == qt, f"«На проверке» {dash['receipts_on_review']} = queue w/o blocked {qt}")
+        # R-S-7: the queue and «На проверке» leave blocked sellers out; history totals keep them.
+        all_review = call("GET", "/receipts?status=on_review&limit=1", admin)[1]["total"]
+        all_live = call("GET", "/receipts?limit=1", admin)[1]["total"]
+        check("R-S-7", all_review - qt >= 1 and dash["receipts_total"] == all_live,
+              f"on_review all={all_review} queue={qt} (blocked out: {all_review - qt}); «Чеков загружено» {dash['receipts_total']} = all {all_live}")
         lst = {p["id"] for p in page_all(admin, f"/payout-requests?seller_id={B}")[0]}
         only = {p["id"] for p in page_all(admin, f"/payout-requests?seller_id={B}&blocked=only")[0]}
         active_total = sum(call("GET", f"/payout-requests?status={s}&limit=1", admin)[1]["total"] for s in ("new", "in_progress"))

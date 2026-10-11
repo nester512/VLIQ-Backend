@@ -22,6 +22,10 @@ interface UiState {
    *  «← Назад» returns to the previous one instead of losing it. */
   sheetStack: SheetEntry[]
   toastQueue: Toast[]
+  /** Sellers blocked during this session (here or seen as RECEIPT_SELLER_BLOCKED): the review
+   *  deck drops their receipts at once instead of waiting for a re-entry. */
+  blockedSellerIds: number[]
+  markSellerBlocked: (sellerId: number, blocked: boolean) => void
 
   openSheet: (sheet: SheetKind, payload?: unknown) => void
   closeSheet: () => void
@@ -38,6 +42,15 @@ export const useUiStore = create<UiState>()((set) => ({
   sheetPayload: null,
   sheetStack: [],
   toastQueue: [],
+  blockedSellerIds: [],
+
+  markSellerBlocked: (sellerId, blocked) => {
+    set((state) => ({
+      blockedSellerIds: blocked
+        ? (state.blockedSellerIds.includes(sellerId) ? state.blockedSellerIds : [...state.blockedSellerIds, sellerId])
+        : state.blockedSellerIds.filter((id) => id !== sellerId),
+    }))
+  },
 
   openSheet: (sheet, payload) => {
     set((state) => ({

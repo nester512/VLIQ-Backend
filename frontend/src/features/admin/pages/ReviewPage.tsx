@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { SwipeDeck } from '@/components/organisms/SwipeDeck'
@@ -15,6 +15,14 @@ import {
 } from '@/features/admin/hooks/useReviewQueue'
 import type { AdminReceipt } from '@/api/admin'
 
+/** Approve refused because the seller was blocked meanwhile (e.g. by another admin): every
+ *  receipt of that seller leaves the deck, the refused one included. */
+function hideIfSellerBlocked(err: unknown, receipt: AdminReceipt | undefined) {
+  if (receipt && extractApiError(err).code === 'RECEIPT_SELLER_BLOCKED') {
+    useUiStore.getState().markSellerBlocked(receipt.seller_id, true)
+  }
+}
+
 function ReviewContent() {
   const queryClient = useQueryClient()
   const { data, isLoading, isFetchingNextPage, fetchNextPage, hasNextPage } = useReviewQueue()
@@ -23,7 +31,22 @@ function ReviewContent() {
   const openSheet = useUiStore((s) => s.openSheet)
   const pushToast = useUiStore((s) => s.pushToast)
 
-  const receipts = flattenReceiptPages(data)
+  // Blocked sellers' receipts are not work (UC-A2): the server leaves them out of the queue, and a
+  // seller blocked during this session (here, by another admin — seen as RECEIPT_SELLER_BLOCKED)
+  // leaves the deck at once, not on the next entry.
+  const blockedSellerIds = useUiStore((s) => s.blockedSellerIds)
+  const loaded = flattenReceiptPages(data)
+  const receipts = useMemo(
+    () => (blockedSellerIds.length ? loaded.filter((r) => !blockedSellerIds.includes(r.seller_id)) : loaded),
+    [loaded, blockedSellerIds],
+  )
+  // Every receipt hidden this session, so the «N / всего» total shrinks by them too.
+  const [hiddenIds, setHiddenIds] = useState<ReadonlySet<string>>(() => new Set())
+  useEffect(() => {
+    const now = loaded.filter((r) => blockedSellerIds.includes(r.seller_id) && !hiddenIds.has(r.id))
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- accumulate ids as they get hidden
+    if (now.length) setHiddenIds((prev) => new Set([...prev, ...now.map((r) => r.id)]))
+  }, [loaded, blockedSellerIds, hiddenIds])
 
   // Capture the backlog total ONCE per session so the deck's "N / total"
   // counter has a STABLE denominator. Detail-sheet actions refetch the queue
@@ -43,7 +66,8 @@ function ReviewContent() {
       setCapturedTotal(rawReviewTotal)
     }
   }, [rawReviewTotal, capturedTotal])
-  const reviewTotal = capturedTotal ?? rawReviewTotal
+  const baseTotal = capturedTotal ?? rawReviewTotal
+  const reviewTotal = baseTotal === undefined ? undefined : Math.max(0, baseTotal - hiddenIds.size)
 
   // Local state for the reject reason sheet
   const [rejectingReceiptId, setRejectingReceiptId] = useState<string | null>(null)
@@ -92,7 +116,8 @@ function ReviewContent() {
           // The localized toast is dispatched by useSwipeAction's mutation-level
           // onError — this per-call handler only repairs the optimistic UI so we
           // don't double-toast.
-          onError: () => {
+          onError: (err: unknown) => {
+            hideIfSellerBlocked(err, receipt)
             // The SwipeDeck already advanced optimistically. The action failed,
             // so roll that advance back and re-show the card. No mid-session
             // review-queue refetch here — the stale card is refreshed on
@@ -169,7 +194,8 @@ function ReviewContent() {
           setApprovingReceiptId(null)
           prefetchIfNearEnd(id)
         },
-        onError: () => {
+        onError: (err: unknown) => {
+          hideIfSellerBlocked(err, receipts.find((r) => r.id === id))
           // Roll back the advance. No mid-session review-queue refetch (skip hazard);
           // refreshed on re-entry.
           setApprovingReceiptId(null)

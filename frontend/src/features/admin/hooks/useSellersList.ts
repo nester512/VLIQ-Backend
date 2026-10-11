@@ -67,7 +67,8 @@ export function useSellerStatusToggle() {
   return useMutation({
     mutationFn: ({ telegram_id, block, reason }: { telegram_id: number; block: boolean; reason?: string }) =>
       block ? blockSeller(String(telegram_id), reason ?? null) : unblockSeller(String(telegram_id)),
-    onSuccess: (_data, { block }) => {
+    onSuccess: (_data, { telegram_id, block }) => {
+      useUiStore.getState().markSellerBlocked(telegram_id, block)
       void qc.invalidateQueries({ queryKey: ['admin', 'sellers'] })
       void qc.invalidateQueries({ queryKey: ['admin', 'seller-detail'] })
       void qc.invalidateQueries({ queryKey: ['admin', 'dashboard'] })

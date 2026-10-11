@@ -106,7 +106,8 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
   const { mutate: doBlockSeller, isPending: blockSellerPending } = useMutation({
     mutationFn: ({ telegram_id, reason }: { telegram_id: string; reason: string | null }) =>
       blockSeller(telegram_id, reason),
-    onSuccess: () => {
+    onSuccess: (_data, { telegram_id }) => {
+      useUiStore.getState().markSellerBlocked(Number(telegram_id), true)
       setBlockSellerOpen(false)
       invalidateAfterReceiptChange(queryClient)
       pushToast('Продавец заблокирован', 'dg')

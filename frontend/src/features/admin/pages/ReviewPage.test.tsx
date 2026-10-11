@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, cleanup } from '@testing-library/react'
+import { act, render, screen, waitFor, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -13,7 +13,7 @@ import { createElement, type ReactNode } from 'react'
 // ---------------------------------------------------------------------------
 
 // One reviewable card sits in the queue.
-const QUEUE = [{ id: '1', status: 'on_review', seller_name: 'Иван', bonus_amount: 1000 }]
+const QUEUE: Array<Record<string, unknown>> = [{ id: '1', status: 'on_review', seller_name: 'Иван', seller_id: 7, bonus_amount: 1000 }]
 
 // approveReceipt rejects with a 409 envelope: the card changed status under the
 // admin (RECEIPT_INVALID_STATE_TRANSITION) — the classic false-success case.
@@ -22,18 +22,20 @@ const rejectReceipt = vi.fn<(...a: unknown[]) => Promise<unknown>>(() => Promise
 const reviseReceipt = vi.fn<(...a: unknown[]) => Promise<unknown>>(() => Promise.resolve({}))
 vi.mock('@/api/admin', () => ({
   getAdminReceipts: vi.fn(() =>
-    Promise.resolve({ items: QUEUE, page: 1, has_more: false }),
+    Promise.resolve({ items: [...QUEUE], total: QUEUE.length, page: 1, has_more: false }),
   ),
   approveReceipt: (...a: unknown[]) => approveReceipt(...a),
   rejectReceipt: (...a: unknown[]) => rejectReceipt(...a),
   reviseReceipt: (...a: unknown[]) => reviseReceipt(...a),
 }))
 
-const pushToast = vi.fn()
-vi.mock('@/store/uiStore', () => ({
-  useUiStore: (selector: (s: { pushToast: typeof pushToast; openSheet: () => void }) => unknown) =>
-    selector({ pushToast, openSheet: vi.fn() }),
-}))
+const { pushToast } = vi.hoisted(() => ({ pushToast: vi.fn() }))
+// The real store (the deck reads blockedSellerIds reactively); only the toast is a spy.
+vi.mock('@/store/uiStore', async (orig) => {
+  const m = await orig<typeof import('@/store/uiStore')>()
+  m.useUiStore.setState({ pushToast })
+  return m
+})
 
 vi.mock('@/hooks/useHaptic', () => ({
   useHaptic: () => ({ impact: vi.fn(), notification: vi.fn() }),
@@ -66,13 +68,18 @@ vi.mock('@/components/organisms/SwipeDeck', () => ({
   SwipeDeck: ({
     onSwipe,
     undoTrigger,
+    receipts,
+    totalCount,
   }: {
     onSwipe: (id: string, dir: string) => void
     undoTrigger: number
+    receipts: Array<{ id: string }>
+    totalCount?: number
   }) =>
     createElement(
       'div',
       null,
+      createElement('span', { 'data-testid': 'deck' }, `${receipts.map((r) => r.id).join(',')} / ${totalCount}`),
       createElement('span', { 'data-testid': 'undo-trigger' }, String(undoTrigger)),
       createElement(
         'button',
@@ -83,6 +90,7 @@ vi.mock('@/components/organisms/SwipeDeck', () => ({
 }))
 
 import { ReviewPage } from './ReviewPage'
+import { useUiStore } from '@/store/uiStore'
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -95,7 +103,9 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  QUEUE[0] = { id: '1', status: 'on_review', seller_name: 'Иван', bonus_amount: 1000 }
+  QUEUE.length = 0
+  QUEUE.push({ id: '1', status: 'on_review', seller_name: 'Иван', seller_id: 7, bonus_amount: 1000 })
+  useUiStore.setState({ blockedSellerIds: [] })
   cleanup()
 })
 
@@ -179,5 +189,35 @@ describe('ReviewPage — 409 rollback', () => {
     await waitFor(() =>
       expect(screen.getByTestId('undo-trigger').textContent).toBe('1'),
     )
+  })
+})
+
+describe('ReviewPage — blocked sellers are not in the review (owner, 2026-10-11)', () => {
+  const two = () => {
+    QUEUE.length = 0
+    QUEUE.push(
+      { id: '1', status: 'on_review', seller_name: 'Иван', seller_id: 7, bonus_amount: 1000 },
+      { id: '2', status: 'on_review', seller_name: 'Пётр', seller_id: 8, bonus_amount: 1000 },
+    )
+  }
+
+  it('a seller blocked during the session leaves the deck at once; the total shrinks', async () => {
+    two()
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('deck').textContent).toBe('1,2 / 2'))
+    act(() => useUiStore.getState().markSellerBlocked(7, true))
+    await waitFor(() => expect(screen.getByTestId('deck').textContent).toBe('2 / 1'))
+  })
+
+  it('approve refused with RECEIPT_SELLER_BLOCKED (another admin blocked him) drops his receipts', async () => {
+    two()
+    approveReceipt.mockRejectedValueOnce({
+      isAxiosError: true,
+      response: { status: 409, data: { code: 'RECEIPT_SELLER_BLOCKED', user_message: 'Продавец заблокирован — одобрить чек нельзя.', debug_id: 'd' } },
+    })
+    renderPage()
+    await userEvent.click(await screen.findByText('approve'))
+    await waitFor(() => expect(screen.getByTestId('deck').textContent).toBe('2 / 1'))
+    expect(useUiStore.getState().blockedSellerIds).toEqual([7])
   })
 })
