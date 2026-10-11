@@ -386,7 +386,8 @@ function UploadContent() {
     setError(null)
     try {
       const res = await submit({ ...captured, brandId: profile?.brand_id })
-      navigate(`/seller/status/${res.id}`)
+      // Replace: «назад» from the receipt goes where the upload was started, not to the sent form.
+      navigate(`/seller/status/${res.id}`, { replace: true })
     } catch (err) {
       const e = extractApiError(err)
       let fieldErrors: Partial<Record<InputKey, string>> = {}

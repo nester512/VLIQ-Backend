@@ -61,7 +61,8 @@ export function PayoutPage() {
       return // toast already shown; the same key is reused on retry
     }
     setIdempotencyKey(crypto.randomUUID())
-    navigate('/seller/payouts')
+    // Replace: «назад» from «Мои заявки» goes where the request was started, not to the sent form.
+    navigate('/seller/payouts', { replace: true })
   }
 
   return (

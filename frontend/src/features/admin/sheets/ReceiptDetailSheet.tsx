@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigateFromSheet } from '@/router/backNav'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Icon } from '@/components/atoms/Icon'
 import { Btn } from '@/components/atoms/Btn'
@@ -58,7 +58,7 @@ interface ReceiptDetailSheetProps {
 
 export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetProps) {
   const closeSheet = useUiStore((s) => s.closeSheet)
-  const navigate = useNavigate()
+  const navigateFromSheet = useNavigateFromSheet()
   const pushToast = useUiStore((s) => s.pushToast)
   const { mutate: swipe, isPending } = useSwipeAction()
   const queryClient = useQueryClient()
@@ -194,8 +194,7 @@ export function ReceiptDetailSheet({ receiptId, receipt }: ReceiptDetailSheetPro
   // A real page (not a sheet swap): stats, risk and every previous receipt of the
   // seller, and «назад» returns to where the admin came from.
   const goToSeller = (sellerId: number) => {
-    closeSheet()
-    navigate(`/admin/sellers/${sellerId}/receipts`)
+    navigateFromSheet(`/admin/sellers/${sellerId}/receipts`)
   }
 
   return (

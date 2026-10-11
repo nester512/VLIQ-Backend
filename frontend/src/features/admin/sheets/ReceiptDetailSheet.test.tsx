@@ -12,8 +12,11 @@ import type { Attachment } from '@/types/models'
 // so we stub them to keep the render synchronous and side-effect free.
 // ---------------------------------------------------------------------------
 vi.mock('@/store/uiStore', () => ({
-  useUiStore: (selector: (s: Record<string, unknown>) => unknown) =>
-    selector({ closeSheet: vi.fn(), openSheet: vi.fn(), pushToast: vi.fn() }),
+  useUiStore: Object.assign(
+    (selector: (s: Record<string, unknown>) => unknown) =>
+      selector({ closeSheet: vi.fn(), openSheet: vi.fn(), pushToast: vi.fn() }),
+    { getState: () => ({ activeSheet: null, sheetPayload: null, sheetStack: [], closeSheet: vi.fn() }) },
+  ),
 }))
 
 vi.mock('@/features/admin/hooks/useReviewQueue', () => ({

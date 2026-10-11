@@ -17,7 +17,10 @@ vi.mock('@/api/admin', () => ({
   getAdminPayouts: vi.fn(), getPayoutSummary: vi.fn(),
 }))
 vi.mock('@/store/uiStore', () => ({
-  useUiStore: (sel: (s: object) => unknown) => sel({ pushToast: vi.fn(), closeSheet: vi.fn(), openSheet }),
+  useUiStore: Object.assign(
+    (sel: (s: object) => unknown) => sel({ pushToast: vi.fn(), closeSheet: vi.fn(), openSheet }),
+    { getState: () => ({ activeSheet: null, sheetPayload: null, sheetStack: [], closeSheet: vi.fn() }) },
+  ),
 }))
 vi.mock('@/components/molecules/RejectReasonSheet', () => ({
   RejectReasonSheet: ({ open, onConfirm }: { open: boolean; onConfirm: (r: string) => void }) =>

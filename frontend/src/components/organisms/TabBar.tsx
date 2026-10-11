@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { markTabNavigation } from '@/router/backNav'
 
 interface TabItem {
   path: string
@@ -112,6 +113,7 @@ export function TabBar({ mode, orientation = 'horizontal' }: TabBarProps) {
           key={tab.path}
           to={tab.path}
           className="vliq-tab"
+          onClick={markTabNavigation}
         >
           {({ isActive }) => (
             <span

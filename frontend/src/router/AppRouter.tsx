@@ -15,6 +15,7 @@ import { isTmaEnvironment } from '../utils/tma'
 import { getMe } from '../api/sellers'
 import { Spinner } from '../components/atoms/Spinner'
 import { useViewport } from '../hooks/useViewport'
+import { useCanGoBack, useReopenSheetsOnReturn } from './backNav'
 
 /**
  * Wires the Telegram native BackButton to navigate(-1) on subpages.
@@ -126,30 +127,24 @@ function SellerHeader() {
   const navigate = useNavigate()
   const isStatus = location.pathname.startsWith('/seller/status/')
   const entry = SELLER_TITLES[location.pathname]
-  const [title, subtitle, isHome, showBell] = isStatus
+  const [title, subtitle, , showBell] = isStatus
     ? ['Чек', undefined, false, false]
     : (entry ?? ['VLIQ', undefined, true, true])
   // Inside Telegram, the system BackButton is the primary back affordance —
   // hide the in-app one so we don't duplicate it.
   const inTma = isTmaEnvironment()
-  const showInAppBack = !isHome && !inTma
+  const canGoBack = useCanGoBack() && location.pathname !== '/seller/reg'
+  const showInAppBack = canGoBack && !inTma
   return (
     <TgHeader
       title={title}
       subtitle={subtitle}
-      isHome={isHome}
+      isHome={!canGoBack}
       showBell={showBell}
       onBack={showInAppBack ? () => navigate(-1) : undefined}
     />
   )
 }
-
-// The 4 primary seller tabs — these hide the back affordance (top-level). Every
-// OTHER seller page (upload/status/balance/payout/payouts) is a subpage: it
-// shows the back button AND keeps the bottom tabbar so navigation + correct
-// bottom spacing are always present. Only the forced registration screen has no
-// tabbar (the profile gate makes it a mandatory full-screen flow).
-const SELLER_MAIN_TABS = ['/seller/home', '/seller/history', '/seller/promo', '/seller/profile']
 
 /**
  * Seller profile gate — once a seller is auto-created on first TMA login, the
@@ -192,13 +187,14 @@ function SellerProfileGate({ children }: { children: ReactNode }) {
 function SellerLayout() {
   const location = useLocation()
   const isReg = location.pathname === '/seller/reg'
-  const isMainTab = SELLER_MAIN_TABS.includes(location.pathname)
   // Tabbar on every page except the forced registration flow.
   const showTabBar = !isReg
   const viewport = useViewport()
   const isWide = viewport === 'tablet' || viewport === 'desktop'
-  // Telegram native BackButton: hidden on main tabs + reg, shown on subpages.
-  useTelegramBack(isMainTab || isReg)
+  // Telegram native BackButton: shown whenever the screen was opened by a tap inside the app
+  // (a tab opened from the home screen too: «История», «Акции», «Все»), hidden on tab-bar roots.
+  const canGoBack = useCanGoBack()
+  useTelegramBack(!canGoBack || isReg)
   return (
     <ScreenLayout
       header={<SellerHeader />}
@@ -245,25 +241,29 @@ function AdminLayout() {
   const viewport = useViewport()
   const isWide = viewport === 'tablet' || viewport === 'desktop'
   const inTma = isTmaEnvironment()
-  // On the seller-receipts sub-page use a back affordance; all other admin pages are "home" tabs.
-  useTelegramBack(!isSellerReceipts)
+  // «Назад» on every screen opened by a tap inside the app (also tabs reached from a card or a
+  // link: «Выплаты продавца», dashboard cards…); none on a screen opened from the tab bar.
+  const canGoBack = useCanGoBack()
+  useTelegramBack(!canGoBack)
+  useReopenSheetsOnReturn()
+
+  const title = isSellerReceipts ? 'Продавец'
+    : isReview ? 'Проверка чеков'
+    : isReceiptArchive ? 'Все чеки'
+    : isProducts ? 'Товары'
+    : canGoBack && location.pathname === '/admin/payouts' ? 'Выплаты'
+    : canGoBack && location.pathname === '/admin/sellers' ? 'Продавцы'
+    : 'Администратор'
 
   return (
     <ScreenLayout
       header={
-        isSellerReceipts ? (
-          <TgHeader
-            title="Продавец"
-            isHome={false}
-            onBack={!inTma ? () => navigate(-1) : undefined}
-          />
-        ) : (
-          <TgHeader
-            title={isReview ? 'Проверка чеков' : isReceiptArchive ? 'Все чеки' : isProducts ? 'Товары' : 'Администратор'}
-            subtitle={isReview || isReceiptArchive || isProducts ? undefined : 'VLIQ · бренд'}
-            isHome
-          />
-        )
+        <TgHeader
+          title={title}
+          subtitle={title === 'Администратор' ? 'VLIQ · бренд' : undefined}
+          isHome={!canGoBack}
+          onBack={canGoBack && !inTma ? () => navigate(-1) : undefined}
+        />
       }
       tabBar={<TabBar mode="admin" orientation={isWide ? 'vertical' : 'horizontal'} />}
       noScroll={isReview}

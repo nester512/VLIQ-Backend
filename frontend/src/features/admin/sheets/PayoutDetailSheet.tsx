@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigateFromSheet } from '@/router/backNav'
 import { Icon } from '@/components/atoms/Icon'
 import { Spinner } from '@/components/atoms/Spinner'
 import { KVRow } from '@/components/molecules/KVRow'
@@ -8,7 +8,6 @@ import { fmtMoney } from '@/utils/formatMoney'
 import { formatDate, formatDateTime } from '@/utils/formatDate'
 import { usePayoutActions, usePayoutReceipts } from '@/features/admin/hooks/usePayoutsList'
 import { useOpenReceipt } from '@/features/admin/hooks/useOpenReceipt'
-import { useUiStore } from '@/store/uiStore'
 import type { PayoutRequest } from '@/types/models'
 
 const PAYOUT_STATUS_LABEL: Record<string, string> = {
@@ -61,8 +60,7 @@ export function PayoutDetailSheet({ payoutId, payout: initial }: PayoutDetailShe
   const [rejectOpen, setRejectOpen] = useState(false)
   const { take, approve, reject } = usePayoutActions(setPayout)
   const { data: covered, isLoading: coveredLoading } = usePayoutReceipts(payoutId)
-  const navigate = useNavigate()
-  const closeSheet = useUiStore((s) => s.closeSheet)
+  const navigateFromSheet = useNavigateFromSheet()
   const openReceipt = useOpenReceipt()
 
   if (!payout || !payoutId) {
@@ -92,7 +90,7 @@ export function PayoutDetailSheet({ payoutId, payout: initial }: PayoutDetailShe
           label="Продавец"
           value={
             <button type="button" className="vliq-link"
-              onClick={() => { closeSheet(); navigate(`/admin/sellers/${payout.seller_id}/receipts`) }}
+              onClick={() => navigateFromSheet(`/admin/sellers/${payout.seller_id}/receipts`)}
               style={{ background: 'none', border: 0, padding: 0, font: 'inherit', fontWeight: 700, color: 'var(--vliq-brand)', cursor: 'pointer' }}>
               {sellerLabel}
             </button>

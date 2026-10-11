@@ -137,7 +137,7 @@ describe('UploadPage — scan with the Telegram scanner', () => {
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(send)
 
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/seller/status/42'))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/seller/status/42', { replace: true }))
     expect(submitQrReceipt).toHaveBeenCalledTimes(1)
     const payload = submitQrReceipt.mock.calls[0]![0]
     expect(payload).toMatchObject({
