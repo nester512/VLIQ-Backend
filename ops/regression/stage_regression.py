@@ -563,6 +563,14 @@ def main() -> None:  # noqa: C901, PLR0915
     ids_b, tb = found(sur1, "&status=blocked")
     check("R-S-1", S1 in ids_a and S1 not in ids_b and tb == 0, f"with status: active has him, blocked total={tb}")
 
+    # R-S-8: receipt histories sort on the server — by the purchase total / the bonus, empty last.
+    for sort_key, field in (("total_sum", "total_sum"), ("bonus", "bonus_amount")):
+        st, p = call("GET", f"/receipts?sort={sort_key}&order=desc&limit=100", admin)
+        vals = [x.get(field) for x in p.get("items", [])]
+        nums = [v for v in vals if v is not None]
+        empty_last = vals[len(nums):] == [None] * (len(vals) - len(nums))
+        check("R-S-8", st == 200 and nums == sorted(nums, reverse=True) and empty_last, f"{sort_key} desc: first {vals[:4]}")
+
     st, c0 = call("GET", f"/sellers/{S1}", admin)
     nums = ("balance_available", "receipts_total", "total_accrued", "total_paid_out", "on_hold")
     check("R-S-2", st == 200 and all(isinstance(c0.get(k), int) and c0.get(k) == 0 for k in nums),

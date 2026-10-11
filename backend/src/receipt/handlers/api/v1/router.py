@@ -1080,6 +1080,10 @@ class ReceiptQueueSort(StrEnum):
     # Temporary business rule (2026-10-09): receipts without QR / fiscal data first —
     # they need a human the most; then the rest. Upload time inside each group.
     no_fiscal_first = "no_fiscal_first"
+    # Histories («Все чеки», a seller's receipts): by the purchase total or by the bonus; `order`
+    # gives the direction (desc = largest first). Receipts without the value go last either way.
+    total_sum = "total_sum"
+    bonus = "bonus"
 
 
 def _order_receipt_queue(
@@ -1095,6 +1099,10 @@ def _order_receipt_queue(
     if sort is ReceiptQueueSort.no_fiscal_first:
         has_fiscal = (Receipt.fn.is_not(None)) & (Receipt.fd.is_not(None)) & (Receipt.fp.is_not(None))
         stmt = stmt.order_by(case((has_fiscal, 1), else_=0))
+    by_value = {ReceiptQueueSort.total_sum: Receipt.total_sum, ReceiptQueueSort.bonus: Receipt.bonus_amount}.get(sort)
+    if by_value is not None:
+        key = by_value.desc() if newest_first else by_value.asc()
+        return stmt.order_by(key.nulls_last(), Receipt.id.desc() if newest_first else Receipt.id.asc())
     if newest_first:
         return stmt.order_by(Receipt.created_at.desc(), Receipt.id.desc())
     return stmt.order_by(Receipt.created_at.asc(), Receipt.id.asc())
@@ -1126,7 +1134,10 @@ async def list_receipts(  # noqa: PLR0913
     ),
     sort: ReceiptQueueSort = Query(  # noqa: B008
         default=ReceiptQueueSort.created,
-        description="created — by upload time (see `order`); no_fiscal_first — receipts without QR / ФН-ФД-ФП first",
+        description=(
+            "created — by upload time (see `order`); no_fiscal_first — receipts without QR / ФН-ФД-ФП first; "
+            "total_sum / bonus — by the purchase total / the bonus (`order=desc` — largest first, empty last)"
+        ),
     ),
 ) -> PagedResponse[ReceiptRead]:
     """Admin receipt queue with real pagination and server-side filters (H25).

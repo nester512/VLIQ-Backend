@@ -25,7 +25,7 @@ export interface AdminReceiptsFilters {
   /** Review queue: receipts of blocked sellers are left out (their history keeps them). */
   queue?: boolean
   /** Server-side queue order; `no_fiscal_first` = receipts without QR / ФН-ФД-ФП first. */
-  sort?: 'created' | 'no_fiscal_first'
+  sort?: 'created' | 'no_fiscal_first' | 'total_sum' | 'bonus'
 }
 
 export interface AdminPayoutsFilters {

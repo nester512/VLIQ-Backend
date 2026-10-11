@@ -39,14 +39,19 @@ export function useSellersInfinite(filters: Omit<AdminSellersFilters, 'page' | '
 }
 
 /** All receipts of one seller, newest first, optionally filtered by status. */
-export function useSellerReceiptsInfinite(telegram_id: number | undefined, status?: string) {
+export function useSellerReceiptsInfinite(
+  telegram_id: number | undefined,
+  status?: string,
+  sort: { sort: 'created' | 'total_sum' | 'bonus'; order: 'asc' | 'desc' } = { sort: 'created', order: 'desc' },
+) {
   return useInfiniteQuery({
-    queryKey: ['admin', 'seller-receipts', telegram_id, status ?? null],
+    queryKey: ['admin', 'seller-receipts', telegram_id, status ?? null, sort.sort, sort.order],
     queryFn: ({ pageParam }) =>
       getAdminReceipts({
         seller_id: telegram_id,
         status: status ? [status] : undefined,
-        order: 'desc',
+        sort: sort.sort,
+        order: sort.order,
         page: pageParam as number,
         limit: SELLER_RECEIPTS_PAGE_SIZE,
       }),

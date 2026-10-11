@@ -8,6 +8,7 @@ import { Spinner } from '@/components/atoms/Spinner'
 import { ReceiptRowSkeleton } from '@/components/atoms/Skeleton'
 import { EmptyState } from '@/components/molecules/EmptyState'
 import { FilterPills } from '@/components/molecules/FilterPills'
+import { RECEIPT_SORT_PILLS, RECEIPT_SORT_QUERY, parseReceiptSort } from '@/features/admin/receiptSort'
 import { KVRow } from '@/components/molecules/KVRow'
 import { BlockSellerSheet } from '@/components/molecules/BlockSellerSheet'
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
@@ -157,8 +158,16 @@ function SellerPageContent() {
     }, { replace: true })
 
   const { data: seller, isLoading: sellerLoading, isError: sellerError } = useSellerDetail(sellerId)
+  const sortKey = parseReceiptSort(searchParams.get('sort'))
+  const setSort = (next: string) =>
+    setSearchParams((cur) => {
+      const p = new URLSearchParams(cur)
+      if (next === 'new') p.delete('sort')
+      else p.set('sort', next)
+      return p
+    }, { replace: true })
   const { data, isLoading, isFetchNextPageError, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useSellerReceiptsInfinite(sellerId, statusFilter || undefined)
+    useSellerReceiptsInfinite(sellerId, statusFilter || undefined, RECEIPT_SORT_QUERY[sortKey])
 
   const receipts = data?.pages.flatMap((p) => p.items) ?? []
   const total = data?.pages[0]?.total ?? 0
@@ -190,6 +199,7 @@ function SellerPageContent() {
         <b>История чеков</b>
       </div>
       <FilterPills options={HISTORY_FILTERS} value={statusFilter} onChange={setStatusFilter} />
+      <FilterPills options={RECEIPT_SORT_PILLS} value={sortKey} onChange={setSort} />
 
       {isLoading ? (
         <div className="vliq-list">

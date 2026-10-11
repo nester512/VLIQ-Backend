@@ -110,11 +110,11 @@ describe('SellerReceiptsPage — seller page with stats, risk and full history',
     renderPage()
 
     expect(await screen.findByText(/Магазин 1/)).toBeInTheDocument()
-    expect(getAdminReceipts).toHaveBeenCalledWith({ seller_id: 555, status: undefined, order: 'desc', page: 1, limit: 30 })
+    expect(getAdminReceipts).toHaveBeenCalledWith({ seller_id: 555, status: undefined, sort: 'created', order: 'desc', page: 1, limit: 30 })
 
     fireEvent.click(screen.getByRole('button', { name: 'Отклонены' }))
     await waitFor(() =>
-      expect(getAdminReceipts).toHaveBeenLastCalledWith({ seller_id: 555, status: ['rejected'], order: 'desc', page: 1, limit: 30 }),
+      expect(getAdminReceipts).toHaveBeenLastCalledWith({ seller_id: 555, status: ['rejected'], sort: 'created', order: 'desc', page: 1, limit: 30 }),
     )
   })
 
@@ -179,5 +179,27 @@ describe('SellerReceiptsPage — seller page with stats, risk and full history',
 
     await waitFor(() => expect(unblockSeller).toHaveBeenCalledWith('555'))
     expect(blockSeller).not.toHaveBeenCalled()
+  })
+})
+
+describe('SellerReceiptsPage — sorting the seller\'s «История чеков» (owner, 2026-10-11)', () => {
+  it('newest / oldest / dearer / bigger bonus go to the server; the choice is in the URL', async () => {
+    getAdminSellerById.mockResolvedValue(detail())
+    getAdminReceipts.mockResolvedValue({ items: [receipt(1)], total: 1, page: 1, limit: 30, has_more: false })
+    renderPage()
+    await screen.findByText(/Магазин 1/)
+    for (const [label, sort, order] of [
+      ['Сначала старые', 'created', 'asc'], ['Дороже', 'total_sum', 'desc'], ['Больше бонус', 'bonus', 'desc'],
+    ] as const) {
+      fireEvent.click(screen.getByRole('button', { name: label }))
+      await waitFor(() => expect(getAdminReceipts).toHaveBeenLastCalledWith(expect.objectContaining({ seller_id: 555, sort, order })))
+    }
+  })
+
+  it('a sort from the URL is applied on entry (survives «назад»)', async () => {
+    getAdminSellerById.mockResolvedValue(detail())
+    getAdminReceipts.mockResolvedValue({ items: [receipt(1)], total: 1, page: 1, limit: 30, has_more: false })
+    renderPage('/admin/sellers/555/receipts?sort=sum')
+    await waitFor(() => expect(getAdminReceipts).toHaveBeenCalledWith(expect.objectContaining({ sort: 'total_sum', order: 'desc' })))
   })
 })

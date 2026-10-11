@@ -34,19 +34,19 @@ describe('AdminReceiptsPage — archive filters (KAN-31)', () => {
     renderPage('/admin/receipts?status=approved')
 
     await waitFor(() => {
-      expect(getAdminReceipts).toHaveBeenCalledWith({ status: ['approved'], order: 'desc', page: 1, limit: 50 })
+      expect(getAdminReceipts).toHaveBeenCalledWith({ status: ['approved'], sort: 'created', order: 'desc', page: 1, limit: 50 })
     })
   })
 
   it('updates the API filter from the visible filter controls', async () => {
     getAdminReceipts.mockResolvedValue({ items: [], total: 0, page: 1, limit: 100, has_more: false })
     renderPage()
-    await waitFor(() => expect(getAdminReceipts).toHaveBeenCalledWith({ status: undefined, order: 'desc', page: 1, limit: 50 }))
+    await waitFor(() => expect(getAdminReceipts).toHaveBeenCalledWith({ status: undefined, sort: 'created', order: 'desc', page: 1, limit: 50 }))
 
     fireEvent.click(screen.getByRole('button', { name: 'На проверке' }))
 
     await waitFor(() => {
-      expect(getAdminReceipts).toHaveBeenLastCalledWith({ status: ['on_review'], order: 'desc', page: 1, limit: 50 })
+      expect(getAdminReceipts).toHaveBeenLastCalledWith({ status: ['on_review'], sort: 'created', order: 'desc', page: 1, limit: 50 })
     })
   })
 
@@ -57,7 +57,17 @@ describe('AdminReceiptsPage — archive filters (KAN-31)', () => {
       .mockResolvedValueOnce({ items: [row(1)], total: 2, page: 2, limit: 50, has_more: false })
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: 'Загрузить ещё' }))
-    await waitFor(() => expect(getAdminReceipts).toHaveBeenLastCalledWith({ status: undefined, order: 'desc', page: 2, limit: 50 }))
+    await waitFor(() => expect(getAdminReceipts).toHaveBeenLastCalledWith({ status: undefined, sort: 'created', order: 'desc', page: 2, limit: 50 }))
     expect(await screen.findAllByRole('button', { name: /Магазин не распознан/ })).toHaveLength(2)
+  })
+})
+
+describe('AdminReceiptsPage — sorting «Все чеки» (owner, 2026-10-11)', () => {
+  it('sorts go to the server and stay with the status filter', async () => {
+    getAdminReceipts.mockResolvedValue({ items: [], total: 0, page: 1, limit: 50, has_more: false })
+    renderPage('/admin/receipts?status=approved&sort=old')
+    await waitFor(() => expect(getAdminReceipts).toHaveBeenCalledWith({ status: ['approved'], sort: 'created', order: 'asc', page: 1, limit: 50 }))
+    fireEvent.click(screen.getByRole('button', { name: 'Дороже' }))
+    await waitFor(() => expect(getAdminReceipts).toHaveBeenLastCalledWith({ status: ['approved'], sort: 'total_sum', order: 'desc', page: 1, limit: 50 }))
   })
 })

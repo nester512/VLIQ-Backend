@@ -2,6 +2,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { getAdminReceipts, type AdminReceipt } from '@/api/admin'
 import { FilterPills } from '@/components/molecules/FilterPills'
+import { RECEIPT_SORT_PILLS, RECEIPT_SORT_QUERY, parseReceiptSort } from '@/features/admin/receiptSort'
 import { Pill } from '@/components/atoms/Pill'
 import { Icon } from '@/components/atoms/Icon'
 import { ReceiptRowSkeleton } from '@/components/atoms/Skeleton'
@@ -66,11 +67,14 @@ function AdminReceiptsContent() {
     ? param as ReceiptFilter
     : 'all'
 
-  // Newest first and every page reachable: the archive used to stop at the 100 oldest receipts.
+  // Every page reachable (the archive used to stop at the 100 oldest receipts); newest first by
+  // default, the sort is in the URL like the filter.
+  const sortKey = parseReceiptSort(searchParams.get('sort'))
+  const { sort, order } = RECEIPT_SORT_QUERY[sortKey]
   const { data, isLoading, isFetchNextPageError, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
-    queryKey: ['admin', 'receipts', 'archive', selected],
+    queryKey: ['admin', 'receipts', 'archive', selected, sortKey],
     queryFn: ({ pageParam }) => getAdminReceipts({
-      status: selected === 'all' ? undefined : [selected], order: 'desc', page: pageParam, limit: 50,
+      status: selected === 'all' ? undefined : [selected], sort, order, page: pageParam, limit: 50,
     }),
     initialPageParam: 1,
     getNextPageParam: (last) => (last.has_more ? last.page + 1 : undefined),
@@ -91,6 +95,16 @@ function AdminReceiptsContent() {
   return (
     <div className="vliq-pad" style={{ paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
       <FilterPills options={FILTER_PILLS} value={selected} onChange={(value) => setFilter(value as ReceiptFilter)} />
+      <FilterPills
+        options={RECEIPT_SORT_PILLS}
+        value={sortKey}
+        onChange={(next) => setSearchParams((current) => {
+          const params = new URLSearchParams(current)
+          if (next === 'new') params.delete('sort')
+          else params.set('sort', next)
+          return params
+        }, { replace: true })}
+      />
       {!isLoading && data && (
         <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--vliq-hint)' }}>
           {total} {total === 1 ? 'чек' : 'чеков'}
