@@ -632,6 +632,15 @@ def main() -> None:  # noqa: C901, PLR0915
     nl = [ln for ln in (m2 or "").splitlines() if ln.startswith(("notification_outbox_pending", "notification_outbox_dead"))]
     check("R-I-4", len(nl) == 2, f"notifications :9102: {nl or ('unreachable' if m2 is None else 'absent')}")
 
+    # R-I-7: the app page is never cached — Telegram kept showing the previous release after a deploy.
+    for page in ("/", "/admin/payouts"):
+        try:
+            with urllib.request.urlopen(f"http://frontend{page}", timeout=5) as r:
+                cc = r.headers.get("Cache-Control")
+        except Exception as exc:  # noqa: BLE001
+            cc = f"unreachable: {type(exc).__name__}"
+        check("R-I-7", cc == "no-cache", f"{page} Cache-Control={cc}")
+
 
 if __name__ == "__main__":
     try:

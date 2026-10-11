@@ -69,3 +69,13 @@ describe('PayoutsPage (admin)', () => {
     await waitFor(() => expect(getAdminPayouts).toHaveBeenLastCalledWith(expect.objectContaining({ seller_id: undefined, blocked: 'exclude' })))
   })
 })
+
+describe('PayoutsPage — phrases are not split over lines (Flip 7)', () => {
+  it('method and dates are kept whole', async () => {
+    getAdminPayouts.mockResolvedValue({ items: [{ ...row(1), status: 'paid', paid_at: '2026-10-09T12:00:00Z' }], total: 1, page: 1, limit: 50, has_more: false })
+    renderPage()
+    const created = await screen.findByTestId('payout-created')
+    expect(created.querySelectorAll('.vliq-nowrap')).toHaveLength(2) // created at · выплачена at
+    expect(screen.getByText(/СБП/).classList.contains('vliq-nowrap')).toBe(true)
+  })
+})

@@ -7,6 +7,9 @@ const requestPayout = vi.fn<(args: { payload: unknown; idempotencyKey: string })
 
 vi.stubGlobal('matchMedia', () => ({ matches: true }))
 
+const navigate = vi.fn()
+vi.mock('react-router-dom', async (orig) => ({ ...(await orig<typeof import('react-router-dom')>()), useNavigate: () => navigate }))
+
 vi.mock('../hooks/useBalance', () => ({
   useBalance: () => ({ data: { available: 500_000 }, isLoading: false }),
 }))
@@ -90,5 +93,16 @@ describe('PayoutPage', () => {
 
     const [first, second] = requestPayout.mock.calls
     expect(second![0].idempotencyKey).not.toBe(first![0].idempotencyKey)
+  })
+})
+
+describe('PayoutPage — after sending', () => {
+  it('«Мои заявки» replaces the form: «назад» does not return into the sent request', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await user.type(screen.getByLabelText('Сумма выплаты, ₽'), '3000')
+    await user.type(screen.getByLabelText('Номер телефона для СБП'), '+79991234567')
+    await user.click(screen.getByRole('button', { name: /^Запросить/ }))
+    expect(navigate).toHaveBeenCalledWith('/seller/payouts', { replace: true })
   })
 })
