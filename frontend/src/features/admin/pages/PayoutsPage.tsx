@@ -75,8 +75,9 @@ function PayoutRow({ payout, onClick }: PayoutRowProps) {
   const details = shortDest ? `${methodLabel} ${shortDest}` : methodLabel
   const ic = ICON_BG[kind]
   const sellerLabel = payout.seller_name?.trim() || `Продавец #${payout.seller_id}`
-  const sellerMeta = payout.seller_store ? `${payout.seller_store} · ${details}` : details
 
+  // Each phrase stays whole on a narrow screen: lines break between them, never inside
+  // «СБП · телефон •••• 0001» or between a date and its time.
   return (
     <button type="button" onClick={onClick} className="vliq-row">
       <div className="vliq-row-ic" style={{ background: ic.bg, color: ic.ink }}>
@@ -84,10 +85,13 @@ function PayoutRow({ payout, onClick }: PayoutRowProps) {
       </div>
       <div className="vliq-row-tx">
         <b>{sellerLabel}</b>
-        <span>{sellerMeta}</span>
+        {payout.seller_store && <span>{payout.seller_store}</span>}
+        <span className="vliq-nowrap">{details}</span>
         <span style={{ fontSize: 11.5 }} data-testid="payout-created">
-          {formatDateTime(payout.created_at)}
-          {payout.status === 'paid' && payout.paid_at ? ` · выплачена ${formatDateTime(payout.paid_at)}` : ''}
+          <span className="vliq-nowrap">{formatDateTime(payout.created_at)}</span>
+          {payout.status === 'paid' && payout.paid_at && (
+            <> · <span className="vliq-nowrap">выплачена {formatDateTime(payout.paid_at)}</span></>
+          )}
         </span>
         <div className="vliq-row-chips"><Pill kind={kind}>{statusLabel}</Pill></div>
       </div>
@@ -194,7 +198,8 @@ function PayoutsContent() {
               value={fmtMoney(pendingTotal)}
               delta={
                 newCount + inProgressCount > 0
-                  ? [newCount > 0 && `новых ${newCount}`, inProgressCount > 0 && `в работе ${inProgressCount}`].filter(Boolean).join(' · ')
+                  // Non-breaking spaces keep «в работе 2» together; the line may break only at « · ».
+                  ? [newCount > 0 && `новых\u00a0${newCount}`, inProgressCount > 0 && `в\u00a0работе\u00a0${inProgressCount}`].filter(Boolean).join(' · ')
                   : 'нет заявок к выплате'
               }
               deltaColor={newCount > 0 ? 'wn' : 'hint'}
@@ -224,7 +229,9 @@ function PayoutsContent() {
           <button type="button" onClick={() => setParam('blocked', onlyBlocked ? null : 'only')}
             style={{ display: 'block', marginBottom: 10, padding: '7px 12px', borderRadius: 20, border: 0, fontWeight: 700, fontSize: 13,
               cursor: 'pointer', background: onlyBlocked ? 'var(--vliq-dg)' : 'var(--vliq-dg-bg)', color: onlyBlocked ? '#fff' : 'var(--vliq-dg-ink)' }}>
-            {onlyBlocked ? 'Заблокированные продавцы ×' : `Заблокированные продавцы: ${blockedHeld} — не в очереди`}
+            {onlyBlocked ? 'Заблокированные продавцы ×' : (
+              <><span className="vliq-nowrap">Заблокированные продавцы: {blockedHeld}</span> — <span className="vliq-nowrap">не в очереди</span></>
+            )}
           </button>
         )}
         <FilterPills

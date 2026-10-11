@@ -839,3 +839,6 @@ button.vliq-btn:focus-visible,
 
 /* ===== Responsive adaptive layout ===== */
 @import './styles/responsive.css';
+
+/* A phrase that must not be split over lines (a date with its time, «СБП · телефон •••• 0001»). */
+.vliq-nowrap { white-space: nowrap; }
