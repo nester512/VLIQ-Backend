@@ -84,6 +84,13 @@ interface Telegram {
     close: () => void
     ready: () => void
     expand?: () => void
+    /** Native «назад» in the Telegram header (Bot API 6.1+). */
+    BackButton?: {
+      show: () => void
+      hide: () => void
+      onClick: (cb: () => void) => void
+      offClick: (cb: () => void) => void
+    }
     requestContact?: (
       callback: (
         shared: boolean,

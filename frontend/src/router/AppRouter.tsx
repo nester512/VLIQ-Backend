@@ -11,7 +11,7 @@ import { ScreenLayout } from '../components/layout/ScreenLayout'
 import { TgHeader } from '../components/organisms/TgHeader'
 import { TabBar } from '../components/organisms/TabBar'
 import { RoleRedirect } from '../features/auth/AuthGate'
-import { isTmaEnvironment } from '../utils/tma'
+import { getTgWebApp, isTmaEnvironment } from '../utils/tma'
 import { getMe } from '../api/sellers'
 import { Spinner } from '../components/atoms/Spinner'
 import { useViewport } from '../hooks/useViewport'
@@ -25,6 +25,16 @@ function useTelegramBack(isHome: boolean) {
   const navigate = useNavigate()
   useEffect(() => {
     if (!isTmaEnvironment()) return
+    // The official telegram-web-app.js BackButton first: it is the same bridge the rest of the
+    // app already talks through. The SDK below stays as a fallback.
+    const official = getTgWebApp()?.BackButton
+    if (official) {
+      const handler = () => navigate(-1)
+      if (isHome) { official.hide(); return }
+      official.onClick(handler)
+      official.show()
+      return () => { official.offClick(handler); official.hide() }
+    }
     try { if (!isBackButtonMounted()) mountBackButton() } catch { /* not in TMA */ }
 
     if (isHome) {
