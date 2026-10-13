@@ -1,19 +1,27 @@
 # Документация VLIQ
 
-| Папка / файл | Что там | Для кого |
-|---|---|---|
-| [use-cases/](use-cases/00-overview.md) | **Источник правды по продукту**: роли, правила, use cases по интерфейсам, out of scope, решения | все |
-| [procedures/ACCOUNT-RECOVERY.md](procedures/ACCOUNT-RECOVERY.md) | Восстановление доступа продавца при потере Telegram | поддержка, super admin |
-| [procedures/PROD-MIGRATION.md](procedures/PROD-MIGRATION.md) | Переезд прода: защита базы, ночная репетиция на копии, выкатка, откат | владелец, эксплуатация |
-| [testing/](testing/REGRESSION.md) | Регресс-план, история запросов владельца, ручная проверка на стенде, тестовые QR | тестирование |
-| [design/](design/PAYOUTS.md) | Техническое устройство выплат и проверки чеков | разработка |
-| [CI-CD.md](CI-CD.md) | Стенд и прод, выкатка, резервные копии, восстановление | разработка, эксплуатация |
-| [OBSERVABILITY.md](OBSERVABILITY.md) | Метрики, логи, Grafana | эксплуатация |
-| [handover/JIRA-COMMENTS.md](handover/JIRA-COMMENTS.md) | Тексты комментариев к задачам Jira — вставить вручную, после этого файл удалить | владелец |
+## Для всех — продукт и порядок работы
+| Документ | О чём |
+|---|---|
+| [use-cases/](use-cases/00-overview.md) | **Источник правды по продукту**: роли, правила, сценарии по экранам, out of scope, решения владельца |
+| [process/RELEASE.md](process/RELEASE.md) | Как изменения попадают к продавцам: два стенда, регресс, обкатка, проверка через бота, переезд ночью |
+| [procedures/ACCOUNT-RECOVERY.md](procedures/ACCOUNT-RECOVERY.md) | Восстановление доступа продавца при потере Telegram — для поддержки |
+| [testing/REQUEST-HISTORY.md](testing/REQUEST-HISTORY.md) | Все запросы владельца и где они описаны |
 
-Устаревшие документы удалены. Их история — в git.
+## Для разработки и эксплуатации — технические
+| Документ | О чём |
+|---|---|
+| [procedures/PROD-MIGRATION.md](procedures/PROD-MIGRATION.md) | Регламент переезда прода: защита базы, репетиция на копии, выкатка, откат — с командами |
+| [testing/REGRESSION.md](testing/REGRESSION.md) | Регресс-план и команды полного регресса |
+| [testing/MANUAL-QA.md](testing/MANUAL-QA.md) | Ручная проверка на стенде двумя аккаунтами; тестовые QR — `testing/qr-kit/` |
+| [design/](design/PAYOUTS.md) | Устройство выплат и проверки чеков |
+| [CI-CD.md](CI-CD.md) | Стенд и прод, автоматическая выкатка, резервные копии, восстановление |
+| [OBSERVABILITY.md](OBSERVABILITY.md) | Метрики, журналы, Grafana |
+| [handover/JIRA-COMMENTS.md](handover/JIRA-COMMENTS.md) | Тексты комментариев к задачам Jira — вставить вручную, затем файл удалить |
+
+Устаревшие документы удаляются, их история — в git.
 
 ## Правило изменений
-Каждый баг и каждое улучшение: поведение записывается в `use-cases/`, на него пишется тест, который
-падает без правки, и строка в `testing/REGRESSION.md` + `testing/REQUEST-HISTORY.md`. Подробно —
-`CLAUDE.md`, раздел «Каждый баг и каждое улучшение»; чек-лист — `.github/pull_request_template.md`.
+Каждая ошибка и каждое улучшение: поведение записывается в `use-cases/`, к нему — автоматическая проверка,
+которая без исправления падает, и пункт в регрессе и истории запросов. Чек-лист — в шаблоне PR,
+подробности — `CLAUDE.md`.

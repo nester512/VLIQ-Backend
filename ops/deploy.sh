@@ -90,7 +90,12 @@ fi
 # The migration runs before any long-lived application container switches to
 # the new image. Migrations deployed to this environment must be backward
 # compatible because an image rollback does not downgrade the database.
-if ! "${COMPOSE[@]}" run --rm backend alembic upgrade head; then
+# Manual rollback to an OLDER image after a release with a migration: the old image does not know the
+# newer revision in the database, so `upgrade head` would fail. DEPLOY_SKIP_MIGRATIONS=1 switches the
+# containers only (the backup above is still taken); migrations are expand-only, the old code works.
+if [[ "${DEPLOY_SKIP_MIGRATIONS:-0}" == 1 ]]; then
+  echo "DEPLOY_SKIP_MIGRATIONS=1: migrations skipped (rollback to an older image)."
+elif ! "${COMPOSE[@]}" run --rm backend alembic upgrade head; then
   echo "Alembic failed; running application containers were not switched." >&2
   exit 1
 fi

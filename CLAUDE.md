@@ -1,215 +1,129 @@
-# VLIQ-Backend — контекст и операционка для агентов
+# VLIQ — контекст и правила для разработки (агенты и люди)
 
-Хэндофф между сессиями: **что это, чем ограничено, как запускается/тестируется/деплоится**.
-Конвенции кода и раскладку модулей не дублирую — см. `backend/AGENTS.md` и `frontend/AGENTS.md`.
+Актуально на 2026-10-13. Что это, где что живёт, как проверять и выкатывать, чего нельзя.
+Конвенции кода — `backend/AGENTS.md`, `frontend/AGENTS.md` (часть статусов там устарела — сверяйся с кодом).
 
-## Что это
-Монорепо Telegram Mini App «VLIQ» (мотивационная программа продавцов: загрузка
-чеков → проверка ФНС/OFD → бонусы → выплаты; роли seller/admin/super_admin).
-- `backend/` — FastAPI + SQLAlchemy 2.1 async + asyncpg + Alembic, Python 3.14, Poetry 2.
-- `frontend/` — React 19 + Vite 8 + TanStack Query + Telegram SDK (TMA), Node 26.
-- `docs/` — **источник правды по продукту: `docs/use-cases/`** (обзор `00-overview.md` + UC по интерфейсам;
-  карта документов — `docs/README.md`). Расхождения кода с решениями владельца указаны в разделах «Расхождения».
-  Устаревшее удаляется (история — в git); старые номера S1…A6 из комментариев кода → таблица в `00-overview.md`.
-- `docker-compose.yml` (+ `docker-compose.override.yml` для прод-домена) — весь стек.
-- **Прод (живые продавцы):** `https://shamilara.fun`, ветка `main`, сервер `/srv/VLIQ-things/VLIQ-Backend`.
-- **Stage (тестовый стенд):** ветка `develop`, `docker-compose.stage.yml`, отдельный бот и данные — см. `docs/CI-CD.md`.
+## Продукт и источники правды
+Telegram Mini App «VLIQ»: продавцы отправляют кассовые чеки (данные QR) → админ проверяет вручную и
+назначает бонус → продавец выводит деньги через СБП. Роли: seller, admin, super_admin.
+- **Требования — `docs/use-cases/`**, порядок выпуска — `docs/process/RELEASE.md` (обзор + UC по интерфейсам, решения владельца, out of scope,
+  «Расхождения»). Реализация в коде аргументом не является. Карта документов — `docs/README.md`.
+- Требования, ещё не сделанные в коде (например, три пункта согласия продавца, UC-S2), описаны как
+  требования и отражены в «Расхождениях» — не путать с реализованным поведением.
+- Бизнес-документы пишутся для людей без технического образования: просто, коротко, без кода и
+  путей к файлам. Техника — только в `docs/design/`, `docs/CI-CD.md`, `docs/OBSERVABILITY.md`,
+  `docs/procedures/PROD-MIGRATION.md`.
+- Старые номера S1…A6 в комментариях кода → таблица в `docs/use-cases/00-overview.md`.
 
-## Как всё запускается (launch conditions)
-Стек поднимается из корня репо: `docker compose up -d`.
-Порядок: `postgres`/`redis`/`minio` healthy → `createbuckets` (бакет `vliq-receipts`)
-→ **backend boot:** `alembic upgrade head && python -m src.scripts.seed_dev && uvicorn`.
-- `src/scripts/seed_dev.py` на каждом старте прогоняет **core-сид `backend/seed_dev.sql`**
-  (бренд, админы `809296638, 99999, 99998` + owner `997459169`, города — идемпотентно).
-  **Демо-данные** (продавцы/чеки/выплаты/акции) вынесены в `backend/seed_demo.sql` и
-  применяются **только при `SEED_DEMO=true`** (env; в `docker-compose.yml` дефолт `false`,
-  прод-оверлей `docker-compose.test.yml` форсирует `false`, stage `docker-compose.stage.yml` — `true`). Разовая чистка уже насеянного демо
-  на живой БД: `ops/cleanup_demo_seed.sql`.
-  → Чтобы добавить админа: строка в `seed_dev.sql` (переживёт ребилд) или разовый SQL (ниже).
-- Сервисы: `backend, bot, notifications-worker, receipt-pipeline-worker, frontend, caddy,
-  postgres, redis, minio, prometheus, loki, promtail, grafana`.
-- Конфиг: `.env` + `docker-compose.override.yml` (домен, ACME-email Caddy, `TMA_URL`).
-- Флаги-заглушки сейчас: `OCR_MODE=demo`, `OFD_PROVIDER=fake` (реальные клиенты есть в коде).
-- `TG_BOT_TOKEN` нужен для уведомлений (notifications-worker дренит outbox раз в 5с).
+## Стек и сервисы
+- `backend/` — FastAPI, SQLAlchemy 2.1 async, asyncpg, Alembic, arq, Python 3.14, Poetry 2, Ruff.
+- `frontend/` — React 19, Vite 8, TanStack Query 5, Telegram WebApp, Node 26, Vitest.
+- Сервисы compose: `postgres, redis, minio(+createbuckets), backend, bot, notifications-worker,
+  receipt-pipeline-worker, frontend (nginx), caddy` + мониторинг `prometheus, loki, promtail, grafana`.
+- Старт бэкенда: `alembic upgrade head` → `python -m src.scripts.seed_dev` (core-сид `backend/seed_dev.sql`:
+  бренд, админы, города; демо — `backend/seed_demo.sql` только при `SEED_DEMO=true`) → uvicorn.
+- Проверка чеков: реально работает только proverkacheka (нужен `PROVERKACHEKA_TOKEN`) и заглушка
+  стенда (`CHECK_PROVIDER_STUB=true`); ФНС / Платформа ОФД / Такском — без адаптеров.
 
-### Авторизация
-- Прод: только внутри Telegram — `POST /auth/tma-verify` валидирует `initData` (HMAC по `TG_BOT_TOKEN`).
-- Роль определяется бэкендом: сначала ищется в `vliq.admin` → иначе seller (авто-создание `pending`).
-- Фронт **ре-верифицирует роль при каждом открытии** Mini App (`useAuthFlow.ts`) — смена роли подхватывается без чистки кэша.
-- DEV вне Telegram: `POST /auth/login {id}` + mock-login `telegram_id=12345` (отключено в prod).
+## Среды
+| | Стенд | Прод |
+|---|---|---|
+| Адрес | `https://test-nekuro.online` | `https://shamilara.fun` |
+| Ветка | `develop` — автодеплой на push | `main` — автодеплой на push (GitHub Environment `test`; включить required reviewer) |
+| Где | этот хост, `/srv/vliq-stage`, compose-проект `vliq-stage`, контейнеры `vliq-backend`, `vliq-frontend`, `vliq-postgres`, … | отдельный сервер, `/srv/VLIQ-things/VLIQ-Backend`, проект `vliq-backend` |
+| Оверлей | `docker-compose.stage.yml` (`SEED_DEMO=true`, `CHECK_PROVIDER_STUB=true`, мониторинг выключен) | `docker-compose.test.yml` (тома данных `external`) |
+| Данные | только синтетика | живые продавцы — **на стенд и сюда не копируются** |
 
-## Ограничения этого окружения (ВАЖНО для проверки/деплоя)
-- **На хосте нет python/pip/poetry/node/npm.** Всё гонять через Docker.
-- **Образы запекают исходники (нет volume-mount).** Правка файла на хосте НЕ влияет на
-  работающий контейнер — нужен ребилд + пересоздание (`docker compose up -d --build <svc>`).
-- **Runtime-образ бэкенда ставит `--only main`** — внутри **нет pytest** (dev-deps).
-  → собери один раз тест-образ `vliq-backend-test` (см. «Как проверять правки»), не ставь deps на каждый прогон.
-- **Сеть доступна** (docker pull, npm ci, pip install работают).
-- **`sleep` в Bash заблокирован** в foreground — фоновые задачи через `run_in_background`.
-- `cd` в составной bash-команде может триггерить prompt — используй `git -C <path>` / абсолютные пути.
-
-## Как проверять правки (verified-команды)
-Репо-корень — **абсолютный путь** `/srv/VLIQ-things/VLIQ-Backend`. В `docker run -v` подставляй
-его, **не `$PWD`**: cwd дрейфует между вызовами Bash, и `$PWD/backend` молча превращается в пустой
-`/work` → «file or directory not found: tests/…». (Тот же принцип, что и в «Ограничениях».)
-
-### Backend-тесты (мок-сессии, реальная БД НЕ нужна)
-Runtime-образ — `--only main` (без pytest). Чтобы НЕ платить `pip install` на каждый прогон
-(главный тормоз debug-цикла), **один раз** собери тест-образ с dev-deps:
+Рабочий чекаут на этом хосте: `/home/nesterkakoi-to/work/VLIQ-Backend`, рабочая ветка
+`fix/review-card-compact`, пуш в стенд — `fix/review-card-compact:develop`. **Пушить двумя отдельными
+командами** (составная `push && push` отклоняется):
 ```bash
-docker build --memory=1500m -t vliq-backend-test -f - /srv/VLIQ-things/VLIQ-Backend/backend <<'EOF'
-FROM python:3.14-slim
-ENV POETRY_VIRTUALENVS_CREATE=false POETRY_NO_INTERACTION=1 POETRY_INSTALLER_ONLY_BINARY=":all:"
-RUN pip install --no-cache-dir "poetry==2.5.1"
-WORKDIR /deps
-COPY pyproject.toml poetry.lock ./
-RUN poetry install --no-root --with dev
-WORKDIR /work
-EOF
+git -C /home/nesterkakoi-to/work/VLIQ-Backend push -q origin fix/review-card-compact
+git -C /home/nesterkakoi-to/work/VLIQ-Backend push -q origin fix/review-card-compact:develop
 ```
-Дальше каждый прогон мгновенный (deps уже в образе), исходники монтируем в /work:
+**В `main` и на прод — только с явного «да» владельца.** CI-статус: `gh` здесь не авторизован —
+публичный API: `curl -s "https://api.github.com/repos/nester512/VLIQ-Backend/actions/runs?head_sha=<sha>"`,
+причина падения — `…/check-runs/<job_id>/annotations`.
+
+## Ограничения этого хоста
+- Общий хост на 8 ГБ, рядом чужие проекты и боты (`portainer`, `frontend-services-*` — не трогать).
+  **Тяжёлые образы не собирать** (собирает CI); если неизбежно — по одному, `--memory=1500m`, только wheels.
+  2026-10-09 параллельная сборка выбила память и уронила все боты на хосте.
+- На хосте есть `python3`, `node` 20, `perl`, но версии проекта (3.14 / 26) — **только в Docker**.
+- Образы запекают исходники: правка на хосте не влияет на работающий контейнер.
+- `sleep` в foreground заблокирован — ожидание через `run_in_background`.
+- Пути в `docker run -v` — абсолютные (cwd дрейфует между вызовами).
+- Правки с кириллицей — через Edit/Write: `perl -0pi` с UTF-8 в шаблоне молча не срабатывает или портит кодировку.
+
+## Как проверять (команды проверены 2026-10-11…13)
 ```bash
-docker run --rm -v /srv/VLIQ-things/VLIQ-Backend/backend:/work -w /work vliq-backend-test \
-  python -m pytest --ignore=tests/integration --ignore=tests/migrations -q
+R=/home/nesterkakoi-to/work/VLIQ-Backend
+# 1. Бэкенд: Ruff + юнит (образ vliq-backend-dev314 — с dev-зависимостями, уже собран)
+docker run --rm -v $R/backend:/work -w /work vliq-backend-dev314 sh -c \
+  'ruff check src tests -q && python -m pytest --ignore=tests/integration --ignore=tests/migrations -q'
+# 2. Бэкенд на настоящей PG (контейнер vliq-pgtest-db, сеть vliq-pgtest); перед прогоном — чистая схема
+docker exec vliq-pgtest-db psql -U vliq -d vliq_test -qc "DROP SCHEMA IF EXISTS vliq CASCADE; DROP TABLE IF EXISTS public.alembic_version;"
+docker run --rm --network vliq-pgtest -e TEST_PG_URL=postgresql+asyncpg://vliq:vliq_dev@vliq-pgtest-db:5432/vliq_test \
+  -v $R/backend:/work -w /work vliq-backend-dev314 python -m pytest tests/integration tests/migrations -q
+# 3. Фронтенд — всё вместе (зелёный vitest без tsc — не успех)
+docker run --rm -m 1500m -v $R/frontend:/app -w /app node:26-alpine sh -c \
+  'npx tsc -b && npx eslint src && npx vitest run && npx vite build'
+# 4. API-регресс на стенде (~100 проверок, синтетика 7000xxxx; дважды подряд → 429, подождать)
+docker exec -i vliq-backend python - < $R/ops/regression/stage_regression.py
+# 5. Экраны и «назад» на стенде (Playwright в Docker, обе роли, 344/412 px)
+sh $R/ops/regression/ui/run.sh          # LAYOUT issues=0, BACK fails=0
 ```
-- `--ignore` отсекает тесты, которым нужна живая БД `vliq_test`; остальное — на мок-сессиях
-  (`tests/conftest.py` оверрайдит `get_pg_session`; lifespan не стартует под ASGITransport).
-- `--ignore` вместо списка папок: новые тест-дир (`tests/city` и т.п.) подхватываются сами.
-- Пересобери `vliq-backend-test` после ребилда базового `vliq-backend-backend` (одна строка выше).
-- Для точечной итерации просто допиши путь: `… python -m pytest tests/seller -q`.
-> ⚠️ Pre-existing red в базе (не связан с текущими фичами, чинить отдельно):
-> `tests/ofd_client/test_proverkacheka.py::test_unexpected_code__raises_ofd_blocked`
-> (code=99 → impl кидает `OFDNotFoundError`, тест ждёт `OFDBlockedError`). Остальное зелёное.
+- Ожидаемо на 2026-10-11: бэкенд юнит 455, PG+миграции 133, фронтенд 316, API 104 — всё зелёное.
+- `frontend/e2e/` (Playwright) в CI **не запускается** — его заменяет шаг 5.
+- Если `vliq-backend-dev314` или `vliq-pgtest-db` пропали: образ — `python:3.14-slim` + `poetry install --with dev`
+  (`POETRY_INSTALLER_ONLY_BINARY=:all:`, `--memory=1500m`); PG — `postgres:16-alpine`, БД `vliq_test`,
+  пользователь `vliq`, в сети `vliq-pgtest`.
 
-### Frontend (typecheck + lint + unit — ОДНОЙ командой)
-node_modules монтируется на хост (gitignore) и переживает прогоны: `npm ci` нужен только при смене
-package.json/lock, иначе сразу `npx`. Гоняй tsc+vitest+eslint **вместе** — раздельно легко принять
-зелёный vitest за общий успех, а tsc упадёт (напр. на типах в тесте):
-```bash
-docker run --rm -v /srv/VLIQ-things/VLIQ-Backend/frontend:/app -w /app node:26-alpine sh -c \
-  'npm ci && npx tsc -b && npx vitest run && npx eslint src/<путь>'
-```
-- vitest заскоплен на `src/**` (`vitest.config.ts` → `include`/`exclude`).
-- `e2e/`, `e2e-real/` — это **Playwright, только в CI** (браузеры в этом окружении не ставятся;
-  локально максимум `npx playwright test --list <spec>` для проверки парсинга спек).
+## Правило владельца: каждый баг и улучшение (2026-10-11)
+Задача **не готова**, пока не сделано всё:
+1. Поведение записано в `docs/use-cases/` — в UC интерфейса, где его видно, простым языком;
+   расхождение кода с решением — в «Расхождения»; новое решение — в таблицу решений обзора.
+2. Тест воспроизводит исходную проблему: **без правки падает, с правкой проходит** (проверь откатом).
+   Сценарий из нескольких шагов — интеграционный тест (образец `frontend/src/router/AppRouter.back.test.tsx`);
+   деньги и данные — PG-тест (`backend/tests/integration/pg/`).
+3. Строка в `docs/testing/REGRESSION.md` и пункт в `docs/testing/REQUEST-HISTORY.md`.
+Чек-лист — `.github/pull_request_template.md`. Тест проверяет новое поведение, а не закрепляет старое.
+Грабли мок-сессий: эндпоинт с Pydantic-ответом требует полностью заполненный мок (образец
+`backend/tests/seller/test_get_seller_by_id.py`). Время в тестах — замороженное (`vi.setSystemTime`).
 
-### Smoke-импорт (ОПЦИОНАЛЬНО — точечная диагностика import/route, без pytest)
-```bash
-docker run --rm -v /srv/VLIQ-things/VLIQ-Backend/backend:/work -w /work \
-  -e JWT_SECRET_SALT=x -e POSTGRES__POSTGRES_URL=postgresql+asyncpg://vliq:vliq_dev@localhost:5432/vliq_test \
-  -e TG_BOT_TOKEN=1:t vliq-backend-backend python -c 'import src.app.api.v1; print("ok")'
-```
-Только когда отлаживаешь конкретную import/route-ошибку — **не рутинный шаг** (pytest и так
-импортирует приложение при сборе тестов).
+## Данные прода: ни одна строка не теряется
+- **Миграции — только expand → contract.** Релиз добавляет (таблицы, `NULL`/`server_default` колонки,
+  индексы `CONCURRENTLY` + `IF NOT EXISTS` в `autocommit_block`, образец `0010`); код работает со старой и
+  новой схемой. Удаление/переименование/`NOT NULL`/массовый `DELETE|UPDATE` — отдельным поздним релизом
+  и **с «да» владельца**. Пересчёт данных — идемпотентно. `lock_timeout = 10s` (env.py). Каждая
+  миграция — с PG-тестом (upgrade/downgrade, отпечаток данных, повтор).
+- **Перед выкаткой миграций на прод — ночная репетиция** на копии данных прода с итогом `PASS`:
+  `ops/migration/rehearse.sh` (порядок — `docs/procedures/PROD-MIGRATION.md`).
+- `ops/deploy.sh`: проверка места → проверенный дамп (`.deploy/backups`, 14 шт.) → миграции → переключение
+  → `/health`, при сбое — откат образа (база не откатывается). Ночной бэкап — `ops/backup/nightly.sh`.
+- **На проде запрещено:** `docker compose down -v`, `docker volume rm|prune`, `docker system prune --volumes`,
+  ручной SQL без бэкапа и «да» владельца. Тома данных прода — `external` в `docker-compose.test.yml`.
+- Сброс данных — **только локально**, под своим проектом:
+  `COMPOSE_PROJECT_NAME=vliq-local docker compose down -v` (имена `vliq-backend_*` и `vliq-stage_*` — серверные).
 
-## Каждый баг и каждое улучшение — запись в use cases + тест (правило владельца, 2026-10-11)
-Задача (баг, улучшение, новая функция) **не готова**, пока не сделаны все три пункта:
-1. **Поведение записано в бизнес-документацию** `docs/use-cases/` — в UC того интерфейса, где оно
-   видно (продавец / админ / бот / автоматика / операции), простым языком, однозначно:
-   что видит человек, что система делает, ограничения. Если код расходится с решением владельца —
-   в раздел «Расхождения». Новое решение владельца — в таблицу решений `00-overview.md`.
-2. **Тест воспроизводит исходную проблему**: на старом коде он падает, на новом проходит
-   (проверь: временно откати правку → тест красный). Тест — на уровне, где жил баг: на сценарий
-   из нескольких шагов — интеграционный (образец: `frontend/src/router/AppRouter.back.test.tsx`,
-   «назад» на глубину 3 шага), на деньги и данные — PG-тест (`backend/tests/integration/pg/`).
-3. **Регресс и история**: строка в `docs/testing/REGRESSION.md` (ID, проверка, ожидание, как) и пункт
-   в `docs/testing/REQUEST-HISTORY.md` со ссылкой на UC.
+## Политика данных (организация)
+- Никаких реальных персональных данных, токенов и паролей в чате, коде, документах и тестах.
+  Токены не печатать; если вставили — не повторять, предложить ротацию.
+- Данные прода (продавцы, чеки, выплаты) не копировать на стенд, в репо, в чат. Отчёты по проду —
+  только агрегаты (как `ops/migration/fingerprint.sql`). Тесты — на синтетике (`docs/testing/qr-kit/`,
+  стендовые 7000xxxx); реальные чеки — только с согласия людей и с решения #infosec.
+- Подпись initData для UI-регресса (`ops/regression/ui/sign_initdata.py`) работает только на стенде.
 
-В PR это чек-лист из `.github/pull_request_template.md`.
-
-## Дисциплина тестов (обязательно)
-На **каждый** improve / интеграцию / реализацию:
-1. Пиши/обновляй тесты вместе с кодом (юнит + при необходимости функциональные;
-   зеркало `src/foo/bar.py → tests/foo/test_bar.py`).
-2. Прогоняй их (команды — в разделе «Как проверять правки» выше).
-3. Debug-цикл: правка → тесты → фикс, **пока не зелено**. Задача не «готова»
-   при красных или отсутствующих тестах.
-4. Тест должен проверять **новое** поведение, а не закреплять старое.
-   (Антипример из репо: тест `allowed_next(on_review, admin)` фиксировал баг —
-   admin-переход в `needs_revision` отсутствовал и не покрывался тестом.)
-5. Грабли мок-сессий: функциональный тест эндпоинта, возвращающего Pydantic-модель
-   (напр. `SellerRead`), требует **полностью заполненный** мок-`row` — иначе финальный
-   `model_validate` падает на `MagicMock`-полях, а не на проверяемой логике (None для
-   опциональных, реальный `datetime` для `created_at`). Образец полного мока:
-   `tests/seller/test_get_seller_by_id.py`.
-
-Стандарты тестов: `backend/.cursor/rules/rules-python-tests.mdc`
-(+ `…-functional-tests.mdc`). Помощники: скилл `/code-review`, агент `python-test-qa`.
-
-> CI (`.github/workflows/ci-cd.yml`) гоняет Ruff, backend unit + PG/миграции, frontend tsc/ESLint/Vitest/build;
-> красный CI не деплоит ни стенд, ни прод. Что тест проверяет именно исправленный баг — CI не знает:
-> это проверяет автор (пункт 2 правила выше) и ревью по чек-листу PR.
-
-## Безопасность данных при деплое (ОБЯЗАТЕЛЬНО для любой правки, уходящей на прод)
-На проде живые продавцы, их чеки, бонусы и выплаты. Любое изменение проектируй так, чтобы при
-выкатке **ни одна строка не потерялась и не исказилась**, а откат образа оставался возможным.
-
-**Миграции (Alembic) — только «expand → contract»:**
-1. Релиз N — только *добавляющие* изменения: новые таблицы; новые колонки `NULL` или с
-   `server_default`; новые индексы. Код релиза N работает и со старой, и с новой схемой
-   (откат образа не откатывает БД — `ops/deploy.sh`).
-2. Удаление/переименование колонки, сужение типа, `NOT NULL` на существующей колонке — **только
-   отдельным более поздним релизом**, когда код их уже не использует, и **с явного «да» владельца**.
-   Никаких `DROP TABLE/COLUMN`, `TRUNCATE`, массовых `DELETE/UPDATE` без этого.
-3. Индексы — `CREATE/DROP INDEX CONCURRENTLY` внутри `op.get_context().autocommit_block()`,
-   `IF [NOT] EXISTS`, с пересозданием INVALID-остатка (образец — `0010_hot_path_indexes.py`).
-   Удалять можно только индекс, полностью покрытый другим.
-4. Перенос/пересчёт данных — идемпотентно, пачками, без удаления исходных данных; прежние значения
-   сохраняются до релиза «contract».
-5. `env.py` ставит `lock_timeout = 10s`: DDL, не получивший блокировку, падает и деплой
-   останавливается, а не вешает прод. Долгие `ALTER TABLE` с переписыванием таблицы — запрещены.
-6. Каждая миграция — с PG-тестом: upgrade/downgrade, отпечаток данных (`count` + `hashtext`) до и
-   после совпадает, повторный прогон не падает (образец — `tests/migrations/test_hot_path_indexes_migration.py`).
-7. Репетиция: миграция сначала уходит на стенд (`develop`), где лежит нагрузочная копия данных; на
-   прод — только после зелёного стенда.
-
-**Деплой:** `ops/deploy.sh` перед миграцией снимает проверенный дамп БД
-(`.deploy/backups/*.dump`, хранится 14) — без бэкапа миграция не запускается. Восстановление —
-`docs/CI-CD.md` → «Восстановление из бэкапа». Никогда не удалять volume'ы прод-БД/MinIO, не гонять
-ручной SQL на проде без бэкапа и без «да» владельца.
-
-**Общий хост стенда (8 ГБ RAM, там же чужие проекты и боты):** не собирать тяжёлые образы
-локально — образы собирает CI. Если неизбежно: по одному, `--memory=1500m`, без компиляции
-(образ бэкенда ставит только wheels — `POETRY_INSTALLER_ONLY_BINARY=:all:`), никогда не оставлять
-сборку в фоне без присмотра. 2026-10-09 параллельная сборка (scipy из исходников) выбила память,
-хост завис и перезагрузился, легли все боты на хосте.
-
-## Как деплоить
-```bash
-# Точечно: пересобрать и пересоздать сервис(ы)
-docker compose up -d --build backend frontend notifications-worker
-
-# Доступ к БД / провижн админа (без ребилда — на живой БД):
-docker compose exec -T postgres psql -U vliq -d vliq -c \
- "INSERT INTO vliq.admin (telegram_id, phone_e164, role, brand_ids, is_active, created_at, updated_at) \
-  VALUES (<TG_ID>, '+7990XXXXXXX', 'super_admin', '[]'::jsonb, true, now(), now()) \
-  ON CONFLICT (telegram_id) DO UPDATE SET is_active=true, role='super_admin';"
-```
-### Чистый ребилд со свежими данными — ТОЛЬКО ЛОКАЛЬНО, НИКОГДА НА ПРОДЕ И СТЕНДЕ
-> ⛔ `vliq-backend_*` — это имена томов **прода** (живые продавцы, чеки, деньги). Удаление тома
-> базы на проде = потеря всех данных. На проде тома объявлены внешними (`docker-compose.test.yml`),
-> их не трогают ни `down -v`, ни этот раздел. Порядок работы с базой прода —
-> `docs/procedures/PROD-MIGRATION.md`.
-
-Локально — под отдельным именем проекта, чтобы имена томов не совпадали ни с чем на серверах:
-```bash
-export COMPOSE_PROJECT_NAME=vliq-local          # тома: vliq-local_*
-docker compose build --no-cache                 # все build-сервисы с нуля
-docker compose down --remove-orphans -v         # удаляет ТОЛЬКО тома проекта vliq-local
-docker compose up -d                            # backend пере-сидит БД на старте
-```
-- **Не трогать чужие проекты на хосте:** `portainer`, `frontend-services-*`.
-- На проде запрещены: `docker compose down -v`, `docker volume rm|prune`, `docker system prune --volumes`.
-
-## Скиллы / агенты / MCP
-Это **окружение**, а не контекст чата — Claude Code инжектит список доступных скиллов, агентов
-(`Explore`, `Plan`, `general-purpose`, `claude-code-guide`, …) и MCP-серверов (Figma, Atlassian,
-session-mgmt, …) в **каждую** новую сессию. Передавать их вручную не нужно.
-**Кастомные** живут в файлах репо: `.claude/`, а также `backend/.cursor/{agents,commands,rules}` —
-они едут вместе с репозиторием.
+## Частые операции
+- **Админ на стенде** (разово, сразу действует; телефон обязателен и уникален):
+  ```bash
+  docker exec vliq-postgres psql -U vliq -d vliq -c "INSERT INTO vliq.admin (telegram_id, phone_e164, role, brand_ids, is_active, created_at, updated_at) VALUES (<TG_ID>, '+99<TG_ID>', 'admin', '[]'::jsonb, true, now(), now()) ON CONFLICT (telegram_id) DO UPDATE SET is_active=true, role=EXCLUDED.role;"
+  ```
+  Строка в `backend/seed_dev.sql` применяется **и на проде** при следующей выкатке — только с «да» владельца.
+- Источник proverkacheka на стенде выключен (квота владельца); включение — `UPDATE vliq.check_provider SET enabled=…`.
+- Восстановление доступа продавца — `docs/procedures/ACCOUNT-RECOVERY.md` (super_admin, только API).
 
 ## Указатели
-- Код-конвенции/модули: `backend/AGENTS.md`, `frontend/AGENTS.md` (часть статусов там устарела — сверяйся с кодом).
-- Требования: `docs/use-cases/` (источник правды). Схема БД: `backend/erd.md`.
-- Приватная auto-memory (только эта машина): `~/.claude/projects/-srv-VLIQ-things-VLIQ-Backend/memory/`.
-- История правок: `git log` (последняя волна — коммит `7fd0599`, ветка `dev-validate-seller-use-cases`).
+- Схема БД: `backend/erd.md`. Скиллы/агенты/MCP приходят окружением; кастомные — `.claude/`, `backend/.cursor/`.
+- Память этой машины: `~/.claude/projects/-home-nesterkakoi-to-work-VLIQ-Backend/memory/`.
+- История: `git log`; история запросов владельца — `docs/testing/REQUEST-HISTORY.md`.

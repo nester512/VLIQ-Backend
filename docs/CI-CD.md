@@ -149,7 +149,9 @@ OCR_MODE=full
 ```
 
 `ENV=prod` обязателен: без него на публичном домене открыт DEV-логин `POST /auth/login`.
-Для реальной проверки ФНС: `OFD_PROVIDER=proverkacheka` и `PROVERKACHEKA_TOKEN`.
+Автопроверка чеков: источник proverkacheka включается одним `PROVERKACHEKA_TOKEN` (нужна коммерческая
+подписка); `OFD_PROVIDER=proverkacheka` лишь делает токен обязательным. Заглушка проверки —
+`CHECK_PROVIDER_STUB=true`, только стенд. ФНС / Платформа ОФД / Такском — без адаптеров.
 
 3. Проверка: `IMAGE_TAG=<sha> docker compose -f docker-compose.yml -f docker-compose.test.yml config --quiet`.
 
@@ -166,8 +168,13 @@ git checkout --detach <commit-sha>
 IMAGE_TAG=<commit-sha> ./ops/deploy.sh
 ```
 
-Rollback — тот же скрипт с предыдущим SHA. Alembic downgrade автоматически не выполняется; перед breaking
-migration сначала выпускается совместимая промежуточная версия.
+**Rollback** на предыдущий образ — из ТЕКУЩЕГО чекаута (не переключать `git checkout` на старый коммит:
+там старый `deploy.sh`), с полным SHA и без миграций — старый образ не знает новых ревизий в базе:
+```bash
+IMAGE_TAG=$(git rev-parse <предыдущий sha>) DEPLOY_SKIP_MIGRATIONS=1 ./ops/deploy.sh
+```
+Бэкап снимается и в этом режиме. Alembic downgrade автоматически не выполняется: миграции только
+добавляющие, старый код работает с новой схемой.
 
 
 ## Бэкап перед миграцией и восстановление из бэкапа
@@ -187,7 +194,7 @@ $C exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > 
 $C stop backend bot notifications-worker receipt-pipeline-worker
 $C exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --single-transaction' \
   < .deploy/backups/<нужный>.dump
-# образ — тот, что соответствует схеме дампа (sha в имени файла):
-IMAGE_TAG=<sha из имени дампа> ./ops/deploy.sh
+# образ — тот, что соответствует схеме дампа; в имени файла 12 символов SHA, образы помечены полным:
+IMAGE_TAG=$(git rev-parse <12 символов из имени дампа>) ./ops/deploy.sh
 ```
 `--single-transaction`: восстановление либо проходит целиком, либо не меняет ничего.
