@@ -185,16 +185,21 @@ docker compose exec -T postgres psql -U vliq -d vliq -c \
   VALUES (<TG_ID>, '+7990XXXXXXX', 'super_admin', '[]'::jsonb, true, now(), now()) \
   ON CONFLICT (telegram_id) DO UPDATE SET is_active=true, role='super_admin';"
 ```
-### Чистый ребилд без кеша + свежие данные (для чистого тестирования)
+### Чистый ребилд со свежими данными — ТОЛЬКО ЛОКАЛЬНО, НИКОГДА НА ПРОДЕ И СТЕНДЕ
+> ⛔ `vliq-backend_*` — это имена томов **прода** (живые продавцы, чеки, деньги). Удаление тома
+> базы на проде = потеря всех данных. На проде тома объявлены внешними (`docker-compose.test.yml`),
+> их не трогают ни `down -v`, ни этот раздел. Порядок работы с базой прода —
+> `docs/procedures/PROD-MIGRATION.md`.
+
+Локально — под отдельным именем проекта, чтобы имена томов не совпадали ни с чем на серверах:
 ```bash
+export COMPOSE_PROJECT_NAME=vliq-local          # тома: vliq-local_*
 docker compose build --no-cache                 # все build-сервисы с нуля
-docker compose down --remove-orphans
-docker volume rm vliq-backend_postgres_data vliq-backend_minio_data   # СВЕЖИЕ данные
+docker compose down --remove-orphans -v         # удаляет ТОЛЬКО тома проекта vliq-local
 docker compose up -d                            # backend пере-сидит БД на старте
 ```
-- **НЕ удалять `vliq-backend_caddy_data`** — там TLS-сертификат shamilara.fun; пересоздание
-  рискует лимитом Let's Encrypt → HTTPS ляжет. Волюмы мониторинга тоже можно сохранять.
 - **Не трогать чужие проекты на хосте:** `portainer`, `frontend-services-*`.
+- На проде запрещены: `docker compose down -v`, `docker volume rm|prune`, `docker system prune --volumes`.
 
 ## Скиллы / агенты / MCP
 Это **окружение**, а не контекст чата — Claude Code инжектит список доступных скиллов, агентов

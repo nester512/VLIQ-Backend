@@ -4,6 +4,7 @@
 |---|---|---|
 | [use-cases/](use-cases/00-overview.md) | **Источник правды по продукту**: роли, правила, use cases по интерфейсам, out of scope, решения | все |
 | [procedures/ACCOUNT-RECOVERY.md](procedures/ACCOUNT-RECOVERY.md) | Восстановление доступа продавца при потере Telegram | поддержка, super admin |
+| [procedures/PROD-MIGRATION.md](procedures/PROD-MIGRATION.md) | Переезд прода: защита базы, ночная репетиция на копии, выкатка, откат | владелец, эксплуатация |
 | [testing/](testing/REGRESSION.md) | Регресс-план, история запросов владельца, ручная проверка на стенде, тестовые QR | тестирование |
 | [design/](design/PAYOUTS.md) | Техническое устройство выплат и проверки чеков | разработка |
 | [CI-CD.md](CI-CD.md) | Стенд и прод, выкатка, резервные копии, восстановление | разработка, эксплуатация |

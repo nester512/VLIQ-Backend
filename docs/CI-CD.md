@@ -122,6 +122,7 @@ docker compose -f docker-compose.yml -f docker-compose.stage.yml exec -T postgre
 ```
 
 ### Полный сброс данных стенда
+> Только стенд (`vliq-stage_*`). На проде тома внешние и не удаляются — `docs/procedures/PROD-MIGRATION.md`.
 
 ```bash
 COMPOSE_PROJECT_NAME=vliq-stage IMAGE_TAG=$(cat .deploy/current-image-tag) \

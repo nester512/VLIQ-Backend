@@ -47,6 +47,16 @@ backup_database() {
   fi
   mkdir -p "${BACKUP_DIR}"
   chmod 700 "${BACKUP_DIR}"
+  # A full disk mid-dump or mid-migration stops Postgres. Need the database size twice + 1 GiB free.
+  local db_bytes free_bytes
+  # shellcheck disable=SC2016  # expands inside the container
+  db_bytes="$("${COMPOSE[@]}" exec -T postgres sh -c \
+    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "SELECT pg_database_size(current_database())"')"
+  free_bytes="$(df -PB1 "${BACKUP_DIR}" | awk 'NR == 2 { print $4 }')"
+  if (( free_bytes < 2 * db_bytes + 1073741824 )); then
+    echo "Not enough disk space: free $((free_bytes >> 20)) MiB, database $((db_bytes >> 20)) MiB." >&2
+    return 1
+  fi
   local file
   file="${BACKUP_DIR}/$(date -u +%Y%m%dT%H%M%SZ)-${IMAGE_TAG:0:12}.dump"
   # pg_dump of the running server's own major version, custom format (pg_restore-able).

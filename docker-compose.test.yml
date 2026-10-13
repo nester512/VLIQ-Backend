@@ -41,3 +41,19 @@ services:
     image: "${FRONTEND_IMAGE:-ghcr.io/nester512/vliq-frontend}:${IMAGE_TAG:?IMAGE_TAG is required}"
     pull_policy: always
     restart: unless-stopped
+
+# Production data volumes are EXTERNAL (owner rule: the database must never be wiped by accident):
+# - `docker compose down -v` never deletes an external volume;
+# - if the volume is missing, `up` fails instead of starting on an EMPTY database.
+# The names are the volumes production already uses (project `vliq-backend`). Check before the first
+# deploy with this file: `docker volume ls | grep vliq-backend_` — see docs/procedures/PROD-MIGRATION.md.
+volumes:
+  postgres_data:
+    external: true
+    name: vliq-backend_postgres_data
+  minio_data:
+    external: true
+    name: vliq-backend_minio_data
+  caddy_data:
+    external: true
+    name: vliq-backend_caddy_data
