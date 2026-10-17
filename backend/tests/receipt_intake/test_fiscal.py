@@ -27,6 +27,9 @@ VALID_QR = [
 INVALID_QR = [
     ("https://vliq.ru/promo", "QR_NOT_FISCAL"),
     ("hello", "QR_NOT_FISCAL"),
+    # Only Russian receipts (FNS QR, 54-FZ) — other countries' receipt QR shapes are refused.
+    ("http://consumer.oofd.kz?i=123456&f=010101012345&s=1450.00&t=20261008T143200", "QR_NOT_FISCAL"),
+    ("https://cabinet.tax.gov.ua/cashregs/check?id=123456&fn=4000123456&date=20261008&time=14:32&sm=1450.00", "QR_NOT_FISCAL"),
     ("t=20261008T1432&s=1450.00&fn=123&i=1&fp=1&n=1", "QR_FN_INVALID"),
     (f"t=20261008T1432&s=1450.00&fn={FN}&i=0&fp=1&n=1", "QR_FD_INVALID"),
     (f"t=20261008T1432&s=1450.00&fn={FN}&i=12345678901&fp=1&n=1", "QR_FD_INVALID"),
