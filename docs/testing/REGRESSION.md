@@ -15,7 +15,10 @@
 2. Бэкенд, настоящая БД и миграции: `tests/integration tests/migrations` с `TEST_PG_URL` (см. `CLAUDE.md`)
 3. Фронтенд: `npx tsc -b && npx eslint src && npx vitest run && npx vite build`
 4. API на стенде: `docker exec -i vliq-backend python - < ops/regression/stage_regression.py` → `SUMMARY … fail=0`
-5. Экраны и «назад» на стенде: `sh ops/regression/ui/run.sh` → `LAYOUT issues=0`, `BACK fails=0`
+5. Распознавание QR на наборе чеков: `sh ops/regression/qr/run.sh <папка набора с regression.csv>` → `QR_REGRESSION … smoke_fail=0`
+   (тот же код, что у продавца на «Фото или PDF чека»; выводит только счётчики; синтетический набор — `docs/testing/qr-kit`;
+   набор из настоящих чеков — только там, где его хранение и обработка разрешены).
+6. Экраны и «назад» на стенде: `sh ops/regression/ui/run.sh` → `LAYOUT issues=0`, `BACK fails=0`
    (оба роля, 344 и 412 px, тёмная и светлая тема; обрезанный текст, наложения, выход за край, сырые
    коды на экране, ошибки JS/HTTP; синтетические аккаунты стенда, на проде не запускается).
 
@@ -33,6 +36,7 @@
 | R-QR-6 | PDF повреждён (`11-corrupted.pdf`) | «PDF не открывается…», ничего не отправлено | UI · KAN-38 |
 | R-QR-7 | PDF без QR | «В PDF не найден QR-код чека. Введите данные вручную…» | UI + CI · KAN-38 |
 | R-QR-8 | Админ не может отправить чек | 403 | API |
+| R-QR-9 | Набор чеков (фото, скриншоты, PDF): QR из чека читается и совпадает с эталоном; не-чековые и битые QR отклоняются | smoke `FAIL=0`; hard — не блокирует; LABEL_FIX / REVIEW — разобрать | UI-авто (`ops/regression/qr/`) |
 
 ## 2. Путь чека и проверка источниками
 | ID | Проверка | Ожидание | Как |

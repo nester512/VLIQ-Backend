@@ -1,0 +1,12 @@
+path,expect,case,tier,fn,i,fp,s,t,golden_qr,expected_qr
+01-ok-verified-at-once.png,accept,fiscal_qr,smoke,9960440300712345,830773,9612307227,1450.00,20261009T0843,,
+02-ofd-found-on-3rd-attempt.png,accept,fiscal_qr,smoke,9960440300712345,656250,447749760,890.50,20261009T0743,,
+03-ofd-never-found.png,accept,fiscal_qr,smoke,9999940757678808,720767,2250495573,2100.00,20261009T0643,,
+04-refund-rejected-on-phone.png,reject,non_fiscal_qr,smoke,,,,,,,
+05-not-a-receipt.png,reject,non_fiscal_qr,smoke,,,,,,,
+06-older-than-30-days-warning.png,accept,fiscal_qr,smoke,9960440300712345,199964,6374703269,300.00,20260830T0943,,
+07-two-receipts-on-one-photo.png,accept,fiscal_qr,smoke,9960440300712345,219392,9414195175,777.00,20261009T0443,,
+08-photo-of-receipt-rotated.jpg,accept,fiscal_qr,smoke,,,,,,,
+09-e-receipt.pdf,accept,fiscal_qr,smoke,,,,,,,
+10-e-receipt-qr-on-page-3.pdf,accept,fiscal_qr,smoke,,,,,,,
+11-corrupted.pdf,reject,damaged_qr,smoke,,,,,,,
