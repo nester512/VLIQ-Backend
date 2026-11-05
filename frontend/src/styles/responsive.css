@@ -498,9 +498,11 @@
   padding: 11px; border: 0; border-radius: 14px; font: inherit; font-size: 13px; font-weight: 700;
   background: var(--vliq-field); color: var(--vliq-brand); cursor: pointer;
 }
-/* A phone held sideways leaves the card ~200 px: tighter spacing so the chips and «Подробнее» still fit. */
+/* A phone held sideways leaves the card ~200 px: tighter spacing so the chips and «Подробнее» still fit;
+   dates and composition (a half-cut line at best) are in «Подробнее». */
 @media (max-height: 480px) {
   .vliq-review-summary { gap: 6px; padding: 10px 14px; }
+  .vliq-review-summary__facts { display: none; }
   .vliq-review-summary__money { padding: 6px 12px; }
   .vliq-review-summary__amount { font-size: 22px; }
   .vliq-review-summary__details { padding: 7px; }
