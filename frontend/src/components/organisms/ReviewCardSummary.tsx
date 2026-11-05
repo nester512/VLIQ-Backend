@@ -97,6 +97,10 @@ export function ReviewCardSummary({ receipt, onDetails, onSellerClick }: ReviewC
         </div>
       </div>
 
+      {/* Dates and composition give way on a short screen (landscape, 320×568, Telegram's header on
+          a 360×640 phone); the risk chips and «Подробнее» below never do — the admin must see them
+          before deciding. */}
+      <div className="vliq-review-summary__facts" data-testid="review-card-facts">
       <dl className="vliq-review-summary__rows">
         {rows.map(([k, v]) => (
           <div key={k}>
@@ -128,8 +132,9 @@ export function ReviewCardSummary({ receipt, onDetails, onSellerClick }: ReviewC
           }
         />
       </div>
+      </div>
 
-      <div className="vliq-review-summary__chips">
+      <div className="vliq-review-summary__chips" data-testid="review-card-chips">
         {/* In the chip row, not beside the name: the name gets the full width. */}
         <Pill kind={receipt.duplicate_status === 'danger' ? 'dg' : 'ok'}>
           <Icon name={receipt.duplicate_status === 'danger' ? 'alert' : 'shield'} size={11} />

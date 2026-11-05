@@ -280,6 +280,19 @@ describe('SwipeDeck — decision card without the photo', () => {
     expect(screen.queryByTestId('attachment-viewer')).toBeNull()
   })
 
+  it('on a short screen only dates and composition give way — risk chips and «Подробнее» stay visible', () => {
+    // Landscape / 320×568: the card cut its bottom off, the admin could approve without seeing «Повтор чека».
+    render(<SwipeDeck receipts={[full()]} onSwipe={vi.fn()} onTap={vi.fn()} />)
+    const facts = screen.getByTestId('review-card-facts') // the part that shrinks and is cut
+    expect(facts).toHaveTextContent('Дата покупки')
+    expect(facts).toHaveTextContent('Состав чека')
+    const chips = screen.getByTestId('review-card-chips')
+    expect(chips).toHaveTextContent('Повтор чека')
+    expect(chips).toHaveTextContent('Возможный дубль')
+    expect(facts.contains(chips)).toBe(false)
+    expect(facts.contains(screen.getByRole('button', { name: /Подробнее/ }))).toBe(false)
+  })
+
   it('shows WHAT was bought (composition from the check), or how to see it before the check', () => {
     const withItems = { ...full(), items: [{ name: 'VLIQ SHOCK Лёд', price: 65000, qty: 2 }] }
     const { unmount } = render(<SwipeDeck receipts={[withItems]} onSwipe={vi.fn()} onTap={vi.fn()} />)
