@@ -17,7 +17,7 @@ export function NewReceiptsButton({ count, loading = false, onClick }: NewReceip
       disabled={loading}
       onClick={onClick}
       style={{
-        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 999,
+        display: 'inline-flex', alignItems: 'center', gap: 4, width: 'auto', flex: 'none', padding: '5px 12px', borderRadius: 999,
         border: 0, background: 'var(--vliq-brand)', color: '#fff', fontSize: 13, fontWeight: 800,
         cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.7 : 1, boxShadow: 'var(--vliq-shadow)',
       }}
