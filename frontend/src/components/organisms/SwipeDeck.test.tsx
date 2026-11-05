@@ -357,3 +357,26 @@ describe('SwipeDeck — help instead of on-card hints', () => {
     }
   })
 })
+
+describe('SwipeDeck — «↻ +N» slot (UC-A2, 2026-11-05)', () => {
+  const action = <button type="button" data-testid="new-receipts">+1</button>
+
+  it('sits on the card edge, outside the head — the head keeps title and counter on one line', () => {
+    render(<SwipeDeck receipts={[receipt()]} onSwipe={vi.fn()} onTap={vi.fn()} totalCount={7256} headerAction={action} />)
+    const head = screen.getByTestId('deck-counter').closest('div')
+    expect(head && within(head).queryByTestId('new-receipts')).toBeNull()
+    expect(screen.getByTestId('new-receipts')).toBeTruthy()
+  })
+
+  it('is shown on «Все чеки обработаны» and «Основная очередь разобрана» too', () => {
+    const { unmount } = render(<SwipeDeck receipts={[]} onSwipe={vi.fn()} onTap={vi.fn()} headerAction={action} />)
+    expect(screen.getByText('Очередь пуста')).toBeTruthy()
+    expect(screen.getByTestId('new-receipts')).toBeTruthy()
+    unmount()
+
+    render(<SwipeDeck receipts={[receipt()]} onSwipe={vi.fn()} onTap={vi.fn()} headerAction={action} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Пропустить чек' }))
+    expect(screen.getByTestId('skipped-gate')).toBeTruthy()
+    expect(screen.getByTestId('new-receipts')).toBeTruthy()
+  })
+})

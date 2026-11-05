@@ -290,7 +290,7 @@ export interface SwipeDeckProps {
   isActing?: boolean
   /** Keep the skipped receipts across leaving the screen (card → seller page → back). */
   persistSkippedKey?: string
-  /** Shown at the top of the deck in every state (cards, all skipped, all done) — «↻ +N». */
+  /** Shown at the top of the deck in every state (on the card's top edge, all skipped, all done) — «↻ +N». */
   headerAction?: ReactNode
 }
 
@@ -519,8 +519,7 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
             </p>
           )}
         </div>
-        <span style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: 'var(--vliq-hint)', marginTop: headerAction ? 0 : 4 }}>
-          {headerAction}
+        <span className="vliq-nowrap" style={{ flex: 'none', fontSize: 13, fontWeight: 700, color: 'var(--vliq-hint)', marginTop: 4 }}>
           <span data-testid="deck-counter">
             {isLoading ? '…' : `${Math.min(processedIds.size + 1, totalForCounter)} / ${totalForCounter}`}
           </span>
@@ -536,6 +535,12 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
           minHeight: 0,
         }}
       >
+        {/* «↻ +N» straddles the card's top edge (like «new posts» in a feed): the head stays one line on 344 px. */}
+        {headerAction && (
+          <div style={{ position: 'absolute', top: -14, left: 0, right: 0, display: 'flex', justifyContent: 'center', zIndex: 20 }}>
+            {headerAction}
+          </div>
+        )}
         <AnimatePresence>
           {[...visibleReceipts].reverse().map((receipt, rIdx) => {
             const stackIndex = visibleCount - 1 - rIdx

@@ -22,7 +22,9 @@ export async function open(account, theme, width = 344) {
   page.on('console', (m) => { if (m.type() === 'error') page._errs.push(`console: ${m.text().slice(0, 300)}`) })
   page.on('pageerror', (e) => page._errs.push(`pageerror: ${String(e).slice(0, 300)}`))
   page.on('response', (r) => { if (r.status() >= 400) page._errs.push(`HTTP ${r.status()} ${r.request().method()} ${r.url().replace(/tgWebAppData=[^&]*/, 'tgWebAppData=…').slice(0, 200)}`) })
-  page.on('requestfailed', (r) => { const u = r.url(); if (!/telemetry|analytics/.test(u)) page._errs.push(`FAILED ${r.method()} ${u.slice(0, 160)} ${r.failure()?.errorText}`) })
+  // The review deck's SSE stream is closed on purpose when the screen is left (ERR_ABORTED) — not an error.
+  const expectedAbort = (r) => /\/receipts\/review-events/.test(r.url()) && r.failure()?.errorText === 'net::ERR_ABORTED'
+  page.on('requestfailed', (r) => { const u = r.url(); if (!/telemetry|analytics/.test(u) && !expectedAbort(r)) page._errs.push(`FAILED ${r.method()} ${u.slice(0, 160)} ${r.failure()?.errorText}`) })
   const hash = new URLSearchParams({ tgWebAppData: ID[account], tgWebAppVersion: '8.0', tgWebAppPlatform: 'android', tgWebAppThemeParams: JSON.stringify(THEMES[theme]) }).toString()
   await page.goto(`${BASE}/#${hash}`, { waitUntil: 'networkidle' })
   await page.waitForTimeout(2500)
