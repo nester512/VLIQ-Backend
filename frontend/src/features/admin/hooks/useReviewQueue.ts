@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getAdminReceipts,
@@ -10,6 +11,7 @@ import { useUiStore } from '@/store/uiStore'
 import { useHaptic } from '@/hooks/useHaptic'
 import { extractApiError } from '@/api/client'
 import { invalidateAfterReceiptChange } from '@/features/admin/invalidate'
+import { connectReviewEvents } from '@/features/admin/reviewEvents'
 
 // Confluence A2 invariant: the active dating-style review feed contains only
 // actionable receipts. Seller-facing `pending` / `ocr_in_progress` still render
@@ -48,6 +50,25 @@ export function useReviewQueue() {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
+}
+
+/** Receipts that reached the review queue while the deck is open (SSE hint, in arrival order). */
+export function useAnnouncedReceipts(): string[] {
+  const [ids, setIds] = useState<string[]>([])
+  useEffect(() => connectReviewEvents((id) => setIds((prev) => (prev.includes(id) ? prev : [...prev, id]))), [])
+  return ids
+}
+
+/** Load announced receipts for the end of the deck — same filters as the queue itself. */
+export const NEW_RECEIPTS_BATCH = 50
+export function loadAnnouncedReceipts(ids: string[]) {
+  return getAdminReceipts({
+    status: [...REVIEW_QUEUE_STATUSES],
+    queue: true,
+    sort: REVIEW_QUEUE_SORT,
+    ids: ids.slice(0, NEW_RECEIPTS_BATCH),
+    limit: NEW_RECEIPTS_BATCH,
+  }).then((p) => p.items)
 }
 
 export type SwipeDirection = 'approve' | 'reject' | 'revise'

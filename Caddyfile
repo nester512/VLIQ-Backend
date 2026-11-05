@@ -9,7 +9,10 @@
 {$CADDY_HOSTNAME:vliq.local} {
 	tls {$CADDY_TLS_DIRECTIVE:internal}
 
-	encode gzip zstd
+	# The admin review deck's SSE stream must reach the phone event by event —
+	# never compress (buffer) it. reverse_proxy flushes text/event-stream itself.
+	@compressible not path /api/v1/receipts/review-events
+	encode @compressible gzip zstd
 
 	# Public health-check used by CI/CD. Keeping this separate from /api makes
 	# it possible to verify the backend itself instead of the frontend SPA.

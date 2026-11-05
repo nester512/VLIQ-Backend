@@ -70,7 +70,7 @@ async def _block(sm, status: str = "blocked") -> None:
 async def _queue(sm, **kw) -> list[int]:
     async with sm() as s:
         page = await list_receipts(
-            ADMIN, s, page=1, limit=50, status_filter="on_review", seller_id=kw.get("seller_id"), from_date=None,
+            ADMIN, s, page=1, limit=50, status_filter="on_review", seller_id=kw.get("seller_id"), ids=None, from_date=None,
             to_date=None, order="asc", queue=kw.get("queue", True), sort=kw.get("sort", ReceiptQueueSort.created),
         )  # fmt: skip
         return [int(i.id) for i in page.items]

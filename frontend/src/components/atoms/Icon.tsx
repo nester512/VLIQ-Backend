@@ -3,7 +3,7 @@ type IconName =
   | 'cashout' | 'bell' | 'user' | 'users' | 'chart' | 'check' | 'x'
   | 'arrUp' | 'camera' | 'file' | 'qr' | 'shield' | 'alert' | 'edit'
   | 'block' | 'cmt' | 'send' | 'search' | 'zoom' | 'home' | 'store'
-  | 'loc' | 'phone' | 'list' | 'pay'
+  | 'loc' | 'phone' | 'list' | 'pay' | 'refresh'
 
 interface IconProps {
   name: IconName
@@ -27,6 +27,7 @@ const ICONS: Record<IconName, string> = {
   users: '<circle cx="9" cy="8" r="3.5"/><path d="M3 21a6 6 0 0 1 12 0"/><path d="M16 5.6a3.5 3.5 0 0 1 0 6.8M21 21a6 6 0 0 0-5-5.9"/>',
   chart: '<path d="M4 4v16h16"/><path d="M7 14l3.5-4 3 2.5L20 6"/>',
   check: '<path d="M5 12.5 10 17.5 19.5 7"/>',
+  refresh: '<path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4.5h-4.5"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
   arrUp: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   camera: '<path d="M3 8a2 2 0 0 1 2-2h2l1.5-2h7L19 6h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="13" cy="13" r="3.6"/>',

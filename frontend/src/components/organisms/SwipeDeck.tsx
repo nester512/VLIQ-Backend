@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from 'react'
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion'
 import type { TargetAndTransition } from 'framer-motion'
 import { Icon } from '@/components/atoms/Icon'
@@ -290,6 +290,8 @@ export interface SwipeDeckProps {
   isActing?: boolean
   /** Keep the skipped receipts across leaving the screen (card → seller page → back). */
   persistSkippedKey?: string
+  /** Shown at the top of the deck in every state (cards, all skipped, all done) — «↻ +N». */
+  headerAction?: ReactNode
 }
 
 function loadSkipped(key?: string): string[] {
@@ -303,7 +305,7 @@ function loadSkipped(key?: string): string[] {
   }
 }
 
-export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0, totalCount, onSellerClick, onSkip, isActing = false, persistSkippedKey }: SwipeDeckProps) {
+export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0, totalCount, onSellerClick, onSkip, isActing = false, persistSkippedKey, headerAction }: SwipeDeckProps) {
   // Consume the queue by receipt ID, not by positional index. A positional
   // index silently SKIPS cards whenever the list shrinks from the front — which
   // happens on any mid-session refetch (window focus, a detail-sheet action, a
@@ -436,12 +438,19 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
     )
   }
 
+  const floatingAction = headerAction ? (
+    <div style={{ position: 'absolute', top: 14, left: 0, right: 0, display: 'flex', justifyContent: 'center', zIndex: 5 }}>
+      {headerAction}
+    </div>
+  ) : null
+
   // Everything left was skipped: the main queue is done — say so, and make the way
   // back to the skipped receipts explicit instead of silently cycling them.
   if (!isLoading && remaining > 0 && skippedCount === remaining) {
     return (
       <div className="vliq-pad" data-testid="skipped-gate"
         style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center' }}>
+        {floatingAction}
         <div style={{ display: 'grid', gap: 12, maxWidth: 320 }}>
           <b style={{ fontSize: 19 }}>Основная очередь разобрана</b>
           <span style={{ color: 'var(--vliq-hint)', fontSize: 14 }}>
@@ -460,11 +469,14 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
   if (isDone) {
     const isInitiallyEmpty = receipts.length === 0
     return (
-      <DoneState
-        processed={processed}
-        isInitiallyEmpty={isInitiallyEmpty}
-        onReset={() => { orderRef.current = []; setProcessedIds(new Set()); setSkippedIds([]); setProcessed({ approve: 0, reject: 0, revise: 0 }) }}
-      />
+      <>
+        {floatingAction}
+        <DoneState
+          processed={processed}
+          isInitiallyEmpty={isInitiallyEmpty}
+          onReset={() => { orderRef.current = []; setProcessedIds(new Set()); setSkippedIds([]); setProcessed({ approve: 0, reject: 0, revise: 0 }) }}
+        />
+      </>
     )
   }
 
@@ -507,7 +519,8 @@ export function SwipeDeck({ receipts, onSwipe, onTap, isLoading, undoTrigger = 0
             </p>
           )}
         </div>
-        <span style={{ flex: 'none', fontSize: 13, fontWeight: 700, color: 'var(--vliq-hint)', marginTop: 4 }}>
+        <span style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: 'var(--vliq-hint)', marginTop: headerAction ? 0 : 4 }}>
+          {headerAction}
           <span data-testid="deck-counter">
             {isLoading ? '…' : `${Math.min(processedIds.size + 1, totalForCounter)} / ${totalForCounter}`}
           </span>

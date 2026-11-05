@@ -20,16 +20,30 @@ const QUEUE: Array<Record<string, unknown>> = [{ id: '1', status: 'on_review', s
 const approveReceipt = vi.fn<(...a: unknown[]) => Promise<unknown>>()
 const rejectReceipt = vi.fn<(...a: unknown[]) => Promise<unknown>>(() => Promise.resolve({}))
 const reviseReceipt = vi.fn<(...a: unknown[]) => Promise<unknown>>(() => Promise.resolve({}))
+// Receipts that reached the queue after the deck opened (served by `ids=`).
+const ARRIVED: Array<Record<string, unknown>> = []
+const getAdminReceipts = vi.fn((f: { ids?: string[] }) => {
+  const items = f.ids ? ARRIVED.filter((r) => f.ids?.includes(String(r.id))) : [...QUEUE]
+  return Promise.resolve({ items, total: items.length, page: 1, has_more: false })
+})
 vi.mock('@/api/admin', () => ({
-  getAdminReceipts: vi.fn(() =>
-    Promise.resolve({ items: [...QUEUE], total: QUEUE.length, page: 1, has_more: false }),
-  ),
+  getAdminReceipts: (f: { ids?: string[] }) => getAdminReceipts(f),
   approveReceipt: (...a: unknown[]) => approveReceipt(...a),
   rejectReceipt: (...a: unknown[]) => rejectReceipt(...a),
   reviseReceipt: (...a: unknown[]) => reviseReceipt(...a),
 }))
 
-const { pushToast } = vi.hoisted(() => ({ pushToast: vi.fn() }))
+const { pushToast, sse } = vi.hoisted(() => ({
+  pushToast: vi.fn(),
+  sse: { announce: (() => {}) as (id: string) => void },
+}))
+// The SSE stream itself is tested in reviewEvents.test.ts; here the page gets its callback.
+vi.mock('@/features/admin/reviewEvents', () => ({
+  connectReviewEvents: (onReceipt: (id: string) => void) => {
+    sse.announce = onReceipt
+    return () => {}
+  },
+}))
 // The real store (the deck reads blockedSellerIds reactively); only the toast is a spy.
 vi.mock('@/store/uiStore', async (orig) => {
   const m = await orig<typeof import('@/store/uiStore')>()
@@ -70,15 +84,18 @@ vi.mock('@/components/organisms/SwipeDeck', () => ({
     undoTrigger,
     receipts,
     totalCount,
+    headerAction,
   }: {
     onSwipe: (id: string, dir: string) => void
     undoTrigger: number
     receipts: Array<{ id: string }>
     totalCount?: number
+    headerAction?: ReactNode
   }) =>
     createElement(
       'div',
       null,
+      headerAction,
       createElement('span', { 'data-testid': 'deck' }, `${receipts.map((r) => r.id).join(',')} / ${totalCount}`),
       createElement('span', { 'data-testid': 'undo-trigger' }, String(undoTrigger)),
       createElement(
@@ -105,6 +122,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   QUEUE.length = 0
   QUEUE.push({ id: '1', status: 'on_review', seller_name: 'Иван', seller_id: 7, bonus_amount: 1000 })
+  ARRIVED.length = 0
   useUiStore.setState({ blockedSellerIds: [] })
   cleanup()
 })
@@ -219,5 +237,37 @@ describe('ReviewPage — blocked sellers are not in the review (owner, 2026-10-1
     await userEvent.click(await screen.findByText('approve'))
     await waitFor(() => expect(screen.getByTestId('deck').textContent).toBe('2 / 1'))
     expect(useUiStore.getState().blockedSellerIds).toEqual([7])
+  })
+})
+
+describe('ReviewPage — «↻ +N»: receipts that arrived while the deck is open (owner, 2026-11-05)', () => {
+  it('shows the button only for receipts not in the deck; a tap adds them to the END, the total grows', async () => {
+    ARRIVED.push({ id: '9', status: 'on_review', seller_name: 'Пётр', seller_id: 8, bonus_amount: 1000 })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('deck').textContent).toBe('1 / 1'))
+    expect(screen.queryByTestId('new-receipts')).toBeNull()
+
+    act(() => sse.announce('1')) // already in the deck — nothing new
+    expect(screen.queryByTestId('new-receipts')).toBeNull()
+
+    act(() => sse.announce('9'))
+    act(() => sse.announce('9')) // a repeated event counts once
+    expect(screen.getByTestId('new-receipts').textContent).toBe('+1')
+
+    await userEvent.click(screen.getByTestId('new-receipts'))
+    await waitFor(() => expect(screen.getByTestId('deck').textContent).toBe('1,9 / 2'))
+    expect(getAdminReceipts).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ids: ['9'], queue: true, status: ['on_review'] }),
+    )
+    expect(screen.queryByTestId('new-receipts')).toBeNull()
+  })
+
+  it('a receipt gone meanwhile (taken by another admin) stops counting and adds nothing', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('deck').textContent).toBe('1 / 1'))
+    act(() => sse.announce('5'))
+    await userEvent.click(screen.getByTestId('new-receipts'))
+    await waitFor(() => expect(screen.queryByTestId('new-receipts')).toBeNull())
+    expect(screen.getByTestId('deck').textContent).toBe('1 / 1')
   })
 })

@@ -18,6 +18,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Form, Query, Request, Response, UploadFile, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
 from sqlalchemy import Select, case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +39,7 @@ from src.receipt.models import (
     ReceiptAttachment,
     ReceiptStatus,
 )
+from src.receipt.review_events import stream as review_events_stream
 from src.receipt.schemas.api import (
     PackageFinalizeRequest,
     PackageUploadSlot,
@@ -125,6 +127,34 @@ async def get_attachment_file(sig: str = Query(..., description="Signed access t
         content=data,
         media_type=_media_type_for_uri(uri),
         headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+@router.get(
+    "/review-events",
+    include_in_schema=False,
+    summary="SSE: receipts entering the review queue (admin deck «↻ Новые»)",
+)
+async def review_events(
+    request: Request,
+    since: datetime | None = Query(default=None, description="Replay receipts queued since this server time"),  # noqa: B008
+    token: JwtTokenT = Depends(require_admin),
+) -> Response:
+    """A hint stream, not a data feed: ids only; the deck loads receipts via ``GET /receipts?ids=``.
+
+    Declared before ``/{receipt_id}`` so the literal path is matched first.
+    """
+    redis = getattr(request.app.state, "arq_pool", None)
+    if redis is None:
+        raise AppError("REVIEW_EVENTS_UNAVAILABLE", status_code=503)
+    body = review_events_stream(
+        redis, request.app.state.sessionmaker, since=since, is_disconnected=request.is_disconnected
+    )
+    return StreamingResponse(
+        body,
+        media_type="text/event-stream",
+        # no-transform / X-Accel-Buffering: no proxy may buffer or gzip the stream.
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )
 
 
@@ -1108,6 +1138,9 @@ def _order_receipt_queue(
     return stmt.order_by(Receipt.created_at.asc(), Receipt.id.asc())
 
 
+MAX_IDS_FILTER = 50
+
+
 @router.get(
     "",
     response_model=PagedResponse[ReceiptRead],
@@ -1124,6 +1157,9 @@ async def list_receipts(  # noqa: PLR0913
         description="Comma-separated list of statuses, e.g. on_review,ocr_in_progress",
     ),
     seller_id: int | None = Query(default=None, description="Filter by seller telegram_id"),
+    ids: str | None = Query(
+        default=None, description="Comma-separated receipt ids (max 50) — the review deck's «↻ Новые» load"
+    ),
     from_date: datetime | None = Query(default=None, alias="from", description="ISO date lower bound on created_at"),  # noqa: B008
     to_date: datetime | None = Query(default=None, alias="to", description="ISO date upper bound on created_at"),  # noqa: B008
     order: Literal["asc", "desc"] = Query(
@@ -1160,6 +1196,12 @@ async def list_receipts(  # noqa: PLR0913
 
     if seller_id is not None:
         stmt = stmt.where(Receipt.seller_id == seller_id)
+
+    if ids is not None:
+        wanted = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+        if len(wanted) > MAX_IDS_FILTER:
+            raise AppError("VALIDATION_ERROR", status_code=422)
+        stmt = stmt.where(Receipt.id.in_(wanted))
 
     if from_date is not None:
         stmt = stmt.where(Receipt.created_at >= from_date)

@@ -44,6 +44,7 @@ USER_MESSAGES: dict[str, str] = {
     "RECEIPT_REASON_REQUIRED": "Укажите причину отклонения.",
     "RECEIPT_INVALID_BONUS": "Укажите корректную сумму бонуса.",
     "RECEIPT_BONUS_REQUIRED": "Перед одобрением укажите сумму бонуса.",
+    "REVIEW_EVENTS_UNAVAILABLE": "Обновления очереди временно недоступны.",
     "RECEIPT_COMMENT_FAILED": "Не удалось сохранить комментарий. Попробуйте ещё раз.",
     # --- QR / OFD ---
     "QR_PARSE_FAILED": "Не удалось прочитать QR-код. Попробуйте ещё раз.",

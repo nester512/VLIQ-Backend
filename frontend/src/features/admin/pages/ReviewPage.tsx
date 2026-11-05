@@ -5,12 +5,16 @@ import { SwipeDeck } from '@/components/organisms/SwipeDeck'
 import { ErrorBoundary } from '@/components/atoms/ErrorBoundary'
 import { RejectReasonSheet } from '@/components/molecules/RejectReasonSheet'
 import { EditBonusSheet } from '@/components/molecules/EditBonusSheet'
+import { NewReceiptsButton } from '@/components/molecules/NewReceiptsButton'
 import { useUiStore } from '@/store/uiStore'
 import { extractApiError } from '@/api/client'
 import {
   useReviewQueue,
   useSwipeAction,
+  useAnnouncedReceipts,
+  loadAnnouncedReceipts,
   flattenReceiptPages,
+  NEW_RECEIPTS_BATCH,
   type SwipeDirection,
 } from '@/features/admin/hooks/useReviewQueue'
 import type { AdminReceipt } from '@/api/admin'
@@ -35,11 +39,39 @@ function ReviewContent() {
   // seller blocked during this session (here, by another admin — seen as RECEIPT_SELLER_BLOCKED)
   // leaves the deck at once, not on the next entry.
   const blockedSellerIds = useUiStore((s) => s.blockedSellerIds)
-  const loaded = flattenReceiptPages(data)
+  // «↻ +N» (UC-A2): receipts that reached the queue while the deck is open go to the END of
+  // the deck on tap — the card in front of the admin never changes under him.
+  const announced = useAnnouncedReceipts()
+  const [added, setAdded] = useState<AdminReceipt[]>([])
+  const [requested, setRequested] = useState<ReadonlySet<string>>(() => new Set())
+  const [loadingNew, setLoadingNew] = useState(false)
+  const pages = flattenReceiptPages(data)
+  const loaded = useMemo(() => {
+    const inPages = new Set(pages.map((r) => r.id))
+    return [...pages, ...added.filter((r) => !inPages.has(r.id))]
+  }, [pages, added])
   const receipts = useMemo(
     () => (blockedSellerIds.length ? loaded.filter((r) => !blockedSellerIds.includes(r.seller_id)) : loaded),
     [loaded, blockedSellerIds],
   )
+  const fresh = useMemo(() => {
+    const known = new Set(loaded.map((r) => r.id))
+    return announced.filter((id) => !known.has(id) && !requested.has(id))
+  }, [announced, loaded, requested])
+  const loadNew = useCallback(() => {
+    const ids = fresh.slice(0, NEW_RECEIPTS_BATCH)
+    if (!ids.length || loadingNew) return
+    setLoadingNew(true)
+    loadAnnouncedReceipts(ids)
+      .then((items) => {
+        // Every requested id is settled: one that is no longer on review (taken by another
+        // admin, seller blocked) simply does not come back and stops counting as new.
+        setRequested((prev) => new Set([...prev, ...ids]))
+        setAdded((prev) => [...prev, ...items.filter((r) => !prev.some((p) => p.id === r.id))])
+      })
+      .catch((err: unknown) => pushToast(extractApiError(err).userMessage, 'dg'))
+      .finally(() => setLoadingNew(false))
+  }, [fresh, loadingNew, pushToast])
   // Every receipt hidden this session, so the «N / всего» total shrinks by them too.
   const [hiddenIds, setHiddenIds] = useState<ReadonlySet<string>>(() => new Set())
   useEffect(() => {
@@ -67,7 +99,8 @@ function ReviewContent() {
     }
   }, [rawReviewTotal, capturedTotal])
   const baseTotal = capturedTotal ?? rawReviewTotal
-  const reviewTotal = baseTotal === undefined ? undefined : Math.max(0, baseTotal - hiddenIds.size)
+  // Loaded «new» receipts were not in the captured backlog — they grow the total.
+  const reviewTotal = baseTotal === undefined ? undefined : Math.max(0, baseTotal + added.length - hiddenIds.size)
 
   // Local state for the reject reason sheet
   const [rejectingReceiptId, setRejectingReceiptId] = useState<string | null>(null)
@@ -226,6 +259,7 @@ function ReviewContent() {
           onSellerClick={(sellerId) => navigate(`/admin/sellers/${sellerId}/receipts`)}
           isActing={isSwipePending}
           persistSkippedKey="vliq.review.skipped"
+          headerAction={fresh.length > 0 ? <NewReceiptsButton count={fresh.length} loading={loadingNew} onClick={loadNew} /> : undefined}
           onSkip={(id) => {
             // Skipping walks the deck like a decision does: keep the next page coming.
             if (receipts.length - receipts.findIndex((r) => r.id === id) < 5 && hasNextPage) void fetchNextPage()

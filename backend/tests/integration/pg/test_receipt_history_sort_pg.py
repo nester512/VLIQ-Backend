@@ -43,7 +43,7 @@ async def _seed(sm) -> dict[str, int]:
 async def _list(sm, sort: ReceiptQueueSort, order: str, limit: int = 50, page: int = 1) -> list[int]:
     async with sm() as s:
         res = await list_receipts(
-            ADMIN, s, page=page, limit=limit, status_filter=None, seller_id=SEED_SELLER_ID, from_date=None,
+            ADMIN, s, page=page, limit=limit, status_filter=None, seller_id=SEED_SELLER_ID, ids=None, from_date=None,
             to_date=None, order=order, queue=False, sort=sort,
         )  # fmt: skip
         return [int(i.id) for i in res.items]

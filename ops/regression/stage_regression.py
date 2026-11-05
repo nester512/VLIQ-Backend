@@ -19,6 +19,7 @@ import json
 import os
 import random
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -221,6 +222,49 @@ def metrics(url: str) -> str | None:
 
 
 # ===========================================================================================
+class Sse:
+    """Reads the admin review-events stream in a thread — through the public URL (Caddy), so
+    a buffering / compressing proxy shows up as «no event in time»."""
+
+    def __init__(self, token: str, since: str | None = None) -> None:
+        q = f"?since={urllib.parse.quote(since)}" if since else ""
+        req = urllib.request.Request(f"{BASE}/receipts/review-events{q}")
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Accept", "text/event-stream")
+        self.status, self.ctype, self.events = 0, "", []  # events: [(name, data)]
+        try:
+            self.resp = urllib.request.urlopen(req, timeout=60)
+            self.status, self.ctype = self.resp.status, self.resp.headers.get("Content-Type", "")
+            threading.Thread(target=self._read, daemon=True).start()
+        except urllib.error.HTTPError as e:
+            self.status, self.resp = e.code, None
+
+    def _read(self) -> None:
+        name = "message"
+        try:
+            for raw in self.resp:
+                line = raw.decode().rstrip("\n")
+                if line.startswith("event:"):
+                    name = line[6:].strip()
+                elif line.startswith("data:"):
+                    self.events.append((name, json.loads(line[5:])))
+                    name = "message"
+        except Exception:  # noqa: BLE001, S110 — closed by close()
+            pass
+
+    def wait(self, pred, seconds: float = 30) -> bool:
+        end = time.time() + seconds
+        while time.time() < end:
+            if any(pred(n, d) for n, d in list(self.events)):
+                return True
+            time.sleep(0.3)
+        return False
+
+    def close(self) -> None:
+        if self.resp is not None:
+            self.resp.close()
+
+
 def main() -> None:  # noqa: C901, PLR0915
     print(f"run={RUN} sellers {M}..{R2} base={BASE}", flush=True)
     admin = login(ADMIN_ID)
@@ -248,6 +292,23 @@ def main() -> None:  # noqa: C901, PLR0915
           f"refund n=2 → {st} {b.get('code')} extra={b.get('extra')}")
     st, b, _ = qr(admin)
     check("R-QR-8", st == 403, f"admin POST /receipts/qr → {st} {b.get('code')}")
+
+    # R-M-12: «↻ +N» — a receipt entering the queue reaches an open admin deck event by event.
+    check("R-M-12", Sse(sm).status == 403, "seller → review-events 403")
+    live = Sse(admin)
+    hello = live.wait(lambda n, d: n == "hello", 10)
+    since = next((d["now"] for n, d in live.events if n == "hello"), None)
+    rid_live = new_receipt(sm, admin)
+    got = live.wait(lambda n, d: n == "receipt" and d.get("receipt_id") == rid_live, 30)
+    live.close()
+    check("R-M-12", live.status == 200 and "text/event-stream" in live.ctype and hello and got,
+          f"stream {live.status} {live.ctype!r}: hello={hello}, receipt #{rid_live} event={got}")
+    replay = Sse(admin, since=since)  # reconnect after Telegram went to the background
+    caught = replay.wait(lambda n, d: n == "receipt" and d.get("receipt_id") == rid_live, 15)
+    replay.close()
+    check("R-M-12", caught, f"reconnect with since → receipt #{rid_live} replayed={caught}")
+    st, p = call("GET", f"/receipts?status=on_review&queue=true&sort=no_fiscal_first&ids={rid_live},999999999", admin)
+    check("R-M-12", st == 200 and [x["id"] for x in p.get("items", [])] == [rid_live], f"ids= load → {st} {p.get('total')}")
 
     src_receipts: dict[str, int] = {}
     first_body = None

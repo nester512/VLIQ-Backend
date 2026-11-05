@@ -38,6 +38,7 @@ from src.ofd_client.proverkacheka import ProverkachekaClient
 from src.payout_request import models as _payout_models  # noqa: F401
 from src.promotion import models as _promo_models  # noqa: F401
 from src.receipt import models as _receipt_models  # noqa: F401
+from src.receipt.review_events import publish_if_entered_review, queue_status
 from src.receipt_intake.pipeline import process_qr_receipt, stuck_pending_ids
 from src.receipt_ocr.qr_extractor import QRExtractor
 from src.receipt_ocr.storage import get_receipt_storage
@@ -81,6 +82,7 @@ async def process_receipt_task(ctx: dict, receipt_id: int) -> None:
     orchestrator: ReceiptPipelineOrchestrator = ctx["orchestrator"]
     session_factory: async_sessionmaker[AsyncSession] = ctx["sessionmaker"]
 
+    before = await queue_status(session_factory, receipt_id)
     async with session_factory() as session:
         try:
             await orchestrator.process(receipt_id, session)
@@ -88,14 +90,19 @@ async def process_receipt_task(ctx: dict, receipt_id: int) -> None:
             logger.exception("arq.task_error, receipt_id=%d: %s", receipt_id, exc)
             raise  # re-raise so arq marks the job as failed
 
+    await publish_if_entered_review(ctx["redis"], session_factory, receipt_id, before)
     logger.info("arq.task_done, receipt_id=%d", receipt_id)
 
 
 async def process_qr_receipt_task(ctx: dict, receipt_id: int) -> None:
-    """arq task: QR-intake receipt → fraud signals → on_review → first OFD attempt."""
+    """arq task: QR-intake receipt → fraud signals → on_review → first OFD attempt.
+
+    Entering on_review is announced to the admins' review deck (review_events)."""
     session_factory: async_sessionmaker[AsyncSession] = ctx["sessionmaker"]
+    before = await queue_status(session_factory, receipt_id)
     async with session_factory() as session:
         await process_qr_receipt(session, receipt_id, ctx["registry"])
+    await publish_if_entered_review(ctx["redis"], session_factory, receipt_id, before)
 
 
 async def retry_verifications_cron(ctx: dict) -> None:
@@ -104,6 +111,8 @@ async def retry_verifications_cron(ctx: dict) -> None:
     async with session_factory() as session:
         for receipt_id in await stuck_pending_ids(session):
             await process_qr_receipt(session, receipt_id, ctx["registry"])
+            # Picked from pending, so it was not in the queue before.
+            await publish_if_entered_review(ctx["redis"], session_factory, receipt_id, before=None)
         done = await retry_due(session, ctx["registry"])
     if done:
         logger.info("arq.verification_cron, attempts=%d", done)

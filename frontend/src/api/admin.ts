@@ -26,6 +26,8 @@ export interface AdminReceiptsFilters {
   queue?: boolean
   /** Server-side queue order; `no_fiscal_first` = receipts without QR / ФН-ФД-ФП first. */
   sort?: 'created' | 'no_fiscal_first' | 'total_sum' | 'bonus'
+  /** Only these receipts (max 50) — the review deck's «↻ Новые» load. */
+  ids?: string[]
 }
 
 export interface AdminPayoutsFilters {
@@ -635,6 +637,7 @@ export const getAdminReceipts = async (
   if (filters.order) params['order'] = filters.order
   if (filters.queue) params['queue'] = 'true'
   if (filters.sort) params['sort'] = filters.sort
+  if (filters.ids?.length) params['ids'] = filters.ids.join(',')
   const page = filters.page ?? 1
   const limit = filters.limit ?? 50
   params['page'] = page
