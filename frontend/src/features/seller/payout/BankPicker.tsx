@@ -82,7 +82,7 @@ export function BankPicker({ banks, loading, value, onChange }: BankPickerProps)
             <h2 style={{ fontSize: 18, fontWeight: 800, margin: '2px 0 10px', color: 'var(--vliq-text)' }}>Банк получателя</h2>
             <SearchBar
               value={query}
-              onChange={(v) => { setQuery(v); listRef.current?.scrollTo({ top: 0 }) }}
+              onChange={(v) => { setQuery(v); if (listRef.current) listRef.current.scrollTop = 0 }}
               placeholder="Название банка: сбер, тинькофф, альфа…"
               autoFocus
             />
