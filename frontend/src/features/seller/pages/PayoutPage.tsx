@@ -7,6 +7,8 @@ import { Icon } from '@/components/atoms/Icon'
 import { HeroSkeleton } from '@/components/atoms/Skeleton'
 import { useBalance } from '../hooks/useBalance'
 import { useRequestPayout } from '../hooks/useRequestPayout'
+import { useSbpBanks } from '../hooks/useSbpBanks'
+import { BankPicker, OTHER_BANK, type BankChoice } from '../payout/BankPicker'
 import { fmtMoney } from '@/utils/formatMoney'
 
 /** Fallback only — the server's minimum (balance.payout_min_amount) wins. */
@@ -36,6 +38,9 @@ export function PayoutPage() {
   // S5.1: partial withdrawal — the amount is editable (default = full balance).
   const [amountStr, setAmountStr] = useState('')
   const [phone, setPhone] = useState('')
+  // UC-S7: the bank the SBP transfer goes to — chosen on every request, like the phone.
+  const { data: banks, isLoading: banksLoading } = useSbpBanks()
+  const [bank, setBank] = useState<BankChoice | null>(null)
 
   // The seller types rubles; balance/amount are stored in kopecks → ×100.
   const amount = amountStr === '' ? available : Math.round((Number(amountStr) || 0) * 100)
@@ -43,7 +48,9 @@ export function PayoutPage() {
   const normalizedPhone = normalizePhone(phone)
   const phoneValid = normalizedPhone !== null
   const notBlocked = true // status gate is enforced server-side
-  const canSubmit = amountValid && phoneValid && available > 0
+  const otherName = bank?.id === OTHER_BANK ? bank.name.trim().replace(/\s+/g, ' ') : ''
+  const bankValid = bank !== null && (bank.id !== OTHER_BANK || (otherName.length >= 2 && otherName.length <= 100))
+  const canSubmit = amountValid && phoneValid && bankValid && available > 0
 
   const amountError = amountStr !== ''
     ? amount < MIN_PAYOUT_KOPECKS
@@ -54,9 +61,15 @@ export function PayoutPage() {
     : undefined
 
   async function handleRequest() {
-    if (!canSubmit || normalizedPhone === null) return
+    if (!canSubmit || normalizedPhone === null || bank === null) return
     try {
-      await requestPayout({ payload: { amount, method: 'sbp_phone', phone: normalizedPhone }, idempotencyKey })
+      await requestPayout({
+        payload: {
+          amount, method: 'sbp_phone', phone: normalizedPhone, bankId: bank.id,
+          ...(bank.id === OTHER_BANK ? { bankName: otherName } : {}),
+        },
+        idempotencyKey,
+      })
     } catch {
       return // toast already shown; the same key is reused on retry
     }
@@ -98,6 +111,20 @@ export function PayoutPage() {
         onChange={(e) => { setPhone(e.target.value); newForm() }}
         className="mt-3"
       />
+      <BankPicker banks={banks} loading={banksLoading} value={bank} onChange={(c) => { setBank(c); newForm() }} />
+      {bank?.id === OTHER_BANK && (
+        <Field
+          label="Название банка"
+          value={bank.name}
+          placeholder="Например, Росбанк"
+          autoFocus={!bank.name}
+          maxLength={100}
+          hint="Банка нет в списке СБП — напишите, как он называется"
+          error={bank.name !== '' && otherName.length < 2 ? 'Напишите название банка' : undefined}
+          onChange={(e) => { setBank({ id: OTHER_BANK, name: e.target.value }); newForm() }}
+          className="mt-3"
+        />
+      )}
 
       {/* Info banner */}
       <div

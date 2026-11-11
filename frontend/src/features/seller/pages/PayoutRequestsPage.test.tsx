@@ -13,7 +13,7 @@ vi.mock('@/api/payouts', () => ({
     Promise.resolve([
       { ...base, id: '3', status: 'rejected', admin_comment: 'Номер не подключён к СБП', rejected_at: '2026-10-09T12:00:00Z' },
       { ...base, id: '2', status: 'paid', paid_at: '2026-10-09T11:00:00Z' },
-      { ...base, id: '1', status: 'in_progress' },
+      { ...base, id: '1', status: 'in_progress', bank_id: '100000000111', bank_name: 'Сбербанк' },
     ]),
 }))
 
@@ -33,5 +33,8 @@ describe('PayoutRequestsPage — «Мои заявки на выплату»', (
     expect(paid).toHaveTextContent('выплачена')
     expect(within(inProgress!).getByText('В обработке')).toBeInTheDocument()
     expect(inProgress).not.toHaveTextContent('Причина')
+    // UC-S8: the bank the transfer goes to; requests made before the bank was asked show none
+    expect(inProgress).toHaveTextContent('СБП · телефон · Сбербанк · •••• 4567')
+    expect(paid).not.toHaveTextContent('Сбербанк')
   })
 })

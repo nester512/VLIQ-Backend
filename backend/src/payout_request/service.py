@@ -32,6 +32,7 @@ from src.bonus_transaction.models import BonusTransaction, BonusTransactionKind
 from src.notification import outbox as notification_outbox
 from src.notification.formatting import format_kopecks
 from src.payout_request.models import ACTIVE_PAYOUT_STATUSES, PayoutReceipt, PayoutRequest, PayoutRequestStatus
+from src.payout_request.sbp_banks import SBP_BANKS
 from src.payout_request.schemas.api import PayoutRequestRead
 from src.receipt.models import EventKind, Receipt, ReceiptStatus
 from src.receipt_journey import service as journey
@@ -58,6 +59,40 @@ def normalize_sbp_phone(raw: str) -> str:
             status_code=422,
         )
     return phone
+
+
+OTHER_BANK = "other"
+_BANK_NAME_MIN, _BANK_NAME_MAX = 2, 100
+
+
+def resolve_sbp_bank(bank_id: str | None, bank_name: str | None) -> tuple[str, str]:
+    """The bank of an SBP payout (UC-S7): a bank from the NSPK list — its name is taken from
+    the list, whatever the client sent — or «Другое» with the name the seller typed."""
+    bank_id = (bank_id or "").strip()
+    if not bank_id:
+        raise AppError(
+            "PAYOUT_BANK_REQUIRED", user_message="Выберите банк, в который придёт перевод по СБП.",
+            status_code=422, extra={"field": "bank"},
+        )  # fmt: skip
+    if bank_id == OTHER_BANK:
+        name = " ".join((bank_name or "").split())
+        if not _BANK_NAME_MIN <= len(name) <= _BANK_NAME_MAX:
+            raise AppError(
+                "PAYOUT_BANK_NAME_REQUIRED", user_message="Напишите название банка (от 2 до 100 символов).",
+                status_code=422, extra={"field": "bank_name"},
+            )  # fmt: skip
+        return OTHER_BANK, name
+    if bank_id not in SBP_BANKS:
+        raise AppError(
+            "PAYOUT_BANK_UNKNOWN", user_message="Такого банка нет в списке СБП. Выберите банк из списка или «Другое».",
+            status_code=422, extra={"field": "bank"},
+        )  # fmt: skip
+    return bank_id, SBP_BANKS[bank_id]
+
+
+def destination_label(payout: PayoutRequest) -> str:
+    """Where the money goes, for the seller's messages: «+79… · Сбербанк»."""
+    return f"{payout.payout_masked} · {payout.bank_name}" if payout.bank_name else payout.payout_masked
 
 
 def _audit(  # noqa: PLR0913
@@ -217,11 +252,14 @@ async def create_payout_request(  # noqa: PLR0913
     idempotency_key: str,
     min_amount: int,
     session: AsyncSession,
+    bank_id: str | None = None,
+    bank_name: str | None = None,
 ) -> PayoutRequestRead:
     """Create a payout request, reserve the money and cover receipts — one transaction."""
     if payout_kind != PayoutKind.sbp_phone.value:
         raise AppError("PAYOUT_METHOD_UNSUPPORTED", user_message="Выплата возможна только по СБП.", status_code=422)
     destination = normalize_sbp_phone(phone or "")
+    bank_id, bank_name = resolve_sbp_bank(bank_id, bank_name)
     if amount < min_amount:
         raise AppError(
             "PAYOUT_BELOW_MINIMUM",
@@ -255,6 +293,8 @@ async def create_payout_request(  # noqa: PLR0913
                 amount=amount,
                 payout_kind=payout_kind,
                 payout_masked=destination,
+                bank_id=bank_id,
+                bank_name=bank_name,
                 status=PayoutRequestStatus.new.value,
                 idempotency_key=idempotency_key,
                 created_by=seller_id,
@@ -275,7 +315,7 @@ async def create_payout_request(  # noqa: PLR0913
             if (await get_seller_balance(seller_id=seller_id, session=session)).available < 0:
                 raise _insufficient(balance.available - amount)
             _audit(session, actor_id=seller_id, actor_type="seller", action="create_payout", payout_id=payout.id,
-                   payload={"amount": amount})  # fmt: skip
+                   payload={"amount": amount, "bank_id": bank_id, "bank_name": bank_name})  # fmt: skip
             result = await _fresh(session, payout)
     except IntegrityError:
         # Two submits with one key raced past the lookup — the unique index kept one.
@@ -389,7 +429,7 @@ async def approve_payout_request(
 
         await notification_outbox.enqueue(
             session, recipient_id=payout.seller_id, channel="telegram", template="payout.sent",
-            payload={"amount": payout.amount, "payout_masked": payout.payout_masked},
+            payload={"amount": payout.amount, "payout_masked": destination_label(payout)},
         )
         _audit(session, actor_id=admin_id, actor_type="admin", action="approve_payout", payout_id=payout_id,
                payload={"amount": payout.amount, "external_txn_id": external_txn_id, "receipts_paid_out": fully_paid})  # fmt: skip
@@ -511,7 +551,7 @@ async def update_payout_request(  # noqa: PLR0912, PLR0913
                 raise _insufficient(0)  # a receipt was cancelled meanwhile (see create)
             await notification_outbox.enqueue(
                 session, recipient_id=payout.seller_id, channel="telegram", template="payout.amount_changed",
-                payload={"amount": amount, "old_amount": old_amount, "payout_masked": payout.payout_masked},
+                payload={"amount": amount, "old_amount": old_amount, "payout_masked": destination_label(payout)},
             )
             changes["amount"] = {"before": old_amount, "after": amount}
         if admin_comment is not None:

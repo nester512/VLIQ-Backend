@@ -88,6 +88,9 @@ export interface PayoutRequest {
   amount: number
   method: PayoutMethod
   details?: string
+  /** SBP bank (UC-S7): an NSPK member id or 'other'; null — a request made before the bank was asked. */
+  bank_id?: string | null
+  bank_name?: string | null
   status: PayoutStatus
   /** Rejection reason, shown to the seller. */
   admin_comment?: string | null

@@ -108,4 +108,18 @@ describe('PayoutDetailSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Продавец' }))
     expect(await screen.findByTestId('where')).toHaveTextContent('/admin/sellers/9/receipts')
   })
+
+  it('UC-A8: the card shows the bank to send the SBP transfer to', () => {
+    renderSheet(payout({ bank_id: '100000000004', bank_name: 'Т-Банк' }))
+    expect(screen.getByText('Банк')).toBeInTheDocument()
+    expect(screen.getByText('Т-Банк')).toBeInTheDocument()
+    cleanup()
+
+    renderSheet(payout({ bank_id: 'other', bank_name: 'Росбанк' }))
+    expect(screen.getByText('Росбанк (нет в списке СБП, указан вручную)')).toBeInTheDocument()
+    cleanup()
+
+    renderSheet(payout({ bank_id: null, bank_name: null }))
+    expect(screen.getByText('не указан (заявка до выбора банка)')).toBeInTheDocument()
+  })
 })

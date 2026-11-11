@@ -78,4 +78,13 @@ describe('PayoutsPage — phrases are not split over lines (Flip 7)', () => {
     expect(created.querySelectorAll('.vliq-nowrap')).toHaveLength(2) // created at · выплачена at
     expect(screen.getByText(/СБП/).classList.contains('vliq-nowrap')).toBe(true)
   })
+
+  it('UC-A8: the row shows the bank the transfer goes to', async () => {
+    getAdminPayouts.mockResolvedValue({
+      items: [{ ...row(1), bank_id: '100000000111', bank_name: 'Сбербанк' }, row(2)], total: 2, page: 1, limit: 50, has_more: false,
+    })
+    renderPage()
+    const banks = await screen.findAllByTestId('payout-bank')
+    expect(banks.map((b) => b.textContent)).toEqual(['Сбербанк']) // the older request has no bank
+  })
 })

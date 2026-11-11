@@ -282,6 +282,8 @@ interface BackendPayoutRequest {
   amount: number
   payout_kind: PayoutMethod
   payout_masked: string
+  bank_id?: string | null
+  bank_name?: string | null
   status: 'new' | 'in_progress' | 'paid' | 'rejected'
   admin_comment?: string | null
   external_txn_id?: string | null
@@ -413,6 +415,8 @@ function mapPayout(p: BackendPayoutRequest): PayoutRequest {
     amount: p.amount,
     method: p.payout_kind,
     details: p.payout_masked,
+    bank_id: p.bank_id ?? null,
+    bank_name: p.bank_name ?? null,
     status: p.status,
     admin_comment: p.admin_comment ?? null,
     external_txn_id: p.external_txn_id ?? null,

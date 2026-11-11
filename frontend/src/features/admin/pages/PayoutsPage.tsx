@@ -73,6 +73,8 @@ function PayoutRow({ payout, onClick }: PayoutRowProps) {
   const digits = payout.details?.replace(/\D/g, '') ?? ''
   const shortDest = digits.length >= 4 && !payout.details?.includes('*') ? `•••• ${digits.slice(-4)}` : payout.details
   const details = shortDest ? `${methodLabel} ${shortDest}` : methodLabel
+  // UC-A8: the bank the admin sends the SBP transfer to; older requests have none.
+  const bank = payout.bank_name ? payout.bank_name : null
   const ic = ICON_BG[kind]
   const sellerLabel = payout.seller_name?.trim() || `Продавец #${payout.seller_id}`
 
@@ -86,7 +88,10 @@ function PayoutRow({ payout, onClick }: PayoutRowProps) {
       <div className="vliq-row-tx">
         <b>{sellerLabel}</b>
         {payout.seller_store && <span>{payout.seller_store}</span>}
-        <span className="vliq-nowrap">{details}</span>
+        <span>
+          <span className="vliq-nowrap">{details}</span>
+          {bank && <> · <span data-testid="payout-bank">{bank}</span></>}
+        </span>
         <span style={{ fontSize: 11.5 }} data-testid="payout-created">
           <span className="vliq-nowrap">{formatDateTime(payout.created_at)}</span>
           {payout.status === 'paid' && payout.paid_at && (

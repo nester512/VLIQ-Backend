@@ -8,6 +8,7 @@ interface SearchBarProps {
   onChange: (v: string) => void
   className?: string
   style?: CSSProperties
+  autoFocus?: boolean
 }
 
 export function SearchBar({
@@ -16,6 +17,7 @@ export function SearchBar({
   onChange,
   className = '',
   style,
+  autoFocus,
 }: SearchBarProps) {
   const [focused, setFocused] = useState(false)
 
@@ -46,6 +48,8 @@ export function SearchBar({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        autoFocus={autoFocus}
+        aria-label={placeholder}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         style={{

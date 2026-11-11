@@ -44,6 +44,7 @@ def _make_payout(payout_id: int = 1, status: str = "new", amount: int = 235000) 
     p.amount = amount
     p.payout_kind = "sbp_phone"
     p.payout_masked = "•••• 4117"
+    p.bank_id = p.bank_name = None  # a request made before the bank was asked
     p.status = status
     p.admin_comment = None
     p.external_txn_id = None

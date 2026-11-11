@@ -28,6 +28,10 @@ class PayoutRequestCreate(BaseModel):
     phone: str | None = Field(default=None, max_length=32, description="Phone for SBP, entered in this form (В-5-A)")
     # Older clients send the phone here; kept so a cached app keeps working.
     payout_masked: str | None = Field(default=None, max_length=64, deprecated=True)
+    bank_id: str | None = Field(
+        default=None, max_length=16, description="NSPK member id from GET /payout-requests/sbp-banks, or «other»"
+    )
+    bank_name: str | None = Field(default=None, max_length=200, description="Bank name typed by the seller for «other»")
 
 
 class PayoutRequestApprove(BaseModel):
@@ -72,6 +76,8 @@ class PayoutRequestRead(BaseModel):
     amount: int
     payout_kind: PayoutKind
     payout_masked: str
+    bank_id: str | None = None  # NULL: a request made before the bank was asked
+    bank_name: str | None = None
     status: PayoutRequestStatus
     admin_comment: str | None = None
     external_txn_id: str | None = None
@@ -82,6 +88,14 @@ class PayoutRequestRead(BaseModel):
     rejected_at: datetime | None = None
     created_by: int | None = None
     updated_by: int | None = None
+
+
+class SbpBankRead(BaseModel):
+    """A bank the SBP transfer can go to (NSPK members dictionary)."""
+
+    id: str
+    name: str
+    popular: bool = False
 
 
 class PayoutCoverageRead(BaseModel):

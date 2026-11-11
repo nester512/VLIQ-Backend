@@ -41,6 +41,7 @@ pytestmark = pytest.mark.asyncio
 ADMIN = {"user_id": 777, "role": "admin"}
 MIN = 300_000
 PHONE = "8 (999) 123-45-67"
+PHONE_NORM = "+79991234567"
 _fp = iter(range(1000, 9999))
 
 
@@ -58,11 +59,16 @@ async def _approved(sm: async_sessionmaker[AsyncSession], bonus: int) -> int:
     return rid
 
 
-async def _create(sm, amount: int, key: str = "key-00000001", phone: str = PHONE):
+SBER = "100000000111"  # NSPK member id of «Сбербанк»
+
+
+async def _create(  # noqa: PLR0913
+    sm, amount: int, key: str = "key-00000001", phone: str = PHONE, bank_id: str | None = SBER, bank_name: str | None = None
+):
     async with sm() as s:
         return await create_payout_request(
             seller_id=SEED_SELLER_ID, amount=amount, payout_kind="sbp_phone", phone=phone,
-            idempotency_key=key, min_amount=MIN, session=s,
+            idempotency_key=key, min_amount=MIN, session=s, bank_id=bank_id, bank_name=bank_name,
         )
 
 
@@ -181,6 +187,7 @@ async def test_paid__receipts_fully_covered_become_paid_out_and_one_notification
 
     sent = await _all(sm, NotificationOutbox, NotificationOutbox.template == "payout.sent")
     assert len(sent) == 1
+    assert sent[0].payload["payout_masked"] == f"{PHONE_NORM} · Сбербанк"  # the seller sees which bank
     bal = await _balance(sm)
     assert (bal.available, bal.on_hold, bal.total_paid_out, bal.total_accrued) == (100_000, 0, 300_000, 400_000)
     actions = [a.action for a in await _all(sm, AuditLog, AuditLog.entity_type == "payout")]
@@ -419,3 +426,41 @@ async def test_summary_counts_every_request_not_one_page(session_factory) -> Non
     assert [p.id for p in found.items] == sorted(ids, reverse=True)  # newest first by default
     assert [p.id for p in oldest.items] == sorted(ids)  # «сначала старые»
     assert [(c.amount, c.receipt_status) for c in covered] == [(300_000, "approved")]
+
+
+# ---- the bank of the SBP transfer (UC-S7 «Банк получателя») -----------------------------------
+
+
+async def test_bank_from_the_list_is_stored_with_its_list_name(session_factory) -> None:
+    await _approved(session_factory, 500_000)
+    # whatever name the client sends, a listed bank keeps the NSPK name
+    payout = await _create(session_factory, 300_000, bank_id=SBER, bank_name="сбер ")
+    assert (payout.bank_id, payout.bank_name) == (SBER, "Сбербанк")
+    async with session_factory() as s:
+        row = (await s.execute(select(PayoutRequest.bank_id, PayoutRequest.bank_name))).one()
+    assert tuple(row) == (SBER, "Сбербанк")
+
+
+async def test_other_bank_keeps_the_typed_name(session_factory) -> None:
+    await _approved(session_factory, 500_000)
+    payout = await _create(session_factory, 300_000, bank_id="other", bank_name="  Росбанк   Москва ")
+    assert (payout.bank_id, payout.bank_name) == ("other", "Росбанк Москва")
+
+
+@pytest.mark.parametrize(
+    ("bank_id", "bank_name", "code"),
+    [
+        (None, None, "PAYOUT_BANK_REQUIRED"),
+        ("", "Сбербанк", "PAYOUT_BANK_REQUIRED"),
+        ("other", None, "PAYOUT_BANK_NAME_REQUIRED"),
+        ("other", " Б ", "PAYOUT_BANK_NAME_REQUIRED"),
+        ("100000000999", None, "PAYOUT_BANK_UNKNOWN"),
+    ],
+)
+async def test_bank_is_required_and_nothing_is_reserved_without_it(session_factory, bank_id, bank_name, code) -> None:
+    await _approved(session_factory, 500_000)
+    with pytest.raises(AppError) as err:
+        await _create(session_factory, 300_000, bank_id=bank_id, bank_name=bank_name)
+    assert err.value.code == code
+    assert await _all(session_factory, PayoutRequest) == []
+    assert (await _balance(session_factory)).available == 500_000

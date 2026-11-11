@@ -57,6 +57,11 @@ class PayoutRequest(TimeStampedModel):
         nullable=False,
         comment="Snapshot of payout destination at the time of request",
     )
+    # The bank the seller receives the SBP transfer in (UC-S7): an NSPK member id from
+    # src/payout_request/sbp_banks.py, or "other" with the name the seller typed.
+    # NULL for requests made before the bank was asked (migration 0015).
+    bank_id: Mapped[str | None] = mapped_column(String(16), default=None)
+    bank_name: Mapped[str | None] = mapped_column(String(128), default=None)
 
     status: Mapped[str] = mapped_column(
         SAEnum(

@@ -21,6 +21,7 @@ from src.app.depends import get_config, get_pg_session
 from src.app.errors import AppError
 from src.app.settings import Settings
 from src.payout_request.models import ACTIVE_PAYOUT_STATUSES, PayoutReceipt, PayoutRequest, PayoutRequestStatus
+from src.payout_request.sbp_banks import POPULAR_IDS, SBP_BANKS
 from src.payout_request.schemas.api import (
     PayoutCoverageRead,
     PayoutRequestApprove,
@@ -30,6 +31,7 @@ from src.payout_request.schemas.api import (
     PayoutRequestUpdate,
     PayoutStatusTotal,
     PayoutSummaryRead,
+    SbpBankRead,
 )
 from src.payout_request.service import (
     approve_payout_request,
@@ -147,6 +149,8 @@ async def create_payout_request_endpoint(
         amount=body.amount,
         payout_kind=body.payout_kind.value,
         phone=body.phone or body.payout_masked,
+        bank_id=body.bank_id,
+        bank_name=body.bank_name,
         idempotency_key=idempotency_key,
         min_amount=cfg.PAYOUT_MIN_AMOUNT,
         session=session,
@@ -272,6 +276,22 @@ async def payout_summary(  # noqa: PLR0913
         paid_this_month=PayoutStatusTotal(count=int(n_month), amount=int(sum_month)),
         blocked_in_progress=PayoutStatusTotal(count=int(n_held), amount=int(sum_held)),
     )
+
+
+@router.get(
+    "/sbp-banks",
+    response_model=list[SbpBankRead],
+    summary="Банки для перевода по СБП (форма выплаты, UC-S7)",
+    description="Справочник участников СБП НСПК: сначала популярные, затем остальные по алфавиту. "
+    "Банка нет в списке — в заявке `bank_id=other` и `bank_name`.",
+)
+async def list_sbp_banks(token: Annotated[JwtTokenT, Depends(validate_token_dependency)]) -> list[SbpBankRead]:
+    popular = [SbpBankRead(id=i, name=SBP_BANKS[i], popular=True) for i in POPULAR_IDS]
+    rest = sorted(
+        (SbpBankRead(id=i, name=n) for i, n in SBP_BANKS.items() if i not in POPULAR_IDS),
+        key=lambda b: b.name.casefold().replace("ё", "е"),
+    )
+    return popular + rest
 
 
 @router.get(

@@ -165,6 +165,8 @@ erDiagram
         int amount
         enum payout_kind "card|sbp_phone|sbp_bank"
         string payout_masked "снапшот на момент заявки"
+        string bank_id "банк СБП: id участника НСПК или other; NULL до 0015"
+        string bank_name "название банка (из списка НСПК или введённое)"
         enum status "new|in_progress|paid|rejected"
         text admin_comment
         string external_txn_id

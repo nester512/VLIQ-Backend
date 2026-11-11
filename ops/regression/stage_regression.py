@@ -165,9 +165,12 @@ def bal(seller: str) -> dict:
     return call("GET", "/sellers/me/balance", seller)[1]
 
 
-def payout(seller: str, amount: int, key: str, phone: str = "+7 999 000-00-01"):
-    return call("POST", "/payout-requests", seller, {"amount": amount, "payout_kind": "sbp_phone", "phone": phone},
-                {"Idempotency-Key": key})
+SBER = "100000000111"  # NSPK member id of «Сбербанк»
+
+
+def payout(seller: str, amount: int, key: str, phone: str = "+7 999 000-00-01", bank: dict | None = None):
+    body = {"amount": amount, "payout_kind": "sbp_phone", "phone": phone, **({"bank_id": SBER} if bank is None else bank)}
+    return call("POST", "/payout-requests", seller, body, {"Idempotency-Key": key})
 
 
 def register(token: str, uid: int, first: str, last: str) -> dict:
@@ -404,6 +407,17 @@ def main() -> None:  # noqa: C901, PLR0915
     check("R-P-1", st == 422 and b.get("code") == "PAYOUT_BELOW_MINIMUM", f"2 999,99 ₽ → {st} {b.get('code')}")
     st, b = payout(sm, 300_000, f"land-{RUN}-{M}", phone="+7 495 123-45-67")
     check("R-P-1", st == 422 and b.get("code") == "PAYOUT_PHONE_INVALID", f"городской номер → {st} {b.get('code')}")
+    # R-P-11: «Банк получателя» — the NSPK list, required, «Другое» by name
+    st, banks = call("GET", "/payout-requests/sbp-banks", sm)
+    top = [x["name"] for x in banks[:3]] if st == 200 else []
+    st_n, bn = payout(sm, 300_000, f"nobank-{RUN}-{M}", bank={})
+    st_u, bu = payout(sm, 300_000, f"badbank-{RUN}-{M}", bank={"bank_id": "100000000999"})
+    st_o, bo = payout(sm, 300_000, f"other-{RUN}-{M}", bank={"bank_id": "other"})
+    check("R-P-11", st == 200 and len(banks) == 196 and top == ["Сбербанк", "Т-Банк", "Банк ВТБ"]
+          and (st_n, code_of(bn)) == (422, "PAYOUT_BANK_REQUIRED") and (st_u, code_of(bu)) == (422, "PAYOUT_BANK_UNKNOWN")
+          and (st_o, code_of(bo)) == (422, "PAYOUT_BANK_NAME_REQUIRED"),
+          f"list {st} n={len(banks) if st == 200 else '-'} top={top}; no bank → {st_n} {code_of(bn)}; "
+          f"unknown → {st_u} {code_of(bu)}; «Другое» без названия → {st_o} {code_of(bo)}")
 
     b0 = bal(sm)
     mine0 = len(call("GET", "/payout-requests/me", sm)[1])
@@ -411,6 +425,8 @@ def main() -> None:  # noqa: C901, PLR0915
     st2, p1b = payout(sm, 300_000, f"p1-{RUN}-{M}")
     mine1 = len(call("GET", "/payout-requests/me", sm)[1])
     b1 = bal(sm)
+    check("R-P-11", p1.get("bank_id") == SBER and p1.get("bank_name") == "Сбербанк",
+          f"#{p1.get('id')} bank {p1.get('bank_id')} {p1.get('bank_name')}")
     check("R-P-2", st == 201 and st2 in (200, 201) and p1b.get("id") == p1.get("id") and mine1 == mine0 + 1,
           f"#{p1.get('id')} {st}, retry → {st2} #{p1b.get('id')}; seller requests {mine0}→{mine1}")
     check("R-P-2", b1["available"] == b0["available"] - 300_000 and b1["on_hold"] == b0["on_hold"] + 300_000,

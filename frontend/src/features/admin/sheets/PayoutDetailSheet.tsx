@@ -35,7 +35,7 @@ const REJECT_COPY = {
   placeholder: 'Почему заявка отклоняется…',
   confirmLabel: 'Отклонить',
   submittingLabel: 'Отклонение…',
-  quickPicks: ['Неверный номер телефона', 'Номер не подключён к СБП', 'Проверка продавца'],
+  quickPicks: ['Неверный номер телефона', 'Номер не подключён к СБП', 'Неверно указан банк', 'Проверка продавца'],
 } as const
 
 const btn = (bg: string, color: string, busy: boolean): React.CSSProperties => ({
@@ -100,6 +100,14 @@ export function PayoutDetailSheet({ payoutId, payout: initial }: PayoutDetailShe
         <KVRow label="Сумма" value={fmtMoney(payout.amount)} valueStyle={{ fontSize: 15 }} />
         <KVRow label="Способ" value={methodLabel} />
         <KVRow label="Реквизиты" value={payout.details ?? '—'} />
+        <KVRow
+          label="Банк"
+          value={
+            payout.bank_name
+              ? payout.bank_id === 'other' ? `${payout.bank_name} (нет в списке СБП, указан вручную)` : payout.bank_name
+              : 'не указан (заявка до выбора банка)'
+          }
+        />
         <KVRow label="Статус" value={statusLabel} />
         <KVRow label="Создана" value={formatDateTime(payout.created_at)} />
         {payout.taken_at && <KVRow label="Взята в работу" value={formatDateTime(payout.taken_at)} />}
