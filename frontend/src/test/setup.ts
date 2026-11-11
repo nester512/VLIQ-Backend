@@ -7,3 +7,12 @@ if (typeof URL.createObjectURL !== 'function') {
   URL.createObjectURL = () => `blob:mock/${++seq}`
   URL.revokeObjectURL = () => {}
 }
+
+// jsdom has no pointer capture — the swipe sheets (vaul) call it on every press; browsers do.
+// (Files that run without a DOM have no Element at all.)
+if (typeof Element !== 'undefined') {
+  for (const name of ['setPointerCapture', 'releasePointerCapture'] as const) {
+    if (typeof Element.prototype[name] !== 'function') Element.prototype[name] = () => {}
+  }
+  if (typeof Element.prototype.hasPointerCapture !== 'function') Element.prototype.hasPointerCapture = () => false
+}
