@@ -116,3 +116,12 @@ describe('StatusPage — what was in the receipt', () => {
     expect(await screen.findByTestId('receipt-items-empty')).toHaveTextContent('Появится после проверки чека в ФНС')
   })
 })
+
+describe('StatusPage — review time', () => {
+  it('a receipt on review says «От 1 до 3 рабочих дней» (not «Обычно до 24 часов»)', async () => {
+    getReceiptStatus.mockResolvedValue(baseReceipt({ status: 'on_review' }))
+    renderPage()
+    expect(await screen.findByText('От 1 до 3 рабочих дней')).toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent(/24 час/)
+  })
+})

@@ -21,4 +21,16 @@ describe('ProfilePage — FAQ in the profile too', () => {
     expect(within(faq).getByText(/любых торговых точек сети/)).toBeInTheDocument()
     expect(within(faq).getByRole('button', { name: 'Что делать, если потерян доступ к аккаунту Telegram?' })).toBeInTheDocument()
   })
+
+  it('review time is «от 1 до 3 рабочих дней» — the old terms are gone (2026-11-11)', () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter><ProfilePage /></MemoryRouter>
+      </QueryClientProvider>,
+    )
+    const faq = screen.getByRole('region', { name: 'Вопросы и ответы' })
+    fireEvent.click(within(faq).getByRole('button', { name: 'Сколько времени занимает проверка чека?' }))
+    expect(faq).toHaveTextContent('Срок проверки — от 1 до 3 рабочих дней.')
+    expect(document.body).not.toHaveTextContent(/2–3 рабочих|24 час/)
+  })
 })

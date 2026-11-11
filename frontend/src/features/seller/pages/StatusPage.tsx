@@ -53,7 +53,7 @@ function buildTimeline(status: ReceiptStatus, createdAt: string): TimelineStep[]
   return [
     { label: 'Чек получен',          subtitle: fmtDate, status: 'done' },
     { label: 'Данные распознаны',     subtitle: isProcessing ? 'Обрабатывается…' : undefined, status: isProcessing ? 'active' : 'done' },
-    { label: 'Проверка администратором', subtitle: isReview ? 'Обычно до 24 часов' : undefined, status: isReview ? 'active' : (isOk || isDg ? 'done' : 'pending') },
+    { label: 'Проверка администратором', subtitle: isReview ? 'От 1 до 3 рабочих дней' : undefined, status: isReview ? 'active' : (isOk || isDg ? 'done' : 'pending') },
     { label: 'Начисление бонуса',     subtitle: isOk ? 'Завершено' : (isDg ? 'Не начисляется' : 'Ожидается'), status: isOk ? 'done' : (isDg ? 'failed' : 'pending') },
   ]
 }
