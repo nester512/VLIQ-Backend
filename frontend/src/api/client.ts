@@ -146,14 +146,18 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+/** The server shut this account out: blocked seller, switched-off admin, Telegram account
+ *  moved to a new one by account recovery. Not "try again" — the app must stop. */
+export const ACCESS_REVOKED_CODES: ReadonlySet<string> = new Set(['SELLER_BLOCKED', 'ACCOUNT_MOVED', 'ADMIN_DISABLED'])
+
 api.interceptors.response.use(
   (response) => response,
   (error: unknown) => {
-    if (
-      axios.isAxiosError(error) &&
-      error.response?.status === 401
-    ) {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
       authStore.getState().logout()
+    } else if (axios.isAxiosError(error) && error.response?.status === 403) {
+      const failure = extractApiError(error)
+      if (ACCESS_REVOKED_CODES.has(failure.code)) authStore.getState().revoke(failure.userMessage)
     }
     return Promise.reject(error)
   },

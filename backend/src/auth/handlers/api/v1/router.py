@@ -58,7 +58,7 @@ async def _issue_token_for_telegram_id(
     admin = await _find_admin(session, telegram_id)
     if admin is not None:
         if not admin.is_active:
-            raise AppError("AUTH_FORBIDDEN", status_code=403)
+            raise AppError("ADMIN_DISABLED", status_code=403)
         token = jwt_auth.create_token(admin)
         logger.info("auth.login.admin", telegram_id=telegram_id, role=admin.role)
         return LoginResponse(access_token=token, role=admin.role)  # type: ignore[arg-type]

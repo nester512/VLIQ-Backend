@@ -59,6 +59,8 @@ USER_MESSAGES: dict[str, str] = {
     "AUTH_TOKEN_EXPIRED": "Сессия истекла. Откройте приложение заново из Telegram.",
     "AUTH_TOKEN_INVALID": "Сессия истекла. Откройте приложение заново из Telegram.",
     "AUTH_FORBIDDEN": "У вас нет доступа к этому действию.",
+    "AUTH_TOKEN_STALE": "Сессия устарела. Откройте приложение заново из Telegram.",
+    "ADMIN_DISABLED": "Ваш доступ администратора отключён. Если это ошибка — обратитесь к владельцу программы.",
     "AUTH_REGISTRATION_REQUIRED": "Завершите регистрацию, чтобы продолжить.",
     # --- Seller ---
     "SELLER_BLOCKED": "Ваш аккаунт заблокирован. Обратитесь в поддержку: @kovalyova_yekaterina.",

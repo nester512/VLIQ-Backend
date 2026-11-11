@@ -1,7 +1,8 @@
 """S1 "двойной заслон": a blocked seller cannot act with a token issued before the block.
 
-Covers ``forbid_blocked_seller`` and the routes it guards, plus the seller-side
-ban on editing moderation fields (a seller must not lift their own block).
+Covers the seller part of ``check_account_access`` (run for every request by
+``validate_token_dependency``) and the routes it guards, plus the seller-side ban on
+editing moderation fields (a seller must not lift their own block).
 """
 
 from __future__ import annotations
@@ -11,10 +12,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.app.auth.jwt import jwt_auth
+from src.app.auth.jwt import account_access_dependency, check_account_access, jwt_auth
 from src.app.depends import get_pg_session
 from src.app.errors import AppError
-from src.seller.depends import forbid_blocked_seller
 from src.seller.models import Seller, SellerStatus
 
 SELLER_ID = 70000001
@@ -39,17 +39,18 @@ def _override(app, session: MagicMock) -> None:
         yield session
 
     app.dependency_overrides[get_pg_session] = _dep
+    app.dependency_overrides.pop(account_access_dependency, None)  # the real re-check
 
 
 # --- dependency unit tests ----------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_forbid_blocked_seller__blocked__raises_seller_blocked():
+async def test_account_access__blocked_seller__raises_seller_blocked():
     session = _session_with_status(SellerStatus.blocked.value)
 
     with pytest.raises(AppError) as exc:
-        await forbid_blocked_seller({"user_id": SELLER_ID, "role": "seller"}, session)
+        await check_account_access({"user_id": SELLER_ID, "role": "seller"}, session)
 
     assert exc.value.code == "SELLER_BLOCKED"
     assert exc.value.status_code == 403
@@ -57,20 +58,17 @@ async def test_forbid_blocked_seller__blocked__raises_seller_blocked():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", [SellerStatus.active.value, SellerStatus.pending.value])
-async def test_forbid_blocked_seller__not_blocked__passes_token_through(status: str):
+async def test_account_access__seller_not_blocked__passes(status: str):
     token = {"user_id": SELLER_ID, "role": "seller"}
 
-    assert await forbid_blocked_seller(token, _session_with_status(status)) is token
+    assert await check_account_access(token, _session_with_status(status)) is None
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role", ["admin", "super_admin"])
-async def test_forbid_blocked_seller__admin__no_status_lookup(role: str):
-    session = _session_with_status(SellerStatus.blocked.value)
-    token = {"user_id": 1, "role": role}
-
-    assert await forbid_blocked_seller(token, session) is token
-    session.scalar.assert_not_awaited()
+async def test_account_access__seller_row_gone__stale_token():
+    with pytest.raises(AppError) as exc:
+        await check_account_access({"user_id": SELLER_ID, "role": "seller"}, _session_with_status(None))
+    assert (exc.value.code, exc.value.status_code) == ("AUTH_TOKEN_STALE", 401)
 
 
 # --- guarded routes (old token, seller blocked since) -------------------------
@@ -80,10 +78,22 @@ async def test_forbid_blocked_seller__admin__no_status_lookup(role: str):
 @pytest.mark.parametrize(
     ("method", "path", "kwargs"),
     [
-        ("post", "/api/v1/receipts/upload", {"files": {"files": ("r.png", b"\x89PNG\r\n\x1a\n", "image/png")}, "data": {"brand_id": "1"}}),
-        ("post", "/api/v1/receipts/upload-urls", {"json": {"brand_id": 1, "files": [{"mime": "image/png", "size": 10}]}}),
+        (
+            "post",
+            "/api/v1/receipts/upload",
+            {"files": {"files": ("r.png", b"\x89PNG\r\n\x1a\n", "image/png")}, "data": {"brand_id": "1"}},
+        ),
+        (
+            "post",
+            "/api/v1/receipts/upload-urls",
+            {"json": {"brand_id": 1, "files": [{"mime": "image/png", "size": 10}]}},
+        ),
         ("post", "/api/v1/receipts/finalize", {"json": {}}),
-        ("post", "/api/v1/payout-requests", {"json": {"amount": 100, "payout_kind": "sbp_phone"}, "headers": {"Idempotency-Key": "k"}}),
+        (
+            "post",
+            "/api/v1/payout-requests",
+            {"json": {"amount": 100, "payout_kind": "sbp_phone"}, "headers": {"Idempotency-Key": "k"}},
+        ),
         ("patch", "/api/v1/sellers/me", {"json": {"outlet_name": "x"}}),
         ("patch", f"/api/v1/sellers/{SELLER_ID}", {"json": {"outlet_name": "x"}}),
     ],
@@ -122,24 +132,23 @@ async def test_seller_patch_self__moderation_fields__forbidden(client: AsyncClie
 
 
 @pytest.mark.asyncio
-async def test_forbid_blocked_seller__ends_the_transaction_it_started():
+async def test_account_access__ends_the_transaction_it_started():
     session = _session_with_status(SellerStatus.active.value)
     session.in_transaction = MagicMock(return_value=False)
 
-    await forbid_blocked_seller({"user_id": SELLER_ID, "role": "seller"}, session)
+    await check_account_access({"user_id": SELLER_ID, "role": "seller"}, session)
 
     session.rollback.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_forbid_blocked_seller__keeps_an_outer_transaction():
+async def test_account_access__keeps_an_outer_transaction():
     session = _session_with_status(SellerStatus.active.value)
     session.in_transaction = MagicMock(return_value=True)
 
-    await forbid_blocked_seller({"user_id": SELLER_ID, "role": "seller"}, session)
+    await check_account_access({"user_id": SELLER_ID, "role": "seller"}, session)
 
     session.rollback.assert_not_awaited()
-
 
 
 # --- account recovery: the lost account's old tokens stop working at once ------
@@ -150,7 +159,7 @@ async def test_lost_account_token__after_recovery__account_moved():
     session = _session_with_status(SellerStatus.active.value, moved=True)
     with pytest.raises(AppError) as exc:
         # an old token: issued to the seller's own (now lost) Telegram account
-        await forbid_blocked_seller({"user_id": SELLER_ID, "role": "seller", "login_id": SELLER_ID}, session)
+        await check_account_access({"user_id": SELLER_ID, "role": "seller", "login_id": SELLER_ID}, session)
     assert (exc.value.code, exc.value.status_code) == ("ACCOUNT_MOVED", 403)
 
 
@@ -159,12 +168,12 @@ async def test_lost_account_token_without_login_claim__account_moved():
     """Tokens issued before the claim existed count as the seller's own account."""
     session = _session_with_status(SellerStatus.active.value, moved=True)
     with pytest.raises(AppError):
-        await forbid_blocked_seller({"user_id": SELLER_ID, "role": "seller"}, session)
+        await check_account_access({"user_id": SELLER_ID, "role": "seller"}, session)
 
 
 @pytest.mark.asyncio
 async def test_recovered_account_token__passes():
     token = {"user_id": SELLER_ID, "role": "seller", "login_id": 990777}
     session = _session_with_status(SellerStatus.active.value, moved=True)
-    assert await forbid_blocked_seller(token, session) is token
+    assert await check_account_access(token, session) is None
     assert session.scalar.await_count == 1  # the recovered account never even reads the flag

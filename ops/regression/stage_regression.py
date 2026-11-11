@@ -568,6 +568,11 @@ def main() -> None:  # noqa: C901, PLR0915
         dash = call("GET", "/analytics/dashboard", admin)[1]
         qt = call("GET", "/receipts?status=on_review&queue=true&limit=1", admin)[1]["total"]
         hist = {x["id"] for x in page_all(admin, f"/receipts?seller_id={B}&order=desc")[0]}
+        # R-A-4: the seller's token is still valid, but blocking cuts viewing too (decision В-1)
+        st_v, bv = call("GET", "/sellers/me/balance", sb)
+        st_l, bl = tma(B)
+        check("R-A-4", st_v == 403 and code_of(bv) == "SELLER_BLOCKED" and st_l == 403 and code_of(bl) == "SELLER_BLOCKED",
+              f"blocked, old token «Баланс» → {st_v} {code_of(bv)}; new login → {st_l} {code_of(bl)}")
         st, b = approve(admin, b_rev, 100_000)
         check("R-S-5", not q_ids and b_rev in hist and b_old in hist, f"queue has {len(q_ids)} of his receipts; history keeps #{b_old}, #{b_rev}")
         check("R-S-5", st == 409 and b.get("code") == "RECEIPT_SELLER_BLOCKED", f"approve opened card #{b_rev} → {st} {b.get('code')}")
@@ -598,6 +603,8 @@ def main() -> None:  # noqa: C901, PLR0915
     lst = {p["id"] for p in page_all(admin, f"/payout-requests?seller_id={B}")[0]}
     st, b = call("POST", f"/payout-requests/{pb1['id']}/approve", admin, {})
     check("R-S-5", b_rev in q_ids, f"after unblock #{b_rev} back in queue")
+    st_v = call("GET", "/sellers/me/balance", sb)[0]
+    check("R-A-4", st_v == 200, f"after unblock the same token «Баланс» → {st_v}")
     check("R-P-9", pb1["id"] in lst and st == 200 and b.get("status") == "paid", f"after unblock #{pb1['id']} listed, «Выплачено» → {st}")
 
     # ---- 4. Sellers: search, card, lists ----------------------------------------------------
@@ -691,12 +698,44 @@ def main() -> None:  # noqa: C901, PLR0915
           f"receipts={[x['id'] for x in nr.get('items', [])]}")
     st_o, bo = tma(R)
     check("R-A-2", st_o == 403 and bo.get("code") == "ACCOUNT_MOVED", f"old account login → {st_o} {bo.get('code')}")
+    # R-A-5: the lost account's token (issued before the transfer) sees nothing any more
+    st_v, bv = call("GET", "/sellers/me/balance", sr)
+    st_r, br = call("GET", "/sellers/me/receipts", sr)
+    check("R-A-5", st_v == 403 and code_of(bv) == "ACCOUNT_MOVED" and st_r == 403 and code_of(br) == "ACCOUNT_MOVED",
+          f"old account, old token «Баланс» → {st_v} {code_of(bv)}; «Чеки» → {st_r} {code_of(br)}")
     au = call("GET", f"/audit-logs?action=transfer_seller_login&entity_id={R}", admin)[1].get("items", [])
     pl = (au[0].get("payload") or {}) if au else {}
     check("R-A-2", len(au) == 1 and pl.get("old_telegram_id") == R and pl.get("new_telegram_id") == R2 and au[0]["actor_id"] == SUPER_ID
           and au[0].get("comment") == body["reason"], f"audit rows={len(au)} payload={pl} actor={au[0]['actor_id'] if au else None}")
     st, b = call("POST", f"/sellers/{R}/transfer-login", sup, body)
     check("R-A-2", st == 200 and b.get("already_linked") is True, f"repeat → {st} already_linked={b.get('already_linked')}")
+
+    # ---- 9a. Admin switched off / role changed while logged in (R-A-6, R-A-7) ----------------
+    ta_id = ID0 + 7  # a throwaway synthetic admin of this run
+    made = db("INSERT INTO vliq.admin (telegram_id, phone_e164, role, brand_ids, is_active, created_at, updated_at) "
+              "VALUES ($1, $2, 'admin', '[]'::jsonb, true, now(), now()) ON CONFLICT (telegram_id) "
+              "DO UPDATE SET is_active = true, role = 'admin'", ta_id, f"+99{ta_id}")
+    if made is None:
+        rec("SKIP", "R-A-6", "no DB access to make a throwaway admin")
+    else:
+        try:
+            ta = login(ta_id)
+            st0 = call("GET", "/analytics/dashboard", ta)[0]
+            db("UPDATE vliq.admin SET is_active = false WHERE telegram_id = $1", ta_id)
+            st1, b1 = call("GET", "/analytics/dashboard", ta)
+            st2, b2 = call("POST", f"/receipts/{b_rev}/approve", ta, {"bonus_amount": 100_000})
+            st3, b3 = tma(ta_id)
+            check("R-A-6", st0 == 200 and (st1, code_of(b1)) == (403, "ADMIN_DISABLED")
+                  and (st2, code_of(b2)) == (403, "ADMIN_DISABLED") and (st3, code_of(b3)) == (403, "ADMIN_DISABLED"),
+                  f"active → {st0}; switched off, old token: dashboard {st1} {code_of(b1)}, approve {st2} {code_of(b2)}; "
+                  f"login {st3} {code_of(b3)}")
+            db("UPDATE vliq.admin SET is_active = true, role = 'super_admin' WHERE telegram_id = $1", ta_id)
+            st4, b4 = call("GET", "/analytics/dashboard", ta)
+            st5, b5 = tma(ta_id)
+            check("R-A-7", (st4, code_of(b4)) == (401, "AUTH_TOKEN_STALE") and st5 == 200 and b5.get("role") == "super_admin",
+                  f"role changed, old token → {st4} {code_of(b4)}; new login → {st5} role={b5.get('role')}")
+        finally:
+            db("DELETE FROM vliq.admin WHERE telegram_id = $1", ta_id)
 
     # ---- 10. Worker metrics (inside the stage network) ----------------------------------------
     m1 = metrics("http://receipt-pipeline-worker:9101/metrics")

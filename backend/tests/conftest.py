@@ -42,6 +42,7 @@ from src.app.depends import get_config, get_pg_session  # noqa: E402
 # Clear any previously cached settings (e.g. from earlier pytest session).
 get_config.cache_clear()
 
+from src.app.auth.jwt import account_access_dependency  # noqa: E402
 from src.app.main import create_app  # noqa: E402
 from src.app.settings import Settings  # noqa: E402
 
@@ -73,6 +74,10 @@ async def _mock_get_pg_session() -> AsyncGenerator[MagicMock]:
     session.__aexit__ = AsyncMock(return_value=False)
     session.close = AsyncMock()
     yield session
+
+
+async def _allow_account() -> None:
+    """Override for ``account_access_dependency``: the account is as the token says."""
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +148,10 @@ def app(test_settings: Settings):
     # Override dependencies.
     application.dependency_overrides[get_pg_session] = _mock_get_pg_session
     application.dependency_overrides[get_config] = lambda: test_settings
+    # The per-request account re-check reads the database; mock sessions here are scripted for
+    # the handler under test. Tests of the check remove this override
+    # (tests/auth/test_account_access.py, tests/seller/test_blocked_seller_guard.py, PG tests).
+    application.dependency_overrides[account_access_dependency] = _allow_account
     return application
 
 

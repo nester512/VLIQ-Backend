@@ -14,8 +14,12 @@ interface AuthState {
   token: string | null
   role: UserRole | null
   user: AuthUser | null
+  /** Why the server shut this account out (blocked, switched off, moved) — the app shows
+   *  it instead of the screens. Not persisted: the next open asks the server again. */
+  revoked: string | null
   setAuth: (token: string, role: UserRole, user?: AuthUser) => void
   logout: () => void
+  revoke: (message: string) => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -24,13 +28,18 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       role: null,
       user: null,
+      revoked: null,
 
       setAuth: (token, role, user) => {
-        set({ token, role, user: user ?? null })
+        set({ token, role, user: user ?? null, revoked: null })
       },
 
       logout: () => {
         set({ token: null, role: null, user: null })
+      },
+
+      revoke: (message) => {
+        set({ token: null, role: null, user: null, revoked: message })
       },
     }),
     {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loginByTgId, tmaVerify } from '../../api/auth'
-import { extractApiError } from '../../api/client'
+import { ACCESS_REVOKED_CODES, extractApiError } from '../../api/client'
 import { useAuthStore, type UserRole } from '../../store/authStore'
 import { isTmaEnvironment, isLikelyTmaContext, waitForInitData, getTgWebApp } from '../../utils/tma'
 
@@ -26,7 +26,7 @@ const MOCK_TELEGRAM_ID = 12345 // matches local seed_dev.sql
  *      production fallback would let any client mint a token for any user.
  */
 export function useAuthFlow(): AuthFlowState {
-  const { token, setAuth } = useAuthStore()
+  const { token, revoked, setAuth } = useAuthStore()
   const [status, setStatus] = useState<AuthStatus>(token ? 'authenticated' : 'idle')
   const [error, setError] = useState<string | null>(null)
 
@@ -83,10 +83,18 @@ export function useAuthFlow(): AuthFlowState {
               } else {
                 console.warn('[auth] /auth/tma-verify failed', verifyErr)
               }
+              // Blocked / switched off / moved: the server's reason, and no fallback to the
+              // cached token — a still-valid token must not keep the app open.
+              const refusal = extractApiError(verifyErr)
+              if (ACCESS_REVOKED_CODES.has(refusal.code)) {
+                useAuthStore.getState().revoke(refusal.userMessage)
+                setStatus('error')
+                setError(refusal.userMessage)
+                return
+              }
               // 401 → clear the stale session and re-verify once. Never surface
               // the raw token/HMAC/initData/JWT text — only a localized message.
-              const { status: verifyStatus } = extractApiError(verifyErr)
-              if (verifyStatus === 401 && attempt === 0) {
+              if (refusal.status === 401 && attempt === 0) {
                 useAuthStore.getState().logout()
                 continue
               }
@@ -164,6 +172,16 @@ export function useAuthFlow(): AuthFlowState {
     })()
   }, [token, doAuth])
 
+  // The session ended while the app is open (a 401: expired, or the account changed — e.g.
+  // an admin role): log in again from Telegram instead of hanging on an empty screen.
+  useEffect(() => {
+    if (!didInit.current || token || revoked || status !== 'authenticated') return
+    if (!(isTmaEnvironment() || isLikelyTmaContext())) return
+    void (async () => {
+      await doAuth()
+    })()
+  }, [token, revoked, status, doAuth])
+
   const mockLogin = import.meta.env.DEV
     ? async () => {
         setStatus('loading')
@@ -180,5 +198,6 @@ export function useAuthFlow(): AuthFlowState {
       }
     : undefined
 
+  if (revoked) return { status: 'error', error: revoked, mockLogin }
   return { status, error, mockLogin }
 }
